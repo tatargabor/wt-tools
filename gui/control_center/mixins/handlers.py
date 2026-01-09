@@ -1,0 +1,588 @@
+"""
+Handlers Mixin - Event handlers and actions
+"""
+
+import json
+import os
+import subprocess
+import webbrowser
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QPushButton,
+    QApplication, QTextEdit, QFileDialog,
+)
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+
+from ...constants import SCRIPT_DIR, CONFIG_DIR
+from ...dialogs import (
+    WorkDialog, NewWorktreeDialog, CommandOutputDialog, MergeDialog,
+    show_warning, show_information, show_question,
+    get_text, get_item, get_existing_directory,
+)
+from ...platform import get_platform
+
+__all__ = ["HandlersMixin"]
+
+
+class HandlersMixin:
+    """Mixin for event handlers"""
+
+    def run_command_dialog(self, title: str, cmd: list, cwd: str = None):
+        """Run a command and show output in a dialog"""
+        self.hide()
+        dialog = CommandOutputDialog(self, title, cmd, cwd)
+        dialog.exec()
+        self.show_window()
+
+    def open_in_terminal(self, path: str):
+        """Open terminal in the given path"""
+        try:
+            import platform
+            system = platform.system()
+            if system == "Linux":
+                subprocess.Popen(["x-terminal-emulator", "--working-directory", path])
+            elif system == "Darwin":
+                subprocess.Popen(["open", "-a", "Terminal", path])
+            elif system == "Windows":
+                subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", f"cd /d {path}"])
+        except Exception as e:
+            show_warning(self, "Error", f"Failed to open terminal: {e}")
+
+    def open_in_file_manager(self, path: str):
+        """Open file manager at the given path"""
+        platform = get_platform()
+        if not platform.open_file(path):
+            show_warning(self, "Error", "Failed to open file manager")
+
+    def copy_to_clipboard(self, text: str):
+        """Copy text to clipboard"""
+        QApplication.clipboard().setText(text)
+
+    def git_merge(self, path: str, project: str, change_id: str):
+        """Merge worktree branch - ask for target branch"""
+        # Get available branches
+        branches = ["master", "main"]
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "branch", "-r", "--format=%(refname:short)"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('origin/HEAD'):
+                        branch = line.replace('origin/', '')
+                        if branch not in branches and not branch.startswith('change/'):
+                            branches.append(branch)
+        except Exception:
+            pass
+
+        # Check for uncommitted changes
+        has_changes = False
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5
+            )
+            has_changes = bool(result.stdout.strip())
+        except Exception:
+            pass
+
+        # Show merge dialog
+        self.hide()
+        dialog = MergeDialog(self, f"change/{change_id}", branches, has_changes)
+        if dialog.exec() == QDialog.Accepted:
+            target = dialog.get_target()
+            stash = dialog.should_stash()
+
+            if stash and has_changes:
+                # Stash changes first
+                stash_cmd = ["git", "-C", path, "stash", "push", "-m", f"Auto-stash before merge to {target}"]
+                stash_dialog = CommandOutputDialog(self, "Stashing changes", stash_cmd)
+                stash_dialog.exec()
+
+            cmd = [str(SCRIPT_DIR / "wt-merge"), "-p", project, change_id, "--to", target]
+            if dialog.should_keep_branch():
+                cmd.append("--no-delete")
+            if not dialog.should_push():
+                cmd.append("--no-push")
+            merge_dialog = CommandOutputDialog(self, f"Merge to {target}", cmd)
+            merge_dialog.exec()
+
+            if stash and has_changes:
+                # Pop stash after merge
+                pop_cmd = ["git", "-C", path, "stash", "pop"]
+                pop_dialog = CommandOutputDialog(self, "Restoring stashed changes", pop_cmd)
+                pop_dialog.exec()
+        self.show_window()
+
+    def git_merge_from(self, path: str, current_branch: str):
+        """Merge another branch into current worktree"""
+        # Get available branches to merge from (change/* branches and main branches)
+        branches = []
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "branch", "-r", "--format=%(refname:short)"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('origin/HEAD'):
+                        branch = line.replace('origin/', '')
+                        # Skip current branch
+                        if branch != current_branch and f"origin/{branch}" != current_branch:
+                            branches.append(branch)
+        except Exception:
+            pass
+
+        # Sort: change/* branches first, then others
+        change_branches = sorted([b for b in branches if b.startswith('change/')])
+        other_branches = sorted([b for b in branches if not b.startswith('change/')])
+        branches = change_branches + other_branches
+
+        if not branches:
+            show_information(self, "Merge From", "No other branches found to merge from.")
+            return
+
+        # Ask user which branch to merge from
+        self.hide()
+        source, ok = get_item(
+            self, "Merge From",
+            f"Merge into {current_branch} from:",
+            branches, 0, False
+        )
+        if ok and source:
+            # First fetch, then merge
+            cmd = ["git", "-C", path, "fetch", "origin", source]
+            self.run_command_dialog(f"Fetching {source}", cmd)
+
+            cmd = ["git", "-C", path, "merge", f"origin/{source}", "--no-edit"]
+            dialog = CommandOutputDialog(self, f"Merge from {source}", cmd)
+            dialog.exec()
+        self.show_window()
+
+    def git_push(self, path: str):
+        """Git push in worktree"""
+        # Check if upstream is set
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            # No upstream - get current branch and set upstream
+            branch_result = subprocess.run(
+                ["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True
+            )
+            branch = branch_result.stdout.strip()
+            cmd = ["git", "-C", path, "push", "--set-upstream", "origin", branch]
+        else:
+            cmd = ["git", "-C", path, "push"]
+        self.run_command_dialog("Git Push", cmd)
+
+    def git_pull(self, path: str):
+        """Git pull in worktree"""
+        cmd = ["git", "-C", path, "pull"]
+        self.run_command_dialog("Git Pull", cmd)
+
+    def git_fetch(self, path: str):
+        """Git fetch in worktree"""
+        cmd = ["git", "-C", path, "fetch"]
+        self.run_command_dialog("Git Fetch", cmd)
+
+    def create_worktree(self, values: dict):
+        """Create worktree with given values"""
+        project = values["project"]
+        change_id = values["change_id"]
+        local_path = values.get("local_path")
+
+        if not change_id:
+            show_warning(self, "Error", "Change ID is required")
+            return
+
+        # Get project path to run wt-new from correct directory
+        cwd = None
+        project_path = local_path  # Use local path if provided
+
+        if not project_path:
+            # Try to get from config
+            try:
+                config_path = CONFIG_DIR / "projects.json"
+                if config_path.exists():
+                    with open(config_path) as f:
+                        data = json.load(f)
+                        project_path = data.get("projects", {}).get(project, {}).get("path")
+            except Exception:
+                pass
+
+        if project_path:
+            cwd = str(Path(project_path).parent)
+
+        if local_path:
+            cmd = [str(SCRIPT_DIR / "wt-new"), change_id]
+            cwd = local_path  # Run from the local repo
+        else:
+            cmd = [str(SCRIPT_DIR / "wt-new"), "-p", project, change_id]
+
+        self.run_command_dialog(f"New Worktree: {change_id}", cmd, cwd=cwd)
+
+    def focus_ralph_terminal(self, wt_path: str):
+        """Focus the Ralph terminal window, or open log if terminal is closed"""
+        loop_state_file = Path(wt_path) / ".claude" / "loop-state.json"
+        if not loop_state_file.exists():
+            return
+
+        try:
+            with open(loop_state_file) as f:
+                state = json.load(f)
+
+            plat = get_platform()
+
+            # Primary: use Ralph loop PID + PPID chain to find terminal window
+            ralph_pid = state.get("pid")
+            if ralph_pid:
+                result = plat.find_window_by_pid(int(ralph_pid))
+                if result:
+                    window_id, proc_name = result
+                    plat.focus_window(window_id, app_name=proc_name)
+                    return
+
+            # Fallback: title-based search
+            worktree_name = state.get("worktree_name", "")
+            if worktree_name:
+                window_id = plat.find_window_by_title(f"Ralph: {worktree_name}")
+                if window_id:
+                    plat.focus_window(window_id)
+                    return
+
+            # Terminal not found - open log file instead
+            self.view_ralph_log(wt_path)
+        except Exception:
+            pass
+
+    def view_ralph_log(self, wt_path: str):
+        """Open Ralph log file in a viewer"""
+        log_file = Path(wt_path) / ".claude" / "ralph-loop.log"
+        if log_file.exists():
+            # Try to open with system default application
+            platform = get_platform()
+            if not platform.open_file(str(log_file)):
+                # Fallback: show in a dialog
+                try:
+                    content = log_file.read_text()[-50000:]  # Last 50k chars
+                    dialog = QDialog(self)
+                    dialog.setWindowTitle("Ralph Loop Log")
+                    dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+                    dialog.resize(800, 600)
+                    layout = QVBoxLayout(dialog)
+                    text = QTextEdit()
+                    text.setPlainText(content)
+                    text.setReadOnly(True)
+                    text.moveCursor(text.textCursor().End)
+                    layout.addWidget(text)
+                    dialog.exec()
+                except Exception:
+                    pass
+        else:
+            show_information(self, "No Log", "No Ralph log file found.")
+
+    def stop_ralph_loop(self, wt_path: str):
+        """Stop Ralph loop for a worktree"""
+        loop_state_file = Path(wt_path) / ".claude" / "loop-state.json"
+        if loop_state_file.exists():
+            try:
+                with open(loop_state_file) as f:
+                    state = json.load(f)
+                state["status"] = "stopped"
+                with open(loop_state_file, 'w') as f:
+                    json.dump(state, f, indent=2)
+
+                # Also try to kill terminal process
+                pid_file = Path(wt_path) / ".claude" / "ralph-terminal.pid"
+                if pid_file.exists():
+                    with open(pid_file) as f:
+                        pid = f.read().strip()
+                    subprocess.run(["kill", pid], check=False, capture_output=True)
+                    pid_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def show_set_session_key(self):
+        """Show dialog to paste Claude session key"""
+        from ...constants import CONFIG_DIR, CLAUDE_SESSION_FILE
+
+        self.hide()
+        text, ok = get_text(
+            self, "Set Session Key",
+            "Paste your Claude sessionKey from browser DevTools\n"
+            "(F12 → Application → Cookies → claude.ai → sessionKey):",
+        )
+        if ok and text.strip():
+            session_key = text.strip()
+            # Save to file
+            try:
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                with open(CLAUDE_SESSION_FILE, "w") as f:
+                    json.dump({"sessionKey": session_key}, f)
+            except Exception as e:
+                show_warning(self, "Error", f"Failed to save session key: {e}")
+                self.show_window()
+                return
+
+            # Test the key by restarting usage worker
+            self._restart_usage_worker()
+        self.show_window()
+
+    def show_claude_usage(self):
+        """Open Claude usage page in default browser"""
+        webbrowser.open("https://claude.ai/settings/usage")
+
+    def _restart_usage_worker(self):
+        """Restart usage worker to pick up new session key"""
+        from ...workers import UsageWorker
+        self.usage_worker.stop()
+        self.usage_worker.wait(500)
+        self.usage_worker = UsageWorker(config=self.config)
+        self.usage_worker.usage_updated.connect(self.update_usage)
+        self.usage_worker.start()
+
+    def get_selected_worktree(self):
+        """Get currently selected worktree data (skips header rows)"""
+        row = self.table.currentRow()
+        if row >= 0 and hasattr(self, 'row_to_worktree'):
+            return self.row_to_worktree.get(row)
+        return None
+
+    def on_double_click(self):
+        """Handle double-click on row - focus IDE window if open, otherwise open via wt-work"""
+        wt = self.get_selected_worktree()
+        if not wt:
+            return
+
+        key = f"{wt.get('project', '')}:{wt.get('change_id', '')}"
+        if key in self.needs_attention:
+            self.needs_attention.discard(key)
+            self.save_state()
+        # Clear row background
+        row = self.table.currentRow()
+        self._set_row_background(row, QColor("transparent"))
+
+        # Check if window exists for this worktree
+        wt_path = wt.get("path", "")
+        if wt_path:
+            plat = get_platform()
+
+            # Primary: title-based search (reliable for multi-window IDEs like Zed)
+            # Never use exact match — Zed appends " — filename" to the title
+            wt_basename = Path(wt_path).name
+            app_name = self._get_editor_app_name()
+            title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
+            if title_wid:
+                plat.focus_window(title_wid, app_name=app_name)
+                return
+
+            # Fallback: window_id from status data (PPID chain detection)
+            window_id = wt.get("window_id")
+            if window_id:
+                editor_type = wt.get("editor_type", "")
+                plat.focus_window(str(window_id), app_name=editor_type)
+                return
+
+        # No window found — open via editor CLI
+        if wt_path:
+            cmd = self._get_editor_open_command(wt_path)
+        else:
+            cmd = [str(SCRIPT_DIR / "wt-work"), "-p", wt["project"], wt["change_id"]]
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _get_editor_open_command(self, wt_path: str) -> list:
+        """Get the editor CLI command to open a worktree directory.
+
+        Reads from wt-tools config. Returns a command list for subprocess.
+        Falls back to opening with the default editor (zed or code).
+        """
+        # Editor commands for opening a directory
+        ide_commands = {
+            "zed": ["zed"],
+            "vscode": ["code"],
+            "cursor": ["cursor"],
+            "windsurf": ["windsurf"],
+        }
+        terminal_commands = {
+            "kitty": ["kitty", "--directory"],
+            "alacritty": ["alacritty", "--working-directory"],
+            "wezterm": ["wezterm", "start", "--cwd"],
+            "gnome-terminal": ["gnome-terminal", "--working-directory"],
+            "konsole": ["konsole", "--workdir"],
+            "iterm2": ["open", "-a", "iTerm"],
+            "terminal-app": ["open", "-a", "Terminal"],
+        }
+        try:
+            config_path = CONFIG_DIR / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    data = json.load(f)
+                name = data.get("editor", {}).get("name", "auto")
+                if name != "auto":
+                    if name in ide_commands:
+                        return ide_commands[name] + [wt_path]
+                    if name in terminal_commands:
+                        return terminal_commands[name] + [wt_path]
+        except Exception:
+            pass
+        # Default: try zed, then code
+        import shutil
+        if shutil.which("zed"):
+            return ["zed", wt_path]
+        if shutil.which("code"):
+            return ["code", wt_path]
+        return ["xdg-open", wt_path]
+
+    def _get_editor_app_name(self) -> str:
+        """Get the editor application name for window matching.
+
+        Reads from wt-tools config, defaults to 'Zed'.
+        """
+        # Map config names to macOS/System Events process names
+        editor_process_names = {
+            "zed": "Zed",
+            "vscode": "Code",
+            "cursor": "Cursor",
+            "windsurf": "Windsurf",
+        }
+        try:
+            config_path = CONFIG_DIR / "config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    data = json.load(f)
+                name = data.get("editor", {}).get("name", "auto")
+                if name != "auto" and name in editor_process_names:
+                    return editor_process_names[name]
+        except Exception:
+            pass
+        return "Zed"
+
+    def on_focus(self):
+        """Focus the selected worktree's editor window, or open it if not found"""
+        wt = self.get_selected_worktree()
+        if not wt:
+            return
+
+        wt_path = wt.get("path", "")
+        if not wt_path:
+            return
+
+        plat = get_platform()
+
+        # Primary: title-based search (reliable for multi-window IDEs like Zed)
+        # Never use exact match — Zed appends " — filename" to the title
+        wt_basename = Path(wt_path).name
+        app_name = self._get_editor_app_name()
+        title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
+        if title_wid:
+            plat.focus_window(title_wid, app_name=app_name)
+            return
+
+        # Fallback: window_id from status data (PPID chain detection)
+        window_id = wt.get("window_id")
+        if window_id:
+            editor_type = wt.get("editor_type", "")
+            plat.focus_window(str(window_id), app_name=editor_type)
+            return
+
+        # No window found — open via editor CLI
+        cmd = self._get_editor_open_command(wt_path)
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def on_close_editor(self):
+        """Close the selected worktree's editor window (silent no-op if not found)"""
+        wt = self.get_selected_worktree()
+        if not wt:
+            return
+
+        wt_path = wt.get("path", "")
+        if not wt_path:
+            return
+
+        plat = get_platform()
+
+        # Primary: title-based search (reliable for multi-window IDEs like Zed)
+        wt_basename = Path(wt_path).name
+        app_name = self._get_editor_app_name()
+        title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
+        if title_wid:
+            plat.close_window(title_wid, app_name=app_name)
+            return
+
+        # Fallback: window_id from status data (PPID chain detection)
+        window_id = wt.get("window_id")
+        if window_id:
+            editor_type = wt.get("editor_type", "")
+            plat.close_window(str(window_id), app_name=editor_type)
+
+    def on_new(self, preset_project: str = None):
+        """Create a new worktree using the NewWorktreeDialog"""
+        self.hide()
+        dialog = NewWorktreeDialog(self, preset_project)
+        result = dialog.exec()
+        self.show_window()
+
+        if result == QDialog.Accepted:
+            self.create_worktree(dialog.get_values())
+
+    def on_work(self):
+        """Show dialog to select and open a worktree"""
+        self.hide()
+
+        # Get currently open worktrees
+        open_wts = [f"{wt.get('project', '')}:{wt.get('change_id', '')}" for wt in self.worktrees]
+
+        dialog = WorkDialog(self, open_wts)
+        result = dialog.exec()
+
+        if result == QDialog.Accepted:
+            selection = dialog.get_selection()
+            if selection:
+                # Run wt-work in background without dialog
+                cmd = [str(SCRIPT_DIR / "wt-work"), "-p", selection["project"], selection["change_id"]]
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.show_window()
+
+    def on_add(self):
+        """Add an existing git repository or worktree using folder browser"""
+        self.hide()
+
+        folder = get_existing_directory(
+            self,
+            "Select Git Repository",
+            str(Path.home()),
+            QFileDialog.ShowDirsOnly
+        )
+
+        if folder:
+            cmd = [str(SCRIPT_DIR / "wt-add"), folder]
+            dialog = CommandOutputDialog(self, "Adding repository", cmd)
+            dialog.exec()
+            self.refresh_status()
+
+        self.show()
+
+    def on_close(self):
+        """Close the selected worktree"""
+        wt = self.get_selected_worktree()
+        if not wt:
+            return
+
+        from PySide6.QtWidgets import QMessageBox
+        reply = show_question(
+            self, "Close Worktree",
+            f"Close worktree '{wt['change_id']}'?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            cmd = [str(SCRIPT_DIR / "wt-close"), "-p", wt["project"], wt["change_id"], "--force"]
+            self.run_command_dialog(f"Closing {wt['change_id']}", cmd)
+            self.refresh_status()

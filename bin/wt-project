@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+# wt-project - Manage project registry for wt-tools
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wt-common.sh"
+
+usage() {
+    cat <<EOF
+Usage: wt-project <command> [options]
+
+Commands:
+  init [--name <name>]    Register current git repo as a project
+  list                    List all registered projects
+  remove <name>           Remove a project from registry
+  default <name>          Set default project
+
+Options:
+  --name <name>           Custom project name (default: directory name)
+  -h, --help              Show this help
+
+Examples:
+  cd /path/to/myproject && wt-project init
+  wt-project init --name myproj
+  wt-project list
+  wt-project default myproj
+  wt-project remove myproj
+EOF
+}
+
+cmd_init() {
+    local name=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --name)
+                name="$2"
+                shift 2
+                ;;
+            *)
+                error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    # Check if we're in a git repo
+    if ! is_git_repo; then
+        error "Current directory is not a git repository"
+        echo "Please run this command from within a git repository."
+        exit 1
+    fi
+
+    local git_root
+    git_root=$(get_git_root)
+
+    # Use directory name if no name specified
+    if [[ -z "$name" ]]; then
+        name=$(basename "$git_root")
+    fi
+
+    ensure_config
+
+    # Check if we're in a worktree (not the main repo)
+    local current_dir
+    current_dir=$(git rev-parse --show-toplevel 2>/dev/null)
+    local in_worktree=false
+    if [[ "$current_dir" != "$git_root" ]]; then
+        in_worktree=true
+    fi
+
+    # Check if project name already exists
+    local existing_path
+    existing_path=$(get_project_path "$name")
+    if [[ -n "$existing_path" ]]; then
+        if [[ "$existing_path" == "$git_root" ]]; then
+            if $in_worktree; then
+                info "You're in a worktree of already registered project '$name'"
+                echo "  Main repo: $git_root"
+                echo "  Current worktree: $current_dir"
+                echo ""
+                echo "Use 'wt-project list' to see all worktrees."
+            else
+                info "Project '$name' is already registered at $git_root"
+            fi
+            exit 0
+        else
+            error "Project name '$name' is already used for: $existing_path"
+            echo "Use --name to specify a different name."
+            exit 1
+        fi
+    fi
+
+    # Add project to registry
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local tmp
+    tmp=$(mktemp)
+    jq --arg name "$name" --arg path "$git_root" --arg ts "$timestamp" \
+        '.projects[$name] = {"path": $path, "addedAt": $ts}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+
+    # Set as default if no default exists
+    local current_default
+    current_default=$(get_default_project)
+    if [[ -z "$current_default" || "$current_default" == "null" ]]; then
+        json_set "$CONFIG_FILE" ".default" "\"$name\""
+        success "Project '$name' registered and set as default"
+    else
+        success "Project '$name' registered"
+    fi
+
+    echo "  Path: $git_root"
+}
+
+cmd_list() {
+    ensure_config
+
+    local projects
+    projects=$(jq -r '.projects | keys[]' "$CONFIG_FILE" 2>/dev/null)
+
+    if [[ -z "$projects" ]]; then
+        info "No projects registered."
+        echo "Run 'wt-project init' inside a git repository to register it."
+        exit 0
+    fi
+
+    local default_project
+    default_project=$(get_default_project)
+
+    echo "Registered projects:"
+    echo ""
+
+    while IFS= read -r name; do
+        local path
+        path=$(get_project_path "$name")
+        if [[ "$name" == "$default_project" ]]; then
+            echo -e "  ${GREEN}* $name${NC} -> $path"
+        else
+            echo "    $name -> $path"
+        fi
+
+        # Show worktrees for this project
+        list_project_worktrees_brief "$name" "$path"
+    done <<< "$projects"
+
+    echo ""
+    if [[ -n "$default_project" && "$default_project" != "null" ]]; then
+        echo "Default: $default_project"
+    fi
+}
+
+list_project_worktrees_brief() {
+    local project_name="$1"
+    local project_path="$2"
+
+    if [[ ! -d "$project_path" ]]; then
+        return
+    fi
+
+    # Get worktrees from git
+    local worktrees
+    worktrees=$(git -C "$project_path" worktree list --porcelain 2>/dev/null)
+
+    if [[ -z "$worktrees" ]]; then
+        return
+    fi
+
+    local current_path=""
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^worktree\ (.+)$ ]]; then
+            current_path="${BASH_REMATCH[1]}"
+        elif [[ -z "$line" && -n "$current_path" ]]; then
+            # Skip main repo, only show worktrees
+            if [[ "$current_path" != "$project_path" ]]; then
+                local wt_name
+                wt_name=$(basename "$current_path")
+                echo -e "      ${BLUE}└─ $wt_name${NC} -> $current_path"
+            fi
+            current_path=""
+        fi
+    done <<< "$worktrees"
+
+    # Process last entry
+    if [[ -n "$current_path" && "$current_path" != "$project_path" ]]; then
+        local wt_name
+        wt_name=$(basename "$current_path")
+        echo -e "      ${BLUE}└─ $wt_name${NC} -> $current_path"
+    fi
+}
+
+cmd_remove() {
+    local name="$1"
+
+    if [[ -z "$name" ]]; then
+        error "Project name required"
+        echo "Usage: wt-project remove <name>"
+        exit 1
+    fi
+
+    ensure_config
+
+    local path
+    path=$(get_project_path "$name")
+    if [[ -z "$path" ]]; then
+        error "Project '$name' not found"
+        exit 1
+    fi
+
+    # Remove from registry
+    local tmp
+    tmp=$(mktemp)
+    jq --arg name "$name" 'del(.projects[$name])' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+
+    # Clear default if this was the default
+    local current_default
+    current_default=$(get_default_project)
+    if [[ "$current_default" == "$name" ]]; then
+        json_set "$CONFIG_FILE" ".default" "null"
+        warn "Cleared default project (was '$name')"
+    fi
+
+    success "Project '$name' removed from registry"
+    echo "Note: Existing worktrees were not deleted."
+}
+
+cmd_default() {
+    local name="$1"
+
+    if [[ -z "$name" ]]; then
+        error "Project name required"
+        echo "Usage: wt-project default <name>"
+        exit 1
+    fi
+
+    ensure_config
+
+    local path
+    path=$(get_project_path "$name")
+    if [[ -z "$path" ]]; then
+        error "Project '$name' not found"
+        echo "Run 'wt-project list' to see available projects."
+        exit 1
+    fi
+
+    json_set "$CONFIG_FILE" ".default" "\"$name\""
+    success "Default project set to '$name'"
+}
+
+# Main
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 1
+fi
+
+case "$1" in
+    init)
+        shift
+        cmd_init "$@"
+        ;;
+    list|ls)
+        cmd_list
+        ;;
+    remove|rm)
+        shift
+        cmd_remove "$@"
+        ;;
+    default)
+        shift
+        cmd_default "$@"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        error "Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac

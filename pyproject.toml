@@ -1,0 +1,73 @@
+[project]
+name = "wt-tools"
+version = "0.1.0"
+description = "AI-Assisted Development Workflow with Git Worktrees"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "wt-tools contributors"}
+]
+requires-python = ">=3.10"
+keywords = ["git", "worktree", "ai", "development", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = [
+    "PySide6>=6.5.0",
+    "cloudscraper>=1.2.0",
+    "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.2.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/tatargabor/wt-tools"
+Documentation = "https://github.com/tatargabor/wt-tools#readme"
+Repository = "https://github.com/tatargabor/wt-tools"
+Issues = "https://github.com/tatargabor/wt-tools/issues"
+
+[project.scripts]
+wt-control = "gui.main:main"
+
+[project.entry-points."wt_tools.plugins"]
+# Plugins register themselves here
+# Example:
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["wt_tools*", "gui*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+qt_api = "pyside6"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line too long (handled by black)

@@ -1,0 +1,5 @@
+schema: spec-driven
+
+rules:
+  tasks:
+    - "If the change modifies GUI code (gui/), include a task to add or update tests in tests/gui/test_XX_*.py"

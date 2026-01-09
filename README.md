@@ -1,0 +1,650 @@
+# wt-tools
+
+A toolkit for managing parallel AI agent development with git worktrees, a real-time GUI, and spec-driven workflows.
+
+> **Latest update:** 2026-02-10
+
+---
+
+## Overview
+
+I built wt-tools because I was running Claude Code agents across multiple projects simultaneously and kept losing track. Which agent is waiting for input? Which one finished? Where was that terminal tab? I was manually Alt-Tabbing between windows, scanning terminals to figure out what's happening, and losing time to context switches that had nothing to do with the actual work. wt-tools makes all of that disappear — one small window shows everything, and you stay focused on what matters.
+
+The **Control Center** is a compact, always-on-top GUI that shows every worktree and agent across all your projects in real-time. You see at a glance which agents are running, which are waiting for you (blinking row — click to jump straight there), and how much API capacity you have left (hourly and daily burn rate). Double-click any row to open the editor — if it's already open, it focuses the window. Need a new worktree? Click "+ New", pick the project, name it, and you're working. Everything also has a CLI command and a Claude Code slash command, so you never leave the agent to manage worktrees.
+
+Beyond the basics: the **Ralph Loop** runs agents autonomously through task lists, **Team Sync** coordinates multiple machines through a git branch (no server needed), and the **MCP Server** lets agents see each other's progress. The project is useful today — AI tooling evolves fast and something may replace it eventually, but right now it fills a real gap.
+
+![Control Center](docs/images/control-center.png)
+
+---
+
+## Platform & Editor Support
+
+| Platform / Tool | Status | Notes |
+|-----------------|--------|-------|
+| **Linux** | Primary | Tested on Ubuntu 22.04+ |
+| **macOS** | Supported | Some platform-specific workarounds (see Known Issues) |
+| **Windows** | Not supported | Platform stubs exist but untested |
+| **Zed** | Primary editor | Best tested, recommended |
+| **VS Code** | Basic support | Editor detection works, less tested |
+| **Cursor / Windsurf** | Basic support | Configurable via `wt-config editor set` |
+| **Claude Code** | Integrated | Auto-launch, MCP server, skill hooks |
+
+This is a solo-developer project and I have limited resources for cross-platform testing. I'm counting on the community to help expand platform and editor support — please report issues, submit fixes, and forgive rough edges. Fixes land daily.
+
+---
+
+## How It Works
+
+### Architecture
+
+wt-tools has three layers: **shell scripts** (`bin/wt-*`) for worktree lifecycle, a **PySide6 GUI** for real-time monitoring, and an **MCP server** that connects Claude Code agents to the system. Everything is file-based — no daemon, no database, no external service.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Control Center GUI                     │
+│  PySide6 · always-on-top · light/dark/high-contrast     │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │  Status: 5 worktrees | 2 running | 1 waiting       │ │
+│  │  Usage:  4.2h/5h (85%) hourly  |  3.1d/7d daily    │ │
+│  ├─────────────────────────────────────────────────────┤ │
+│  │  Project  │ Branch      │ Status   │ Ctx%  │ Skill  │ │
+│  │  my-app   │ add-auth    │ running  │ 45%   │ apply  │ │
+│  │           │ fix-login   │ waiting  │ 80%   │        │ │
+│  │  my-lib   │ refactor    │ idle     │       │        │ │
+│  └─────────────────────────────────────────────────────┘ │
+└────────────┬──────────────────────┬─────────────────────┘
+             │                      │
+             ▼                      ▼
+  ┌────────────────────┐  ┌──────────────────┐
+  │   CLI Tools (bash) │  │  MCP Server (py) │
+  │   wt-new/work/list │  │  list_worktrees  │
+  │   wt-loop (Ralph)  │  │  get_ralph_status│
+  │   wt-control-sync  │  │  get_team_status │
+  └────────┬───────────┘  └────────┬─────────┘
+           │                       │
+           ▼                       ▼
+  ┌──────────────────────────────────────────┐
+  │  Git worktrees + wt-control branch       │
+  │  (file-based state, git for team sync)   │
+  └──────────────────────────────────────────┘
+```
+
+### Technologies
+
+| Component | Technology | Why |
+|-----------|------------|-----|
+| CLI tools | Bash | Zero dependencies, works everywhere, fast |
+| GUI | Python + PySide6 (Qt) | Native look, always-on-top, system tray, cross-platform |
+| MCP server | Python | Exposes worktree/agent data to Claude Code |
+| State | JSON files + git | No database — `wt-status` reads `/proc`, agent PIDs, git state |
+| Team sync | Git branch (`wt-control`) | No server — machines push/pull member status via git |
+| Encryption | NaCl Box (libsodium) | End-to-end encrypted chat between team members |
+
+### What the GUI shows you
+
+- **Agent status per worktree**: running / waiting / idle — with the active Claude Code skill name
+- **Context usage**: how full each agent's context window is (%)
+- **API burn rate**: hourly and daily token usage with visual bars — know when to slow down
+- **Ralph Loop progress**: iteration count and task completion for autonomous runs
+- **Team members**: what other machines/agents are working on (if Team Sync is enabled)
+
+Double-click a row → opens editor + focuses the window. Blinking red row → agent is waiting for you. Right-click → context menu with merge, close, start Ralph loop, and more.
+
+---
+
+## Quick Start
+
+```bash
+# 1. Install
+git clone https://github.com/tatargabor/wt-tools.git
+cd wt-tools && ./install.sh
+
+# 2. Register your project
+cd ~/my-project && wt-project init
+
+# 3. Launch the Control Center
+wt-control
+
+# 4. Create a worktree (GUI: "+ New" button, or CLI)
+wt-new add-user-auth
+
+# 5. Open it — editor + Claude Code launch automatically
+wt-work add-user-auth
+```
+
+---
+
+## Features
+
+### Control Center GUI
+
+Always-on-top PySide6 window showing all worktrees and agent status. Double-click to open a worktree, right-click for context menu. Includes API usage burn rate display, system tray integration, and light/dark/high-contrast themes.
+
+### CLI Tools
+
+Full set of shell commands for worktree lifecycle, project management, editor configuration, and team sync. See [CLI Reference](#cli-reference) below.
+
+### Ralph Loop
+
+Autonomous agent execution — runs Claude Code in iterations, checking task completion between runs. Start with `wt-loop start`, monitor with `wt-loop monitor`.
+
+### Team Sync & Messaging (Experimental)
+
+Cross-machine collaboration **without a central server** — using a `wt-control` git branch for team and machine-level coordination. Each machine syncs agent status automatically. Includes encrypted chat (`wt-control-chat`) and directed agent-to-agent messaging (`/wt:msg`). Note: Claude Code's Teams feature does not replace this — wt-tools team sync operates at the agent level, enabling different remote machines, users, or local agents to coordinate at a higher level. See [docs/agent-messaging.md](docs/agent-messaging.md).
+
+### MCP Server
+
+Exposes worktree and Ralph loop status to Claude Code via Model Context Protocol. Auto-configured by the installer.
+
+---
+
+## Installation
+
+### Prerequisites
+
+| Requirement | Check | Purpose |
+|-------------|-------|---------|
+| **Git** | `git --version` | Worktree management |
+| **Python 3.10+** | `python3 --version` | GUI and MCP server |
+| **jq** | `jq --version` | JSON processing in shell scripts |
+| **Node.js** | `node --version` | Claude Code CLI |
+
+### Install
+
+```bash
+git clone https://github.com/tatargabor/wt-tools.git
+cd wt-tools
+./install.sh
+```
+
+The installer symlinks all `wt-*` commands to `~/.local/bin`, sets up shell completions, configures the MCP server, and deploys Claude Code hooks.
+
+### GUI Dependencies
+
+```bash
+pip install PySide6 cloudscraper browser_cookie3
+```
+
+### Linux: Qt Plugin Path
+
+If you use conda or a non-system Python, set the Qt plugin path:
+
+```bash
+QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plugins" wt-control
+```
+
+---
+
+## CLI Reference
+
+### Worktree Management
+
+| Command | Description |
+|---------|-------------|
+| `wt-new <change-id>` | Create new worktree + branch |
+| `wt-work <change-id>` | Open worktree in editor + Claude Code |
+| `wt-close <change-id>` | Close worktree (removes directory and branch) |
+| `wt-merge <change-id>` | Merge worktree branch back to main |
+| `wt-add [path]` | Add existing repo or worktree to wt-tools |
+| `wt-list` | List all active worktrees |
+| `wt-status` | JSON status of all worktrees and agents |
+| `wt-focus <change-id>` | Focus editor window for a worktree |
+
+### Project Management
+
+| Command | Description |
+|---------|-------------|
+| `wt-project init` | Register current directory as a project |
+| `wt-project list` | List registered projects |
+| `wt-project default <name>` | Set default project |
+
+### Ralph Loop
+
+| Command | Description |
+|---------|-------------|
+| `wt-loop start [change-id]` | Start autonomous Claude Code loop |
+| `wt-loop stop [change-id]` | Stop running loop |
+| `wt-loop status [change-id]` | Show loop status |
+| `wt-loop list` | List all active loops |
+| `wt-loop history [change-id]` | Show iteration history |
+| `wt-loop monitor [change-id]` | Watch loop progress live |
+
+### Team & Sync
+
+| Command | Description |
+|---------|-------------|
+| `wt-control` | Launch Control Center GUI |
+| `wt-control-init` | Initialize wt-control team sync branch |
+| `wt-control-sync` | Sync member status (pull/push/compact) |
+| `wt-control-chat send <to> <msg>` | Send encrypted message |
+| `wt-control-chat read` | Read received messages |
+
+### Utilities
+
+| Command | Description |
+|---------|-------------|
+| `wt-config editor list` | List supported editors and availability |
+| `wt-config editor set <name>` | Set preferred editor (zed, vscode, cursor, windsurf) |
+| `wt-usage` | Show Claude API token usage |
+| `wt-version` | Display version info (branch, commit, date) |
+| `wt-deploy-hooks <target-dir>` | Deploy Claude Code hooks to a directory |
+
+<details>
+<summary>Internal scripts (not for direct use)</summary>
+
+These are called by other tools or by Claude Code hooks — you don't invoke them directly:
+
+- `wt-common.sh` — shared shell functions
+- `wt-hook-skill` — Claude Code UserPromptSubmit hook (skill tracking)
+- `wt-hook-stop` — Claude Code Stop hook (timestamp refresh)
+- `wt-skill-start` — register active skill for status display
+- `wt-control-gui` — GUI launcher (called by `wt-control`)
+- `wt-completions.bash` / `wt-completions.zsh` — shell completions
+
+</details>
+
+---
+
+## Configuration
+
+### Config Files
+
+| File | Location | Content |
+|------|----------|---------|
+| `gui-config.json` | `~/.config/wt-tools/` | GUI settings (opacity, theme, refresh) |
+| `projects.json` | `~/.config/wt-tools/` | Project registry |
+| `editor` | `~/.config/wt-tools/` | Preferred editor name |
+
+### GUI Settings
+
+```json
+{
+  "control_center": {
+    "opacity_default": 0.5,
+    "opacity_hover": 1.0,
+    "window_width": 500,
+    "refresh_interval_ms": 2000,
+    "blink_interval_ms": 500,
+    "color_profile": "light"
+  }
+}
+```
+
+### Color Profiles
+
+| Profile | Description |
+|---------|-------------|
+| `light` | Light background, dark text (default) |
+| `dark` | Dark background, light text |
+| `high_contrast` | Maximum contrast |
+
+Selectable in Settings dialog or by editing `gui-config.json`.
+
+---
+
+## Known Issues & Limitations
+
+| Issue | Platform | Workaround |
+|-------|----------|------------|
+| Qt/conda plugin path conflicts | Linux | Set `QT_PLUGIN_PATH` (see Installation) |
+| Always-on-top dialogs need `WindowStaysOnTopHint` | macOS | Applied automatically in GUI code |
+| Editor detection may miss some setups | All | Use `wt-config editor set <name>` to force |
+| Claude usage display requires browser session | All | Log into claude.ai in the browser first |
+| Windows platform not supported | Windows | Linux/macOS only for now |
+| App bundle packaging incomplete | macOS | Use `wt-control` CLI launcher instead |
+| UI compactness with many projects | All | Ongoing challenge — new ideas welcome |
+| Team sync features are experimental | All | Usable but expect rough edges |
+| Cross-platform testing coverage limited | macOS | Community testing and bug reports appreciated |
+
+---
+
+## Claude Code Integration
+
+### Auto-Launch
+
+`wt-work` and GUI double-click open the worktree in the configured editor and start Claude Code automatically.
+
+### Skills (Slash Commands)
+
+Every CLI command has a corresponding Claude Code skill, so you can manage worktrees without leaving your agent session:
+
+```
+/wt:new <change-id>      Create new worktree
+/wt:work <change-id>     Open worktree
+/wt:list                 List worktrees
+/wt:close <change-id>    Close worktree
+/wt:merge <change-id>    Merge worktree
+/wt:loop                 Ralph Loop management
+/wt:status               Show agent activity
+/wt:msg <target> <msg>   Send message to another agent
+/wt:inbox                Read incoming messages
+/wt:broadcast <msg>      Broadcast what you're working on
+```
+
+### MCP Server
+
+The installer configures an MCP server that provides these tools to Claude Code:
+
+| Tool | Description |
+|------|-------------|
+| `list_worktrees` | List all worktrees across projects |
+| `get_ralph_status` | Ralph loop status for a change |
+| `get_worktree_tasks` | Read tasks.md for a worktree |
+| `get_team_status` | Team member activity |
+
+Manual setup:
+```bash
+claude mcp add wt-tools --scope user -- python /path/to/wt-tools/mcp-server/wt_mcp_server.py
+```
+
+### Status Line
+
+The installer configures Claude Code's status line (`~/.claude/statusline.sh`) to show Ralph loop status:
+
+```
+folder (branch) | model | ctx 45% | Ralph: 3/10
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, testing, and pull request guidelines.
+
+---
+
+## Use Cases
+
+### Why the GUI? I already have terminals.
+
+You're working on 3 projects. Each has 1-2 worktrees with Claude agents running. That's 5-6 terminal tabs, and you keep losing track of which agent is waiting for input, which one finished, and which one ate 80% of its context.
+
+The Control Center replaces all of that with one small window:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Worktrees: 6 | ⚡2 waiting | ●1 running | ○3 idle      │
+├──────────────────────────────────────────────────────────┤
+│  my-app     │ add-auth    │ ⚡ waiting  │ 45%           │
+│             │ fix-api     │ ● running  │ 72%           │
+│  my-lib     │ refactor    │ ⚡ waiting  │ 80%  ← high! │
+│  docs-site  │ redesign    │ ○ idle     │               │
+└──────────────────────────────────────────────────────────┘
+```
+
+- Yellow/blinking row = agent needs your input. Double-click to jump there.
+- Context % tells you which agent is running low and might need a fresh session soon.
+- No tab hunting, no `ps aux | grep claude`.
+- API usage and burn rate are always visible — you see exactly how much capacity you have left in the 5h and 7d windows.
+
+**Best for:** Anyone running more than one Claude agent at a time across any number of projects.
+
+### Stay in the agent
+
+Every wt-tools operation has a matching Claude Code slash command. You don't need to switch to a terminal to manage worktrees:
+
+```
+> /wt:new fix-payment-bug       # creates worktree, you stay in Claude
+> /wt:list                       # see all worktrees
+> /wt:merge fix-payment-bug      # merge back when done
+> /wt:close fix-payment-bug      # clean up
+```
+
+The MCP server also lets your agent see what other worktrees and agents are doing — it can check team status, read other worktrees' task lists, and see Ralph loop progress, all without you leaving the conversation.
+
+**Best for:** Staying in flow. No context switch between "talking to the agent" and "managing worktrees in a terminal".
+
+### Parallel feature development
+
+You have a big feature and a bug to fix. Instead of stashing/branching, create two worktrees:
+
+```bash
+wt-new add-user-auth     # worktree 1: big feature
+wt-new fix-login-bug     # worktree 2: quick bugfix
+```
+
+Each gets its own directory, branch, and Claude session. Work on the bugfix, merge it, close it — while the auth feature keeps going in its own worktree untouched.
+
+```bash
+wt-merge fix-login-bug   # merge bugfix to main
+wt-close fix-login-bug   # clean up
+# add-user-auth is still there, agent still has context
+```
+
+**Best for:** Avoiding the "stash, switch branch, lose context, switch back" cycle.
+
+### Ralph Loop: let the agent work overnight
+
+You have a well-defined task (e.g., "implement all tasks in tasks.md"). Start a Ralph loop and let Claude work through it autonomously:
+
+```bash
+wt-loop start add-user-auth --task "Implement all tasks in tasks.md"
+```
+
+Ralph runs Claude Code in iterations. After each iteration, it checks task completion. If tasks remain, it starts a new iteration. The GUI shows progress in real-time:
+
+```
+│  add-user-auth  │ ● running │ ralph:apply │ 45% │ 🔄 3/10 │
+```
+
+Come back in the morning, check `wt-loop history` to see what happened, review the commits.
+
+```bash
+wt-loop history add-user-auth   # what happened?
+wt-loop monitor add-user-auth   # watch live if still running
+wt-loop stop add-user-auth      # stop if needed
+```
+
+**Best for:** Well-scoped tasks with clear completion criteria (task lists, test suites, migrations). Not ideal for exploratory or design-heavy work.
+
+### Multi-project daily workflow
+
+A typical day with 4 projects:
+
+1. Start `wt-control` in the morning — it stays in system tray
+2. Glance at the table: which agents are waiting from yesterday?
+3. Double-click on a waiting row → editor + Claude open, you continue the conversation
+4. Need to work on a different project? Double-click another row. No `cd`, no `git checkout`
+5. Create a new worktree for today's task: click **+ New**, pick the project, name the change
+6. API usage bar turns yellow? Time to slow down or prioritize
+
+**Best for:** Developers juggling multiple repositories who use Claude Code as their primary coding partner.
+
+### Team Sync: two machines, one workflow (Experimental)
+
+![Team sync - remote machines visible](docs/images/control-center-team.png)
+
+You have a Linux workstation and a MacBook. Both are working on the same project — one handles backend, the other frontend:
+
+```bash
+# On Linux (one-time setup)
+wt-control-init
+wt-control-sync --full
+
+# On Mac (one-time setup)
+wt-control-init
+wt-control-sync --full
+```
+
+Now the Control Center on each machine shows what the other is doing:
+
+```
+│  ★ tg@linux/add-api     │ ● running │ opsx:apply │ 32%  │
+│  ★ tg@mac/add-frontend  │ ⚡ waiting │ opsx:apply │ 55%  │
+```
+
+Agents can send direct messages to each other:
+
+```
+/wt:msg tg@mac/add-frontend "API endpoints ready, schema at docs/api.md"
+```
+
+The other agent reads it:
+
+```
+/wt:inbox
+→ [10:30] tg@linux/add-api: API endpoints ready, schema at docs/api.md
+```
+
+All sync happens through a git branch — no central server, no third-party service.
+
+The vision goes further: even locally, worktree agents can see each other through the MCP server — checking what other agents are working on, reading their task progress, and potentially sharing context. The goal is that agents in different worktrees (whether on the same machine or across machines) can collaborate at a level above just "send a message" — aware of each other's tasks, specs, and progress.
+
+**Best for:** When you have multiple machines or team members working on the same project and want agents to be aware of each other. Experimental — expect rough edges.
+
+### When to use what
+
+| Situation | Tool |
+|-----------|------|
+| Running 1 agent on 1 project | You probably don't need wt-tools yet |
+| Running 2+ agents or switching projects often | Control Center GUI + `wt-work` |
+| Want to manage worktrees without leaving Claude | Skills (`/wt:new`, `/wt:merge`, etc.) |
+| Working on a feature and a bugfix simultaneously | `wt-new` for parallel worktrees |
+| Need to see API usage and burn rate at a glance | Control Center usage bar |
+| Well-defined task list to grind through | Ralph Loop (`wt-loop start`) |
+| Multiple machines or team members on same project | Team Sync (`wt-control-init`) |
+| Want agents to coordinate without you relaying messages | Agent Messaging (`/wt:msg`) |
+| Want agents to see each other's progress | MCP Server (`get_team_status`, `get_worktree_tasks`) |
+
+---
+
+## Related Projects
+
+The AI-assisted development tooling space is growing fast. Here's how wt-tools fits in:
+
+### Worktree + Agent Managers
+
+| Tool | Stars | Description |
+|------|-------|-------------|
+| [claude-squad](https://github.com/smtg-ai/claude-squad) | 6k | TUI for tmux+worktree multi-agent sessions (Go) |
+| [ccpm](https://github.com/automazeio/ccpm) | 7k | GitHub Issues as PM layer + worktree agent swarm |
+| [automaker](https://github.com/AutoMaker-Org/automaker) | 3k | Electron Kanban board + worktree AI agents |
+| [agent-worktree](https://github.com/nekocode/agent-worktree) | 84 | Snap mode: create→work→merge→cleanup (Rust) |
+| [ccswarm](https://github.com/nwiizo/ccswarm) | 103 | Actor model + worktree + quality judge (Rust) |
+| [worktrunk](https://github.com/max-sixty/worktrunk) | -- | CLI for AI agent parallel workflows |
+| [gwq](https://github.com/d-kuro/gwq) | -- | Fuzzy finder worktree manager |
+
+### Multi-Agent Orchestration
+
+| Tool | Stars | Description |
+|------|-------|-------------|
+| [claude-flow](https://github.com/ruvnet/claude-flow) | 14k | Enterprise agent swarm platform, 87+ MCP tools |
+| [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) | 6k | 5 execution modes (Autopilot/Swarm/Pipeline) |
+| [wshobson/agents](https://github.com/wshobson/agents) | 28k | 112 agents + 146 skills + 73 plugins |
+| [ralph-orchestrator](https://github.com/mikeyobrien/ralph-orchestrator) | 2k | Ralph Wiggum autonomous loop (Rust) |
+| [myclaude](https://github.com/cexll/myclaude) | 2k | Multi-backend orchestration (Claude/Codex/Gemini) |
+
+### Desktop Apps & Monitoring
+
+| Tool | Stars | Description |
+|------|-------|-------------|
+| [crystal](https://github.com/stravu/crystal) | -- | Desktop app for Claude/Codex |
+| [Agentrooms](https://github.com/baryhuang/claude-code-by-agents) | 763 | Electron + remote agent @mentions |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | 722 | AI-aware TUI with MCP management |
+| [ClaudeBar](https://github.com/tddworks/ClaudeBar) | 570 | macOS menu bar AI usage tracking |
+| [ccmanager](https://github.com/kbwo/ccmanager) | -- | Multi-agent session manager |
+
+### Feature Comparison
+
+```
+                    Native  Worktree  Ralph  Team   MCP   Cross-
+                    GUI     Isolation  Loop   Sync  Server Platform
+────────────────────────────────────────────────────────────────
+wt-tools             ✅      ✅        ✅     ✅     ✅     ✅
+claude-squad         TUI     ✅        ✗      ✗      ✗     ✅
+ccpm                 ✗       ✅        ✗      ✗      ✗     ✅
+automaker            ✅*     ✅        ✗      ✗      ✗     ✅*
+claude-flow          ✗       ✗         ✅     ✗      ✅    ✅
+ralph-orchestrator   ✗       ✗         ✅     ✗      ✗     ✅
+agent-deck           TUI     ✗         ✗      ✗      ✅    ✅
+Agentrooms           ✅*     ✗         ✗      ✅     ✗     ✅*
+────────────────────────────────────────────────────────────────
+✅* = Electron (not native)
+```
+
+No single tool combines all of these. wt-tools is the only one with a native desktop GUI, worktree isolation, autonomous loops, team sync, and MCP server together.
+
+---
+
+## Future Development
+
+### Claude Code Agent Teams Integration
+
+Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (experimental) let a lead session spawn teammate agents with shared task lists. This is complementary to wt-tools — Agent Teams work inside a single worktree, while wt-tools orchestrates across worktrees:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  wt-tools (outer loop — git-level isolation)             │
+│                                                          │
+│  ┌──────────────────┐      ┌──────────────────┐         │
+│  │ Worktree A        │      │ Worktree B        │         │
+│  │ branch: add-auth  │      │ branch: fix-api   │         │
+│  │                   │      │                   │         │
+│  │  ┌─────────────┐ │      │  ┌─────────────┐ │         │
+│  │  │ Agent Teams  │ │      │  │ Agent Teams  │ │         │
+│  │  │  lead        │ │      │  │  lead        │ │         │
+│  │  │  ├─ implement│ │      │  │  ├─ fix code │ │         │
+│  │  │  ├─ test     │ │      │  │  └─ test     │ │         │
+│  │  │  └─ docs     │ │      │  └─────────────┘ │         │
+│  │  └─────────────┘ │      │                   │         │
+│  └────────┬─────────┘      └────────┬─────────┘         │
+│           │                         │                    │
+│           └─── MCP + team sync ─────┘                    │
+│                                                          │
+│  Cross-machine: wt-control git branch (no server)        │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Agent Teams** = parallelism within a worktree (implement + test + docs at once)
+- **wt-tools** = parallelism across worktrees (separate features in isolated branches)
+- **Together** = nested parallelism with full git isolation
+
+### Planned Integrations
+
+| Direction | Status | What it enables |
+|-----------|--------|-----------------|
+| **Custom subagents** (`.claude/agents/`) | Available now | Specialized `ralph-worker`, `code-reviewer` agents with persistent memory |
+| **Additional hooks** (`SessionStart`, `PostToolUse`, `SessionEnd`) | Available now | Auto worktree detection, file tracking, idle status |
+| **Async hooks** | Available now | Non-blocking activity tracking and team broadcasts |
+| **Plugin packaging** | Available now | `plugin install wt-tools` — one-command setup |
+| **SDK-based Ralph loops** | Available now | Structured output, crash recovery, session resume |
+| **Persistent shared tasks** (`CLAUDE_CODE_TASK_LIST_ID`) | Available now | Cross-session task state for Ralph loops |
+| **Agent Teams inner loop** | Experimental | Parallel subtasks within a single worktree |
+| **MCP resource subscriptions** | When Claude Code supports it | Real-time push instead of polling |
+| **GUI as Agent Teams monitor** | Future | Visualize `~/.claude/teams/` alongside worktrees |
+| **GitHub Actions auto-review** | Available now | CI review of worktree branches before merge |
+
+### Vision: Nested Agent Collaboration
+
+The long-term direction is layered coordination — from local teammates inside a worktree, through cross-worktree MCP visibility, to cross-machine team sync:
+
+```
+Layer 3: Cross-machine (wt-control git branch)
+  ┌─────────────────┐          ┌─────────────────┐
+  │  Linux machine   │◄────────►│  Mac machine     │
+  │  3 worktrees     │  git sync │  2 worktrees     │
+  └────────┬────────┘          └────────┬────────┘
+           │                            │
+Layer 2: Cross-worktree (MCP server)
+  ┌────────┴────────────────────────────┴────────┐
+  │  MCP: list_worktrees, get_team_status,       │
+  │       get_worktree_tasks, get_ralph_status   │
+  │  Agents see each other's progress & tasks    │
+  └────────┬──────────┬──────────┬───────────────┘
+           │          │          │
+Layer 1: Within worktree (Agent Teams)
+  ┌────────┴───┐ ┌────┴─────┐ ┌─┴──────────┐
+  │ Lead agent │ │ Lead     │ │ Lead       │
+  │ + 2 mates  │ │ + 1 mate │ │ solo       │
+  │ (parallel) │ │          │ │ (Ralph)    │
+  └────────────┘ └──────────┘ └────────────┘
+```
+
+Contributions, ideas, and cross-platform testing are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## License
+
+MIT License — See [LICENSE](LICENSE) for details.

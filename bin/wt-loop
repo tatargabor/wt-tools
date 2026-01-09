@@ -1,0 +1,1318 @@
+#!/usr/bin/env bash
+# wt-loop - Ralph-style autonomous loop for Claude Code
+#
+# Runs Claude Code in an iterative loop until a task is complete
+# or max iterations reached.
+#
+# All subcommands (except "list") operate on the current worktree
+# determined from CWD via git rev-parse --show-toplevel.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/wt-common.sh"
+
+# Find timeout command (macOS uses gtimeout from coreutils)
+if command -v timeout &>/dev/null; then
+    TIMEOUT_CMD="timeout"
+elif command -v gtimeout &>/dev/null; then
+    TIMEOUT_CMD="gtimeout"
+else
+    TIMEOUT_CMD=""
+fi
+
+# Default settings
+DEFAULT_MAX_ITERATIONS=10
+DEFAULT_DONE_CRITERIA="tasks"
+DEFAULT_CAPACITY_LIMIT=80
+DEFAULT_STALL_THRESHOLD=2  # Stop after N consecutive iterations with no commits
+
+usage() {
+    cat <<EOF
+Usage: wt-loop <command> [options]
+
+Run from within a worktree directory. The worktree is detected from CWD.
+
+Commands:
+  start "<task>" [opts]    Start a new loop
+  stop                     Stop a running loop
+  status                   Show loop status
+  list                     List all active loops (global)
+  history                  Show iteration history
+  monitor [--interval N]   Monitor loop until complete
+  run                      Internal: run the loop (called by terminal)
+
+Start Options:
+  --done <criteria>        Done detection: tasks|manual (default: tasks)
+  --max <n>                Max iterations (default: 10)
+  --stall-threshold <n>    Stall after N commit-less iterations (default: 2)
+  --iteration-timeout <n>  Per-iteration timeout in minutes (default: 45)
+  --capacity-limit <pct>   Stop if capacity exceeds (default: 80%)
+  --permission-mode <mode> Claude permission mode: auto-accept|allowedTools|plan (default: config)
+  --force                  Force start even with incompatible permission mode (e.g. plan)
+
+Monitor Options:
+  --interval <seconds>     Polling interval (default: 30)
+
+Examples:
+  cd ~/project-wt-add-auth
+  wt-loop start "Implement authentication per spec" --max 10
+  wt-loop status
+  wt-loop monitor --interval 15
+  wt-loop stop
+  wt-loop list              # global: shows loops across all worktrees
+EOF
+}
+
+# Resolve worktree path from CWD using git
+get_worktree_path_from_cwd() {
+    local toplevel
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z "$toplevel" ]]; then
+        error "Not inside a git worktree. Run from within a worktree directory."
+        exit 1
+    fi
+    echo "$toplevel"
+}
+
+# Parse ISO 8601 date to epoch seconds (cross-platform)
+# Works on both Linux (GNU date) and macOS (BSD date)
+parse_date_to_epoch() {
+    local date_str="$1"
+    local epoch
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: Convert ISO 8601 format to epoch
+        # Remove timezone offset for parsing, use -j flag
+        # ISO format: 2026-01-30T10:00:00-0800 or 2026-01-30T10:00:00+00:00
+        local clean_date
+        # Remove timezone suffix (anything after seconds)
+        clean_date=$(echo "$date_str" | sed -E 's/[+-][0-9]{2}:?[0-9]{2}$//')
+        # Try parsing, fallback to 0
+        epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" "+%s" 2>/dev/null || echo "0")
+    else
+        # Linux: GNU date supports -d with ISO 8601
+        epoch=$(date -d "$date_str" +%s 2>/dev/null || echo "0")
+    fi
+
+    echo "$epoch"
+}
+
+# Get loop state file path for a worktree
+get_loop_state_file() {
+    local wt_path="$1"
+    echo "$wt_path/.claude/loop-state.json"
+}
+
+get_loop_log_file() {
+    local wt_path="$1"
+    echo "$wt_path/.claude/ralph-loop.log"
+}
+
+# Get terminal PID file path
+get_terminal_pid_file() {
+    local wt_path="$1"
+    echo "$wt_path/.claude/ralph-terminal.pid"
+}
+
+# Find tasks.md generically in a worktree (no openspec-specific paths)
+find_tasks_file() {
+    local wt_path="$1"
+
+    # Prefer worktree root
+    if [[ -f "$wt_path/tasks.md" ]]; then
+        echo "$wt_path/tasks.md"
+        return
+    fi
+
+    # Fallback: search in subdirectories (maxdepth 3), excluding archive/node_modules
+    local found
+    found=$(find "$wt_path" -maxdepth 3 -name "tasks.md" -type f \
+        ! -path "*/archive/*" ! -path "*/node_modules/*" 2>/dev/null | head -1)
+    if [[ -n "$found" ]]; then
+        echo "$found"
+        return
+    fi
+
+    # Not found
+    return 1
+}
+
+# Initialize loop state
+init_loop_state() {
+    local wt_path="$1"
+    local worktree_name="$2"
+    local task="$3"
+    local max_iter="$4"
+    local done_criteria="$5"
+    local capacity_limit="$6"
+    local stall_threshold="${7:-$DEFAULT_STALL_THRESHOLD}"
+    local iteration_timeout="${8:-45}"
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    # Ensure .claude directory exists
+    mkdir -p "$wt_path/.claude"
+
+    # Create initial state
+    cat > "$state_file" <<EOF
+{
+  "worktree_name": "$worktree_name",
+  "task": $(echo "$task" | jq -Rs .),
+  "done_criteria": "$done_criteria",
+  "max_iterations": $max_iter,
+  "current_iteration": 0,
+  "status": "starting",
+  "terminal_pid": null,
+  "started_at": "$(date -Iseconds)",
+  "iterations": [],
+  "capacity_limit_pct": $capacity_limit,
+  "stall_threshold": $stall_threshold,
+  "iteration_timeout_min": $iteration_timeout,
+  "total_tokens": 0
+}
+EOF
+}
+
+# Update loop state
+update_loop_state() {
+    local state_file="$1"
+    local field="$2"
+    local value="$3"
+
+    local tmp
+    tmp=$(mktemp)
+    jq ".$field = $value" "$state_file" > "$tmp" && mv "$tmp" "$state_file"
+}
+
+# Add iteration to state
+add_iteration() {
+    local state_file="$1"
+    local iteration="$2"
+    local started="$3"
+    local ended="$4"
+    local done_check="$5"
+    local commits="$6"
+    local tokens_used="${7:-0}"
+    local timed_out="${8:-false}"
+    local tokens_estimated="${9:-false}"
+
+    local tmp
+    tmp=$(mktemp)
+    jq --argjson n "$iteration" \
+       --arg started "$started" \
+       --arg ended "$ended" \
+       --argjson done "$done_check" \
+       --argjson commits "$commits" \
+       --argjson tokens "$tokens_used" \
+       --argjson timed_out "$timed_out" \
+       --argjson tokens_estimated "$tokens_estimated" \
+       '.iterations += [{
+         "n": $n,
+         "started": $started,
+         "ended": $ended,
+         "done_check": $done,
+         "commits": $commits,
+         "tokens_used": $tokens,
+         "timed_out": $timed_out,
+         "tokens_estimated": $tokens_estimated
+       }]' "$state_file" > "$tmp" && mv "$tmp" "$state_file"
+}
+
+# Get current token usage from wt-usage
+get_current_tokens() {
+    local since="${1:-}"
+    local usage_json
+
+    if [[ -n "$since" ]]; then
+        usage_json=$("$SCRIPT_DIR/wt-usage" --since "$since" --format json 2>/dev/null || echo '{"total_tokens": 0}')
+    else
+        usage_json=$("$SCRIPT_DIR/wt-usage" --format json 2>/dev/null || echo '{"total_tokens": 0}')
+    fi
+
+    # Extract total_tokens, default to 0 if not a valid number
+    local tokens
+    tokens=$(echo "$usage_json" | jq -r '.total_tokens // 0' 2>/dev/null)
+    # Ensure we return a number
+    if [[ "$tokens" =~ ^[0-9]+$ ]]; then
+        echo "$tokens"
+    else
+        echo "0"
+    fi
+}
+
+# Estimate tokens from session file size growth
+# Rough heuristic: ~4 tokens per byte of JSONL
+estimate_tokens_from_files() {
+    local wt_path="$1"
+    local since_epoch="$2"
+
+    local total_bytes=0
+    local claude_dir="$HOME/.claude/projects"
+
+    if [[ ! -d "$claude_dir" ]]; then
+        echo "0"
+        return
+    fi
+
+    # Find JSONL files modified since the given epoch
+    while IFS= read -r -d '' jsonl_file; do
+        local file_mtime
+        file_mtime=$(stat -c %Y "$jsonl_file" 2>/dev/null || stat -f %m "$jsonl_file" 2>/dev/null || echo "0")
+        if [[ "$file_mtime" -ge "$since_epoch" ]]; then
+            local file_size
+            file_size=$(stat -c %s "$jsonl_file" 2>/dev/null || stat -f %z "$jsonl_file" 2>/dev/null || echo "0")
+            total_bytes=$((total_bytes + file_size))
+        fi
+    done < <(find "$claude_dir" -name "*.jsonl" -print0 2>/dev/null)
+
+    # Rough estimate: 4 tokens per byte
+    echo $((total_bytes / 4))
+}
+
+# Update terminal window title
+update_terminal_title() {
+    local title="$1"
+    printf '\033]0;%s\007' "$title"
+}
+
+# Check if tasks.md is complete (all tasks checked)
+check_tasks_done() {
+    local wt_path="$1"
+
+    # Find tasks.md generically
+    local tasks_file
+    tasks_file=$(find_tasks_file "$wt_path")
+
+    if [[ -z "$tasks_file" ]]; then
+        warn "No tasks.md found in $wt_path"
+        return 1
+    fi
+
+    # Count incomplete tasks (- [ ] pattern)
+    local count
+    count=$(grep -cE '^\s*-\s*\[\s*\]' "$tasks_file" 2>/dev/null)
+    count=${count//[^0-9]/}  # Strip any non-digit characters
+    count=${count:-0}
+
+    if [[ "$count" -eq 0 ]]; then
+        return 0  # All done
+    else
+        return 1  # Not done
+    fi
+}
+
+# Check done criteria
+check_done() {
+    local wt_path="$1"
+    local criteria="$2"
+
+    case "$criteria" in
+        tasks)
+            check_tasks_done "$wt_path"
+            ;;
+        manual)
+            # Check if user marked done in state file
+            local state_file
+            state_file=$(get_loop_state_file "$wt_path")
+            local manual_done
+            manual_done=$(jq -r '.manual_done // false' "$state_file" 2>/dev/null)
+            [[ "$manual_done" == "true" ]]
+            ;;
+        *)
+            warn "Unknown done criteria: $criteria"
+            return 1
+            ;;
+    esac
+}
+
+# Get commits since last iteration
+get_new_commits() {
+    local wt_path="$1"
+    local since="${2:-}"
+
+    cd "$wt_path" || return
+
+    if [[ -n "$since" ]]; then
+        git log --since="$since" --format='%h' 2>/dev/null | jq -R . | jq -s .
+    else
+        echo "[]"
+    fi
+}
+
+# Build the prompt for Claude
+build_prompt() {
+    local task="$1"
+    local iteration="$2"
+    local max_iter="$3"
+    local wt_path="$4"
+    local done_criteria="$5"
+
+    local prev_commits=""
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ -f "$state_file" ]]; then
+        prev_commits=$(jq -r '[.iterations[].commits[]?] | join(", ")' "$state_file" 2>/dev/null || echo "")
+    fi
+
+    # Pre-compute values to avoid command substitution in heredoc
+    local done_text=""
+    case "$done_criteria" in
+        tasks) done_text="All items in tasks.md should be marked [x]" ;;
+        manual) done_text="User will mark done manually" ;;
+        *) done_text="$done_criteria" ;;
+    esac
+
+    local prev_text=""
+    if [[ -n "$prev_commits" ]]; then
+        prev_text="Previous iterations made commits: $prev_commits"
+    else
+        prev_text="This is the first iteration."
+    fi
+
+    cat <<EOF
+# Task
+$task
+
+# Context
+This is iteration $iteration of $max_iter in an autonomous Ralph loop.
+Previous work is visible in the git history and current file state.
+
+# Instructions
+1. Read the current state of the codebase and understand what has been done
+2. Check tasks.md for remaining incomplete items (marked with - [ ])
+3. Work on the highest priority incomplete item
+4. Make atomic commits for each meaningful change
+5. Mark completed tasks as done in tasks.md (change [ ] to [x])
+6. If stuck on the same issue, try a different approach
+7. Exit when you've made progress on the current sub-task
+
+# Done Criteria
+$done_text
+
+# Previous Work
+$prev_text
+
+# Important
+- Focus on ONE task at a time
+- Make incremental progress
+- Commit your changes
+- Update tasks.md to reflect progress
+EOF
+}
+
+# Run the actual loop (called in the spawned terminal)
+cmd_run() {
+    # Derive worktree from CWD
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ ! -f "$state_file" ]]; then
+        error "No loop state found. Use 'wt-loop start' first."
+        exit 1
+    fi
+
+    # Read settings from state
+    local max_iter done_criteria task capacity_limit stall_threshold iteration_timeout_min
+    max_iter=$(jq -r '.max_iterations' "$state_file")
+    done_criteria=$(jq -r '.done_criteria' "$state_file")
+    task=$(jq -r '.task' "$state_file")
+    capacity_limit=$(jq -r '.capacity_limit_pct' "$state_file")
+    stall_threshold=$(jq -r '.stall_threshold // 2' "$state_file")
+    iteration_timeout_min=$(jq -r '.iteration_timeout_min // 45' "$state_file")
+
+    # Signal trap variables for cleanup
+    local current_iter_started=""
+    local current_iter_num=0
+    local cleanup_done=false
+
+    cleanup_on_exit() {
+        # Guard against double-trap (EXIT + SIGTERM)
+        if [[ "$cleanup_done" == true ]]; then
+            return
+        fi
+        cleanup_done=true
+
+        echo ""
+        echo "⚠️  Loop interrupted, recording state..."
+
+        # Kill child processes (claude, tee, etc.) but not ourselves
+        pkill -TERM -P $$ 2>/dev/null || true
+
+        if [[ -n "$current_iter_started" && -f "$state_file" ]]; then
+            local ended
+            ended=$(date -Iseconds)
+            local commits
+            commits=$(get_new_commits "$wt_path" "$current_iter_started" 2>/dev/null || echo "[]")
+            add_iteration "$state_file" "$current_iter_num" "$current_iter_started" "$ended" "false" "$commits" "0" "false"
+        fi
+
+        if [[ -f "$state_file" ]]; then
+            update_loop_state "$state_file" "status" '"stopped"'
+        fi
+    }
+
+    trap 'cleanup_on_exit' EXIT SIGTERM SIGINT SIGHUP
+
+    # Update status
+    update_loop_state "$state_file" "status" '"running"'
+    update_loop_state "$state_file" "terminal_pid" "$$"
+
+    # Save terminal PID
+    echo "$$" > "$(get_terminal_pid_file "$wt_path")"
+
+    cd "$wt_path" || exit 1
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Ralph Loop: $worktree_name"
+    echo "║  Task: ${task:0:50}..."
+    echo "║  Max iterations: $max_iter | Done criteria: $done_criteria"
+    echo "║  Stall threshold: $stall_threshold | Iter timeout: ${iteration_timeout_min}m"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    local iteration=0
+    local stall_count=0
+    local start_time
+    start_time=$(date -Iseconds)
+
+    while [[ $iteration -lt $max_iter ]]; do
+        iteration=$((iteration + 1))
+
+        # Update terminal title with progress
+        update_terminal_title "Ralph: ${worktree_name} [${iteration}/${max_iter}]"
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  ITERATION $iteration / $max_iter"
+        echo "  $(date '+%H:%M:%S')"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Update state
+        update_loop_state "$state_file" "current_iteration" "$iteration"
+
+        local iter_start
+        iter_start=$(date -Iseconds)
+        current_iter_started="$iter_start"
+        current_iter_num="$iteration"
+
+        # Record tokens before iteration for tracking
+        local tokens_before
+        tokens_before=$(get_current_tokens "$start_time")
+
+        # Build prompt
+        local prompt
+        prompt=$(build_prompt "$task" "$iteration" "$max_iter" "$wt_path" "$done_criteria")
+
+        # Run Claude with retry logic and per-iteration timeout
+        local timeout_seconds=$((iteration_timeout_min * 60))
+        echo "Starting Claude Code... (timeout: ${iteration_timeout_min}m)"
+        echo ""
+
+        local claude_exit_code=0
+        local retry_count=0
+        local max_retries=2
+        local iter_timed_out=false
+
+        # Build Claude permission flags from state or config
+        local perm_mode
+        perm_mode=$(jq -r '.permission_mode // "auto-accept"' "$state_file" 2>/dev/null)
+        local perm_flags
+        perm_flags=$(get_claude_permission_flags "$perm_mode")
+
+        while [[ $retry_count -lt $max_retries ]]; do
+            if [[ -n "$TIMEOUT_CMD" ]]; then
+                $TIMEOUT_CMD --signal=TERM "$timeout_seconds" \
+                    claude $perm_flags \
+                       --verbose \
+                       -p "$prompt"
+            else
+                claude $perm_flags \
+                   --verbose \
+                   -p "$prompt"
+            fi
+            claude_exit_code=$?
+
+            if [[ $claude_exit_code -eq 124 ]]; then
+                # Timeout exit code
+                iter_timed_out=true
+                echo ""
+                echo "⏱️  Iteration timed out after ${iteration_timeout_min} minutes"
+                echo "⏱️  Timeout: iteration $iteration exceeded ${iteration_timeout_min}m" >&2
+                break  # Don't retry on timeout
+            fi
+
+            if [[ $claude_exit_code -eq 0 ]]; then
+                break  # Success
+            fi
+
+            retry_count=$((retry_count + 1))
+            if [[ $retry_count -lt $max_retries ]]; then
+                echo ""
+                echo "⚠️  Claude error (exit code: $claude_exit_code). Retrying in 30 seconds... (attempt $((retry_count + 1))/$max_retries)"
+                sleep 30
+            else
+                echo ""
+                echo "⚠️  Claude failed after $max_retries attempts. Continuing to next iteration..."
+            fi
+        done
+
+        local iter_end
+        iter_end=$(date -Iseconds)
+
+        # Get new commits
+        local new_commits
+        new_commits=$(get_new_commits "$wt_path" "$iter_start")
+
+        # Calculate tokens used this iteration
+        local tokens_after tokens_used tokens_estimated=false
+        tokens_after=$(get_current_tokens "$start_time")
+        tokens_used=$((tokens_after - tokens_before))
+        [[ $tokens_used -lt 0 ]] && tokens_used=0
+
+        # Fallback: if tokens is 0 after claude ran, estimate from session file sizes
+        if [[ $tokens_used -eq 0 && $claude_exit_code -ne 1 ]]; then
+            echo "⚠️  Token tracking returned 0 after claude invocation" >&2
+            local iter_start_epoch
+            iter_start_epoch=$(parse_date_to_epoch "$iter_start")
+            if [[ "$iter_start_epoch" -gt 0 ]]; then
+                tokens_used=$(estimate_tokens_from_files "$wt_path" "$iter_start_epoch")
+                if [[ $tokens_used -gt 0 ]]; then
+                    tokens_estimated=true
+                    tokens_after=$((tokens_before + tokens_used))
+                    echo "📊 Iteration tokens: ~$tokens_used (estimated from file sizes)"
+                else
+                    echo "📊 Iteration tokens: 0"
+                fi
+            else
+                echo "📊 Iteration tokens: 0"
+            fi
+        else
+            echo ""
+            echo "📊 Iteration tokens: $tokens_used (total: $tokens_after)"
+        fi
+
+        # Stall detection: no commits = no progress
+        if [[ "$new_commits" == "[]" ]] || [[ -z "$new_commits" ]]; then
+            stall_count=$((stall_count + 1))
+            echo "⚠️  No commits this iteration (stall count: $stall_count/$stall_threshold)"
+
+            # Check for stall condition
+            if [[ $stall_count -ge $stall_threshold ]]; then
+                echo ""
+                echo "╔════════════════════════════════════════════════════════════════╗"
+                echo "║  🛑 STALLED: No commits in $stall_count iteration(s)            ║"
+                echo "║  The loop appears to have nothing left to do.                   ║"
+                echo "╚════════════════════════════════════════════════════════════════╝"
+                update_loop_state "$state_file" "status" '"stalled"'
+                update_terminal_title "Ralph: ${worktree_name} [stalled]"
+                trap - EXIT SIGTERM SIGINT
+                exit 0
+            fi
+        else
+            stall_count=0  # Reset on progress
+            echo "✅ Commits this iteration: $(echo "$new_commits" | jq -r 'length') new"
+        fi
+
+        # Check done
+        local is_done=false
+        if check_done "$wt_path" "$done_criteria"; then
+            is_done=true
+        fi
+
+        # Add iteration to state with token tracking
+        add_iteration "$state_file" "$iteration" "$iter_start" "$iter_end" "$is_done" "$new_commits" "$tokens_used" "$iter_timed_out" "$tokens_estimated"
+        current_iter_started=""  # Clear so trap doesn't double-record
+
+        # Update total tokens in state
+        update_loop_state "$state_file" "total_tokens" "$tokens_after"
+
+        if $is_done; then
+            # Calculate total time
+            local done_time done_epoch start_epoch_done total_secs_done total_hours_done total_mins_done
+            done_time=$(date '+%Y-%m-%d %H:%M:%S')
+            done_epoch=$(date +%s)
+            start_epoch_done=$(parse_date_to_epoch "$start_time")
+            [[ "$start_epoch_done" -eq 0 ]] && start_epoch_done="$done_epoch"
+            total_secs_done=$((done_epoch - start_epoch_done))
+            total_hours_done=$((total_secs_done / 3600))
+            total_mins_done=$(((total_secs_done % 3600) / 60))
+
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════════╗"
+            echo "║  ✅ TASK COMPLETE!                                              ║"
+            echo "║  Finished: $done_time                              ║"
+            echo "║  Iterations: $iteration | Runtime: ${total_hours_done}h ${total_mins_done}m                            ║"
+            echo "╚════════════════════════════════════════════════════════════════╝"
+
+            update_loop_state "$state_file" "status" '"done"'
+            update_terminal_title "Ralph: ${worktree_name} [done]"
+            trap - EXIT SIGTERM SIGINT
+
+            # Send notification
+            notify-send "Ralph Loop Complete" "$worktree_name finished after $iteration iterations (${total_hours_done}h ${total_mins_done}m)" 2>/dev/null || true
+
+            exit 0
+        fi
+
+        # Check if we should continue
+        local current_status
+        current_status=$(jq -r '.status' "$state_file" 2>/dev/null)
+        if [[ "$current_status" == "stopped" ]]; then
+            echo ""
+            echo "Loop stopped by user."
+            exit 0
+        fi
+
+        # Show iteration time
+        local iter_end_epoch iter_start_epoch iter_duration
+        iter_end_epoch=$(date +%s)
+        iter_start_epoch=$(parse_date_to_epoch "$iter_start")
+        [[ "$iter_start_epoch" -eq 0 ]] && iter_start_epoch="$iter_end_epoch"
+        iter_duration=$((iter_end_epoch - iter_start_epoch))
+        local iter_mins=$((iter_duration / 60))
+        local iter_secs=$((iter_duration % 60))
+
+        echo ""
+        echo "Iteration $iteration completed in ${iter_mins}m ${iter_secs}s"
+        echo "Not done yet. Continuing in 3 seconds..."
+        echo "(Press Ctrl+C to stop)"
+        sleep 3
+    done
+
+    # Max iterations reached - calculate total time
+    local end_time end_epoch start_epoch total_secs total_hours total_mins
+    end_time=$(date '+%Y-%m-%d %H:%M:%S')
+    end_epoch=$(date +%s)
+    start_epoch=$(parse_date_to_epoch "$start_time")
+    [[ "$start_epoch" -eq 0 ]] && start_epoch="$end_epoch"
+    total_secs=$((end_epoch - start_epoch))
+    total_hours=$((total_secs / 3600))
+    total_mins=$(((total_secs % 3600) / 60))
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  ⚠️  MAX ITERATIONS REACHED                                     ║"
+    echo "║  Finished: $end_time                              ║"
+    echo "║  Total runtime: ${total_hours}h ${total_mins}m                                      ║"
+    echo "║  Task may not be complete. Review and resume if needed.        ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+
+    update_loop_state "$state_file" "status" '"stuck"'
+    update_terminal_title "Ralph: ${worktree_name} [stuck]"
+    trap - EXIT SIGTERM SIGINT
+
+    # Send notification
+    notify-send "Ralph Loop Stuck" "$worktree_name reached max iterations ($max_iter)" 2>/dev/null || true
+
+    exit 1
+}
+
+# Start a new loop
+cmd_start() {
+    local task=""
+    local max_iter="$DEFAULT_MAX_ITERATIONS"
+    local done_criteria="$DEFAULT_DONE_CRITERIA"
+    local capacity_limit="$DEFAULT_CAPACITY_LIMIT"
+    local stall_threshold="$DEFAULT_STALL_THRESHOLD"
+    local iteration_timeout=45
+    local fullscreen=false
+    local permission_mode_override=""
+    local force_start=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --done)
+                done_criteria="$2"
+                shift 2
+                ;;
+            --max)
+                max_iter="$2"
+                shift 2
+                ;;
+            --stall-threshold)
+                stall_threshold="$2"
+                shift 2
+                ;;
+            --iteration-timeout)
+                iteration_timeout="$2"
+                shift 2
+                ;;
+            --capacity-limit)
+                capacity_limit="$2"
+                shift 2
+                ;;
+            --permission-mode)
+                permission_mode_override="$2"
+                shift 2
+                ;;
+            --force)
+                force_start=true
+                shift
+                ;;
+            --fullscreen)
+                fullscreen=true
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            -*)
+                error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+            *)
+                if [[ -z "$task" ]]; then
+                    task="$1"
+                else
+                    error "Unexpected argument: $1"
+                    usage
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$task" ]]; then
+        error "Task description required"
+        usage
+        exit 1
+    fi
+
+    # Derive worktree from CWD
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    # If done_criteria is "tasks", verify tasks.md exists; fallback to "manual" if not
+    if [[ "$done_criteria" == "tasks" ]]; then
+        if ! find_tasks_file "$wt_path" &>/dev/null; then
+            warn "No tasks.md found, using manual done criteria"
+            done_criteria="manual"
+        fi
+    fi
+
+    # Check if loop already running
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ -f "$state_file" ]]; then
+        local current_status
+        current_status=$(jq -r '.status' "$state_file" 2>/dev/null)
+        if [[ "$current_status" == "running" || "$current_status" == "starting" ]]; then
+            # Check if process is actually alive
+            local old_pid
+            old_pid=$(jq -r '.terminal_pid // empty' "$state_file" 2>/dev/null)
+            if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+                error "Loop already running for $worktree_name (PID $old_pid)"
+                echo "Use 'wt-loop stop' to stop it first."
+                exit 1
+            else
+                warn "Previous loop (PID ${old_pid:-unknown}) is dead — overwriting stale state"
+                update_loop_state "$state_file" "status" '"stopped"'
+            fi
+        fi
+    fi
+
+    # Check permission mode compatibility
+    local effective_permission_mode
+    if [[ -n "$permission_mode_override" ]]; then
+        effective_permission_mode="$permission_mode_override"
+    else
+        effective_permission_mode=$(get_claude_permission_mode)
+    fi
+
+    if [[ "$effective_permission_mode" == "plan" ]]; then
+        if [[ "$force_start" != true ]]; then
+            error "Permission mode 'plan' is incompatible with Ralph loop (requires interactive approval)"
+            echo "Use --force to override, or change permission mode:"
+            echo "  wt-loop start --permission-mode auto-accept \"$task\""
+            exit 1
+        fi
+        warn "Starting Ralph loop with 'plan' mode (--force). Claude will run without permission flags."
+    fi
+
+    # Initialize state
+    info "Initializing loop state..."
+    init_loop_state "$wt_path" "$worktree_name" "$task" "$max_iter" "$done_criteria" "$capacity_limit" "$stall_threshold" "$iteration_timeout"
+
+    # Save permission mode in state
+    local state_file_init
+    state_file_init=$(get_loop_state_file "$wt_path")
+    local tmp_pm
+    tmp_pm=$(mktemp)
+    jq --arg pm "$effective_permission_mode" '.permission_mode = $pm' "$state_file_init" > "$tmp_pm" && mv "$tmp_pm" "$state_file_init"
+
+    # Spawn terminal with logging
+    info "Spawning terminal for Ralph loop..."
+
+    local terminal_title="Ralph: $worktree_name"
+    local log_file
+    log_file=$(get_loop_log_file "$wt_path")
+
+    # Clear previous log
+    > "$log_file"
+
+    # Save log path to state
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+    jq --arg log "$log_file" '.log_file = $log' "$state_file" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+
+    local fs_flag=""
+    if [[ "$fullscreen" == true ]]; then
+        fs_flag="--full-screen"
+    fi
+
+    # The run command: cd to worktree and run wt-loop run (CWD-based)
+    local run_cmd="cd \"$wt_path\" && \"$SCRIPT_DIR/wt-loop\" run 2>&1 | tee -a \"$log_file\""
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: Use Terminal.app via osascript
+        # Create a temp script to avoid escaping issues
+        local temp_script="/tmp/ralph-loop-$(echo "$worktree_name" | tr '/' '-').sh"
+        cat > "$temp_script" << SCRIPT
+#!/bin/bash
+cd "$wt_path"
+"$SCRIPT_DIR/wt-loop" run 2>&1 | tee -a "$log_file"
+SCRIPT
+        chmod +x "$temp_script"
+        # Launch in Terminal.app with auto-close: exec replaces the shell so
+        # Terminal sees the process exit, then the watcher closes the window.
+        osascript << APPLESCRIPT &
+tell application "Terminal"
+    set theTab to do script "exec /bin/bash $temp_script"
+    -- Wait for the loop to finish
+    repeat
+        delay 5
+        try
+            if not busy of theTab then exit repeat
+        on error
+            exit repeat
+        end try
+    end repeat
+    -- Close the window when done
+    delay 1
+    try
+        close (first window whose selected tab is theTab) saving no
+    on error
+        try
+            repeat with w in (every window whose name contains "Ralph: $worktree_name")
+                close w saving no
+            end repeat
+        end try
+    end try
+end tell
+APPLESCRIPT
+    elif command -v gnome-terminal &>/dev/null; then
+        gnome-terminal $fs_flag --title="$terminal_title" -- bash -c "$run_cmd" &
+    elif command -v xterm &>/dev/null; then
+        [[ "$fullscreen" == true ]] && fs_flag="-fullscreen"
+        xterm $fs_flag -title "$terminal_title" -e "bash -c '$run_cmd'" &
+    elif command -v kitty &>/dev/null; then
+        [[ "$fullscreen" == true ]] && fs_flag="--start-as=fullscreen"
+        kitty $fs_flag --title "$terminal_title" bash -c "$run_cmd" &
+    else
+        error "No supported terminal found (gnome-terminal, xterm, kitty, Terminal.app)"
+        exit 1
+    fi
+
+    sleep 1
+
+    success "Ralph loop started!"
+    echo ""
+    echo "  Worktree: $worktree_name"
+    echo "  Task: ${task:0:60}..."
+    echo "  Max iterations: $max_iter"
+    echo "  Done criteria: $done_criteria"
+    echo "  Stall threshold: $stall_threshold"
+    echo "  Iteration timeout: ${iteration_timeout}m"
+    echo ""
+    echo "Commands:"
+    echo "  wt-loop status   - Check progress"
+    echo "  wt-loop stop     - Stop the loop"
+    echo "  wt-loop history  - View iteration history"
+}
+
+# Stop a running loop
+cmd_stop() {
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ ! -f "$state_file" ]]; then
+        error "No loop found in: $worktree_name"
+        exit 1
+    fi
+
+    # Update status to stopped
+    update_loop_state "$state_file" "status" '"stopped"'
+
+    # Try to kill terminal process
+    local pid_file
+    pid_file=$(get_terminal_pid_file "$wt_path")
+
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            info "Sending stop signal to loop process (PID: $pid)..."
+            # Kill the entire process tree (loop script + claude + tee)
+            pkill -TERM -P "$pid" 2>/dev/null || true
+            kill "$pid" 2>/dev/null || true
+            sleep 2
+            # Force kill anything still alive
+            pkill -9 -P "$pid" 2>/dev/null || true
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        rm -f "$pid_file"
+    fi
+
+    # Close the Terminal window on macOS
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sleep 1
+        osascript <<EOF 2>/dev/null || true
+tell application "Terminal"
+    repeat with w in (every window whose name contains "Ralph: $worktree_name")
+        close w saving no
+    end repeat
+end tell
+EOF
+    fi
+
+    success "Loop stopped: $worktree_name"
+}
+
+# Show loop status
+cmd_status() {
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ ! -f "$state_file" ]]; then
+        echo "No loop found in: $worktree_name"
+        exit 0
+    fi
+
+    # Display status
+    echo ""
+    echo "Ralph Loop Status: $worktree_name"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    local status iteration max_iter task started
+    status=$(jq -r '.status' "$state_file")
+    iteration=$(jq -r '.current_iteration' "$state_file")
+    max_iter=$(jq -r '.max_iterations' "$state_file")
+    task=$(jq -r '.task' "$state_file")
+    started=$(jq -r '.started_at' "$state_file")
+
+    # Detect orphan: state says "running" but process is dead
+    if [[ "$status" == "running" ]]; then
+        local loop_pid
+        loop_pid=$(jq -r '.terminal_pid // empty' "$state_file")
+        if [[ -n "$loop_pid" ]] && ! kill -0 "$loop_pid" 2>/dev/null; then
+            status="stopped"
+            update_loop_state "$state_file" "status" '"stopped"'
+            warn "Loop process (PID $loop_pid) is dead — status corrected to stopped"
+        fi
+    fi
+
+    local status_icon
+    case "$status" in
+        running) status_icon="🔄" ;;
+        done) status_icon="✅" ;;
+        stuck) status_icon="⚠️" ;;
+        stalled) status_icon="❓" ;;
+        stopped) status_icon="⏹️" ;;
+        *) status_icon="❓" ;;
+    esac
+
+    echo "  Status: $status_icon $status"
+    echo "  Iteration: $iteration / $max_iter"
+    echo "  Task: ${task:0:50}..."
+    echo "  Started: $started"
+
+    # Show token usage if available
+    local total_tokens
+    total_tokens=$(jq -r '.total_tokens // 0' "$state_file")
+    if [[ "$total_tokens" -gt 0 ]]; then
+        # Format with thousands separator
+        local formatted_tokens
+        formatted_tokens=$(printf "%'d" "$total_tokens")
+        echo "  Tokens used: $formatted_tokens"
+    fi
+
+    # Show iteration summary
+    local iter_count
+    iter_count=$(jq '.iterations | length' "$state_file")
+    if [[ "$iter_count" -gt 0 ]]; then
+        echo ""
+        echo "  Last iterations:"
+        jq -r '.iterations[-3:][] | "    \(.n). \(.started | split("T")[1] | split("+")[0]) - done: \(.done_check) - tokens: \(.tokens_used // "N/A")"' "$state_file"
+    fi
+
+    echo ""
+}
+
+# List all active loops
+cmd_list() {
+    echo ""
+    echo "Active Ralph Loops"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    local found=0
+
+    # Get all projects
+    ensure_config
+    local projects
+    projects=$(jq -r '.projects | keys[]' "$CONFIG_FILE" 2>/dev/null)
+
+    while IFS= read -r project_name; do
+        [[ -z "$project_name" ]] && continue
+
+        local project_path
+        project_path=$(get_project_path "$project_name")
+        [[ -z "$project_path" ]] && continue
+
+        # Get all worktrees
+        local worktrees
+        worktrees=$(git -C "$project_path" worktree list --porcelain 2>/dev/null | grep '^worktree ' | cut -d' ' -f2-)
+
+        while IFS= read -r wt_path; do
+            [[ -z "$wt_path" ]] && continue
+            [[ "$wt_path" == "$project_path" ]] && continue
+
+            local state_file="$wt_path/.claude/loop-state.json"
+            if [[ -f "$state_file" ]]; then
+                local status wt_name iteration max_iter
+                status=$(jq -r '.status' "$state_file" 2>/dev/null)
+                wt_name=$(jq -r '.worktree_name // empty' "$state_file" 2>/dev/null)
+                # Fallback for old state files that still have change_id
+                if [[ -z "$wt_name" ]]; then
+                    wt_name=$(jq -r '.change_id // empty' "$state_file" 2>/dev/null)
+                fi
+                if [[ -z "$wt_name" ]]; then
+                    wt_name=$(basename "$wt_path")
+                fi
+                iteration=$(jq -r '.current_iteration' "$state_file" 2>/dev/null)
+                max_iter=$(jq -r '.max_iterations' "$state_file" 2>/dev/null)
+
+                local status_icon
+                case "$status" in
+                    running) status_icon="🔄" ;;
+                    done) status_icon="✅" ;;
+                    stuck) status_icon="⚠️" ;;
+                    stopped) status_icon="⏹️" ;;
+                    *) status_icon="❓" ;;
+                esac
+
+                printf "  %-20s %s %-10s %s/%s\n" "$wt_name" "$status_icon" "$status" "$iteration" "$max_iter"
+                found=1
+            fi
+        done <<< "$worktrees"
+    done <<< "$projects"
+
+    if [[ "$found" -eq 0 ]]; then
+        echo "  No active loops found."
+    fi
+
+    echo ""
+}
+
+# Monitor loop until complete
+cmd_monitor() {
+    local interval=30
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval)
+                interval="$2"
+                shift 2
+                ;;
+            -*)
+                error "Unknown option: $1"
+                exit 1
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    echo ""
+    echo "Monitoring Ralph Loop: $worktree_name"
+    echo "Polling every ${interval}s (Ctrl+C to stop monitoring)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    local last_iteration=0
+
+    while true; do
+        if [[ ! -f "$state_file" ]]; then
+            echo "[$(date '+%H:%M:%S')] Waiting for loop to start..."
+            sleep "$interval"
+            continue
+        fi
+
+        local status iteration max_iter task started
+        status=$(jq -r '.status' "$state_file" 2>/dev/null)
+        iteration=$(jq -r '.current_iteration' "$state_file" 2>/dev/null)
+        max_iter=$(jq -r '.max_iterations' "$state_file" 2>/dev/null)
+        task=$(jq -r '.task' "$state_file" 2>/dev/null)
+        started=$(jq -r '.started_at' "$state_file" 2>/dev/null)
+
+        # Calculate elapsed time
+        local started_epoch now_epoch elapsed_mins
+        started_epoch=$(parse_date_to_epoch "$started")
+        now_epoch=$(date +%s)
+        elapsed_mins=$(( (now_epoch - started_epoch) / 60 ))
+
+        # Report on iteration changes
+        if [[ "$iteration" != "$last_iteration" ]]; then
+            if [[ "$iteration" -gt 0 ]]; then
+                echo "[$(date '+%H:%M:%S')] Iteration $iteration/$max_iter started (${elapsed_mins}m elapsed)"
+            fi
+            last_iteration="$iteration"
+        fi
+
+        # Check for final states
+        case "$status" in
+            done)
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "✅ LOOP COMPLETE!"
+                echo "   Finished after $iteration iteration(s) in ${elapsed_mins} minutes"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                exit 0
+                ;;
+            stuck)
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "⚠️  LOOP STUCK"
+                echo "   Max iterations ($max_iter) reached after ${elapsed_mins} minutes"
+                echo "   Review work and resume or adjust approach"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                exit 1
+                ;;
+            stopped)
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "⏹️  LOOP STOPPED"
+                echo "   Stopped at iteration $iteration after ${elapsed_mins} minutes"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                exit 0
+                ;;
+        esac
+
+        sleep "$interval"
+    done
+}
+
+# Show iteration history
+cmd_history() {
+    local wt_path
+    wt_path=$(get_worktree_path_from_cwd)
+    local worktree_name
+    worktree_name=$(basename "$wt_path")
+
+    local state_file
+    state_file=$(get_loop_state_file "$wt_path")
+
+    if [[ ! -f "$state_file" ]]; then
+        error "No loop found in: $worktree_name"
+        exit 1
+    fi
+
+    echo ""
+    echo "Ralph Loop History: $worktree_name"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    local task
+    task=$(jq -r '.task' "$state_file")
+    echo "Task: $task"
+    echo ""
+
+    echo "Iterations:"
+    jq -r '.iterations[] | "  \(.n). Started: \(.started | split("T")[1] | split("+")[0]) | Ended: \(.ended | split("T")[1] | split("+")[0]) | Done: \(.done_check) | Commits: \(.commits | length) | Tokens: \(.tokens_used // "N/A")"' "$state_file"
+
+    # Show total tokens
+    local total_tokens
+    total_tokens=$(jq -r '.total_tokens // 0' "$state_file")
+    if [[ "$total_tokens" -gt 0 ]]; then
+        local formatted_tokens
+        formatted_tokens=$(printf "%'d" "$total_tokens")
+        echo ""
+        echo "Total tokens: $formatted_tokens"
+    fi
+
+    echo ""
+}
+
+# Main
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        start)
+            cmd_start "$@"
+            ;;
+        stop)
+            cmd_stop "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        history)
+            cmd_history "$@"
+            ;;
+        monitor)
+            cmd_monitor "$@"
+            ;;
+        run)
+            cmd_run "$@"
+            ;;
+        -h|--help|"")
+            usage
+            exit 0
+            ;;
+        *)
+            error "Unknown command: $cmd"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

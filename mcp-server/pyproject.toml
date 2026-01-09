@@ -1,0 +1,11 @@
+[project]
+name = "wt-mcp-server"
+version = "0.1.0"
+description = "MCP server for wt-tools - exposes worktree and Ralph status to AI agents"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=0.1.0",
+]
+
+[project.scripts]
+wt-mcp-server = "wt_mcp_server:main"

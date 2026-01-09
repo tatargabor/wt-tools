@@ -1,0 +1,33 @@
+# MCP configuration with credentials
+.mcp.json
+
+# Editor directories
+.zed/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (if any)
+node_modules/
+*.pyc
+__pycache__/
+*.pid
+loop-state.json
+
+# Team sync worktree (wt-control branch)
+.wt-control/
+
+# Project-specific JIRA/Confluence config (contains credentials/project keys)
+.wt-tools/jira.json
+.wt-tools/confluence.json
+
+# Claude Code session data
+.claude/
+
+# Python virtual environments
+.venv/
+mcp-server/.venv/
+
+# Test results
+test-results/

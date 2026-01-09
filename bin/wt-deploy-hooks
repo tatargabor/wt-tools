@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# wt-deploy-hooks - Deploy Claude Code hooks to a target directory
+#
+# Usage: wt-deploy-hooks [--quiet] <target-dir>
+#
+# Deploys UserPromptSubmit and Stop hooks to <target-dir>/.claude/settings.json.
+# Idempotent: skips if both hooks are already present.
+# Creates backup before modifying existing settings.
+
+set -e
+
+QUIET=false
+TARGET_DIR=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --quiet|-q)
+            QUIET=true
+            shift
+            ;;
+        *)
+            TARGET_DIR="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$TARGET_DIR" ]]; then
+    echo "Usage: wt-deploy-hooks [--quiet] <target-dir>" >&2
+    exit 1
+fi
+
+if [[ ! -d "$TARGET_DIR" ]]; then
+    echo "Error: directory does not exist: $TARGET_DIR" >&2
+    exit 1
+fi
+
+_info() { $QUIET || echo "$@"; }
+_success() { $QUIET || echo "  ✔ $*"; }
+
+settings_file="$TARGET_DIR/.claude/settings.json"
+
+mkdir -p "$TARGET_DIR/.claude"
+
+# The hook config we want to ensure exists
+hook_json=$(cat << 'HOOKJSON'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-skill",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+HOOKJSON
+)
+
+if [[ -f "$settings_file" ]]; then
+    # Check if both hooks already configured
+    if jq -e '.hooks.Stop' "$settings_file" &>/dev/null && jq -e '.hooks.UserPromptSubmit' "$settings_file" &>/dev/null; then
+        return 0 2>/dev/null || exit 0
+    fi
+    # Remove stale PreToolUse/Skill hook if present (replaced by UserPromptSubmit)
+    if jq -e '.hooks.PreToolUse' "$settings_file" &>/dev/null; then
+        jq 'del(.hooks.PreToolUse)' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+    fi
+    # Backup and merge
+    cp "$settings_file" "$settings_file.bak"
+    jq --argjson hooks "$(echo "$hook_json" | jq '.hooks')" '. * {"hooks": (.hooks // {} | . * $hooks)}' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+    _success "Updated: $settings_file (added hooks)"
+else
+    echo "$hook_json" | jq '.' > "$settings_file"
+    _success "Created: $settings_file (hooks)"
+fi
