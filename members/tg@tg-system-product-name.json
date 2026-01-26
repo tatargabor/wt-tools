@@ -1,0 +1,25 @@
+{
+  "name": "tg@tg-system-product-name",
+  "display_name": "tg@tg-System-Product-Name",
+  "user": "tg",
+  "hostname": "tg-System-Product-Name",
+  "status": "idle",
+  "changes": [
+    {
+      "id": "master",
+      "remote_url": "git@github.com:tatargabor/wt-tools",
+      "agent_status": null,
+      "last_activity": "2026-02-12T13:25:27Z",
+      "activity": {
+        "skill": "opsx:explore",
+        "skill_args": "mindjárt githubra deployolunk és élesbe áll az opensource projekt. readmebe szerinted kellene anim gif mondjuk hogyan használd? vagy mi szokott lenni ami segít az embereknek? mit javasolsz?",
+        "broadcast": null,
+        "modified_files": [],
+        "updated_at": "2026-02-10T11:22:43Z"
+      }
+    }
+  ],
+  "last_seen": "2026-02-12T17:01:49Z",
+  "chat_public_key": "DVQ5MEZOSRKdysVaAD3kh1K4Xo+qjSiCzllEE59eBCg=",
+  "chat_key_fingerprint": "4d92585e"
+}

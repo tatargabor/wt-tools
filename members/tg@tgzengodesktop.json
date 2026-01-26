@@ -1,0 +1,38 @@
+{
+  "name": "tg@tgzengodesktop",
+  "display_name": "tg@tgzengodesktop",
+  "user": "tg",
+  "hostname": "tgzengodesktop",
+  "status": "idle",
+  "changes": [
+    {
+      "id": "master",
+      "remote_url": "git@github.com:tatargabor/wt-tools",
+      "agent_status": null,
+      "last_activity": "2026-02-10T23:04:04Z",
+      "activity": {
+        "skill": "opsx:ff",
+        "skill_args": "editor-detection-overhaul",
+        "broadcast": null,
+        "modified_files": [],
+        "updated_at": "2026-02-09T17:04:41Z"
+      }
+    },
+    {
+      "id": "shodh-memory-integration",
+      "remote_url": "git@github.com:tatargabor/wt-tools",
+      "agent_status": null,
+      "last_activity": "2026-02-12T16:47:09Z",
+      "activity": {
+        "skill": "opsx:ff",
+        "skill_args": "openspec-gui-button",
+        "broadcast": null,
+        "modified_files": [],
+        "updated_at": "2026-02-12T15:42:19Z"
+      }
+    }
+  ],
+  "last_seen": "2026-02-12T17:02:37Z",
+  "chat_public_key": "420TbtCbIz++T/zRl2Jky/6QlkidXWHZyWsKXXaV3gI=",
+  "chat_key_fingerprint": "edb975b8"
+}

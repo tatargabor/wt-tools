@@ -1,0 +1,18 @@
+{
+  "name": "tatargabriella@tatar-macbook-air",
+  "display_name": "tatargabriella@Tatar-MacBook-Air",
+  "user": "tatargabriella",
+  "hostname": "Tatar-MacBook-Air",
+  "status": "idle",
+  "changes": [
+    {
+      "id": "master",
+      "remote_url": "git@github.com:tatargabor/wt-tools",
+      "agent_status": null,
+      "last_activity": "2026-02-07T21:10:34Z"
+    }
+  ],
+  "last_seen": "2026-02-12T17:02:17Z",
+  "chat_public_key": "MILls/dvU6ZY7RcrMBHU720W55ZpKiTHifYo3rqfo1Q=",
+  "chat_key_fingerprint": "87c11a7b"
+}
