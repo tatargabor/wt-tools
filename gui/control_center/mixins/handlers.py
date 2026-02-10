@@ -405,8 +405,9 @@ class HandlersMixin:
         Falls back to opening with the default editor (zed or code).
         """
         # Editor commands for opening a directory
+        # Zed on Linux needs -n to open a new window; on macOS it does this automatically
         ide_commands = {
-            "zed": ["zed"],
+            "zed": ["zed", "-n"],
             "vscode": ["code"],
             "cursor": ["cursor"],
             "windsurf": ["windsurf"],
@@ -436,7 +437,7 @@ class HandlersMixin:
         # Default: try zed, then code
         import shutil
         if shutil.which("zed"):
-            return ["zed", wt_path]
+            return ["zed", "-n", wt_path]
         if shutil.which("code"):
             return ["code", wt_path]
         return ["xdg-open", wt_path]
