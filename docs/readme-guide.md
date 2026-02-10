@@ -15,7 +15,7 @@ The README MUST contain these sections in this exact order:
 
 ### 2. Overview
 - 3-5 sentences explaining what wt-tools is and who it's for
-- Screenshot of Control Center GUI (`docs/images/control-center.png`)
+- Screenshot of Control Center GUI (`docs/images/control-center.gif`)
 - Keep it high-level — details come later
 
 ### 3. Platform & Editor Support
