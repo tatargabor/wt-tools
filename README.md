@@ -14,7 +14,7 @@ The **Control Center** is a compact, always-on-top GUI that shows every worktree
 
 Beyond the basics: the **Ralph Loop** runs agents autonomously through task lists, **Team Sync** coordinates multiple machines through a git branch (no server needed), and the **MCP Server** lets agents see each other's progress. The project is useful today — AI tooling evolves fast and something may replace it eventually, but right now it fills a real gap.
 
-![Control Center](docs/images/control-center.png)
+![Control Center](docs/images/control-center.gif)
 
 ---
 
