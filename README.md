@@ -16,7 +16,7 @@ Beyond the basics: the **Ralph Loop** runs agents autonomously through task list
 
 ![Always-on-top Control Center alongside your editor](docs/images/control-center-full.gif)
 
-*The Control Center sits on top of your editor — small enough to stay out of the way, always visible when you need it:*
+*Compact, always-on-top, draggable anywhere on screen. Multiple color themes including transparent mode. Takes up minimal space but keeps everything visible — surprisingly pleasant to use day-to-day.*
 
 ![Control Center close-up](docs/images/control-center.gif)
 
