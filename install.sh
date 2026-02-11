@@ -188,7 +188,7 @@ install_scripts() {
 
     mkdir -p "$INSTALL_DIR"
 
-    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-deploy-hooks)
+    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-deploy-hooks wt-memory)
 
     for script in "${scripts[@]}"; do
         local src="$SCRIPT_DIR/bin/$script"
@@ -282,6 +282,49 @@ install_zed() {
         success "Zed editor installed"
     else
         warn "Zed installation may require manual steps"
+    fi
+}
+
+# Install Shodh-Memory (optional — developer memory for OpenSpec workflow)
+install_shodh_memory() {
+    info "Checking Shodh-Memory..."
+
+    if python3 -c "from shodh_memory import Memory" 2>/dev/null; then
+        success "Shodh-Memory already installed"
+        return 0
+    fi
+
+    echo ""
+    echo "  Shodh-Memory provides local cognitive memory for the OpenSpec workflow."
+    echo "  It's optional — without it, all memory operations are silently skipped."
+    echo ""
+    read -p "Install Shodh-Memory? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        info "Skipping Shodh-Memory (wt-memory will work in no-op mode)"
+        return 0
+    fi
+
+    local pip_cmd=""
+    if check_command pip3; then
+        pip_cmd="pip3"
+    elif check_command pip; then
+        pip_cmd="pip"
+    else
+        warn "pip not found. Install manually: pip install shodh-memory"
+        return 0
+    fi
+
+    info "Installing Shodh-Memory..."
+    if $pip_cmd install shodh-memory 2>&1; then
+        success "Shodh-Memory installed"
+        echo "  Check status with: wt-memory status"
+    elif $pip_cmd install --user shodh-memory 2>&1; then
+        success "Shodh-Memory installed (user)"
+    elif $pip_cmd install --break-system-packages shodh-memory 2>&1; then
+        success "Shodh-Memory installed"
+    else
+        warn "Shodh-Memory installation failed. Install manually: pip install shodh-memory"
     fi
 }
 
@@ -844,6 +887,9 @@ main() {
     echo ""
 
     install_gui_dependencies
+    echo ""
+
+    install_shodh_memory
     echo ""
 
     if [[ "$PLATFORM" == "linux" ]]; then

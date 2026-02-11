@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# wt-memory - CLI helper for Shodh-Memory (Python library)
+# Provides remember/recall operations with graceful degradation.
+# If shodh-memory is not installed, all commands silently succeed (no-op).
+
+set -euo pipefail
+
+# Storage path (override with env var)
+SHODH_STORAGE="${SHODH_STORAGE:-${HOME}/.local/share/wt-tools/memory}"
+
+usage() {
+    cat <<EOF
+Usage: wt-memory <command> [options]
+
+CLI helper for Shodh-Memory (local cognitive memory).
+
+Commands:
+  health                          Check if shodh-memory Python package is available
+  remember --type TYPE [--tags t1,t2] < content
+                                  Save a memory (reads content from stdin)
+  recall "query" [--limit N]      Semantic search (JSON stdout)
+  status                          Show config and health
+
+Environment:
+  SHODH_STORAGE   Storage path (default: ~/.local/share/wt-tools/memory)
+
+Graceful degradation:
+  If shodh-memory is not installed, 'remember' exits silently (exit 0)
+  and 'recall' returns empty JSON array [].
+EOF
+}
+
+# Check if shodh-memory Python package is importable
+cmd_health() {
+    if python3 -c "from shodh_memory import Memory" 2>/dev/null; then
+        echo "ok"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Save a memory: reads content from stdin
+# Usage: echo "content" | wt-memory remember --type Decision --tags repo,change
+cmd_remember() {
+    local memory_type=""
+    local tags=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type) memory_type="$2"; shift 2 ;;
+            --tags) tags="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$memory_type" ]]; then
+        echo "Error: --type is required" >&2
+        return 1
+    fi
+
+    # Read content from stdin
+    local content
+    content=$(cat)
+
+    if [[ -z "$content" ]]; then
+        return 0
+    fi
+
+    # Health check — silent no-op if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Build tags as Python list
+    local tags_py="[]"
+    if [[ -n "$tags" ]]; then
+        tags_py=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+    fi
+
+    # Pass data via env vars to avoid shell escaping issues
+    _SHODH_STORAGE="$SHODH_STORAGE" \
+    _SHODH_CONTENT="$content" \
+    _SHODH_TYPE="$memory_type" \
+    _SHODH_TAGS="$tags_py" \
+    python3 -c "
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+tags = json.loads(os.environ['_SHODH_TAGS'])
+m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], tags=tags)
+" 2>/dev/null || true
+
+    return 0
+}
+
+# Semantic search
+# Usage: wt-memory recall "query" --limit 5
+cmd_recall() {
+    local query=""
+    local limit=5
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            -*) shift ;;
+            *)
+                if [[ -z "$query" ]]; then
+                    query="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$query" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Health check — return empty array if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "[]"
+        return 0
+    fi
+
+    _SHODH_STORAGE="$SHODH_STORAGE" \
+    _SHODH_QUERY="$query" \
+    _SHODH_LIMIT="$limit" \
+    python3 -c "
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+results = m.recall(os.environ['_SHODH_QUERY'], limit=int(os.environ['_SHODH_LIMIT']))
+print(json.dumps(results, default=str))
+" 2>/dev/null || echo "[]"
+
+    return 0
+}
+
+# Show configuration and health status
+cmd_status() {
+    echo "Shodh-Memory Configuration:"
+    echo "  Storage:  $SHODH_STORAGE"
+    echo ""
+
+    echo -n "Health: "
+    if cmd_health >/dev/null 2>&1; then
+        echo "available"
+        _SHODH_STORAGE="$SHODH_STORAGE" python3 -c "
+import os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+stats = m.get_stats()
+print(f'  Memories: {stats.get(\"total_memories\", \"?\")}')" 2>/dev/null || true
+    else
+        echo "not installed"
+        echo ""
+        echo "Install:"
+        echo "  pip install shodh-memory"
+    fi
+}
+
+# Main dispatch
+main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 0
+    fi
+
+    local command="$1"
+    shift
+
+    case "$command" in
+        health)   cmd_health "$@" ;;
+        remember) cmd_remember "$@" ;;
+        recall)   cmd_recall "$@" ;;
+        status)   cmd_status "$@" ;;
+        -h|--help|help) usage ;;
+        *)
+            echo "Error: Unknown command '$command'" >&2
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

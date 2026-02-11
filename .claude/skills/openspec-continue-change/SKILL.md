@@ -38,6 +38,16 @@ Continue working on a change by creating the next artifact.
    - `artifacts`: Array of artifacts with their status ("done", "ready", "blocked")
    - `isComplete`: Boolean indicating if all artifacts are complete
 
+2b. **Recall relevant past experience (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Read proposal.md (if it exists) to understand the change context
+   - Construct a search query from the change name and key terms from the proposal
+   - Run: `wt-memory recall "<change-name> <keywords>" --limit 5`
+   - If relevant memories are returned, keep them in mind when creating artifacts (decisions, patterns, past errors)
+
+   If `wt-memory health` fails, skip silently.
+
 3. **Act based on status**:
 
    ---

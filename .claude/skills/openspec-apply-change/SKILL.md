@@ -56,6 +56,14 @@ Implement tasks from an OpenSpec change.
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output
 
+4b. **Recall relevant patterns and errors (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<change-name> implementation patterns errors" --limit 5`
+   - Use relevant memories to inform implementation (avoid past errors, reuse working patterns)
+
+   If `wt-memory health` fails, skip silently.
+
 5. **Show current progress**
 
    Display:
@@ -86,6 +94,21 @@ Implement tasks from an OpenSpec change.
    - Overall progress: "N/M tasks complete"
    - If all done: suggest archive
    - If paused: explain why and wait for guidance
+
+   After showing status, if `wt-memory health` succeeds:
+   - If errors were encountered during this session, save each:
+     ```bash
+     echo "<error description and workaround/fix>" | wt-memory remember --type Observation --tags repo,<change-name>,error
+     ```
+   - If useful patterns were discovered, save each:
+     ```bash
+     echo "<pattern description>" | wt-memory remember --type Learning --tags repo,<change-name>,pattern
+     ```
+   - If all tasks are complete, save a completion event:
+     ```bash
+     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Event --tags repo,<change-name>,implementation
+     ```
+   If health fails, skip silently.
 
 **Output During Implementation**
 

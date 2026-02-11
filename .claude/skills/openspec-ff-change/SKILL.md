@@ -38,6 +38,14 @@ Fast-forward through artifact creation - generate everything needed to start imp
    - `applyRequires`: array of artifact IDs needed before implementation (e.g., `["tasks"]`)
    - `artifacts`: list of all artifacts with their status and dependencies
 
+3b. **Recall relevant past experience (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<change-name> <description-from-user>" --limit 5`
+   - Keep relevant memories (past decisions, patterns, errors) in mind during artifact creation
+
+   If `wt-memory health` fails, skip silently.
+
 4. **Create artifacts in sequence until apply-ready**
 
    Use the **TodoWrite tool** to track progress through the artifacts.
