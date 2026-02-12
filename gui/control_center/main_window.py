@@ -651,7 +651,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
                 [str(SCRIPT_DIR / "wt-status"), "--json"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=30
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)

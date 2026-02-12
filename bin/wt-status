@@ -10,83 +10,95 @@ ICON_WAITING="⚡"
 ICON_IDLE="○"
 ICON_DONE="✓"
 
+# =============================================================================
+# Window cache: ONE osascript/xdotool call per wt-status run
+# Format: "pid|proc_name|window_id|window_name" per line
+# =============================================================================
+_WINDOW_CACHE=""
+_WINDOW_CACHE_LOADED=false
+
+cache_all_windows() {
+    [[ "$_WINDOW_CACHE_LOADED" == "true" ]] && return
+
+    case "$PLATFORM" in
+        macos)
+            # Only query known editors/terminals (not all GUI processes)
+            # Uses window index (not id) because AppleScript can't coerce
+            # window id to text for some apps (Zed, Terminal)
+            _WINDOW_CACHE=$(osascript -e '
+                tell application "System Events"
+                    set output to ""
+                    set targetProcs to every process whose background only is false and (name is "Zed" or name is "Code" or name is "Cursor" or name is "Windsurf" or name is "Terminal" or name is "iTerm2" or name is "kitty" or name is "Alacritty" or name is "WezTerm" or name is "Python")
+                    repeat with proc in targetProcs
+                        try
+                            set procPID to unix id of proc
+                            set procName to name of proc
+                            set winCount to count of windows of proc
+                            if winCount > 0 then
+                                repeat with i from 1 to winCount
+                                    try
+                                        set win to window i of proc
+                                        set winName to name of win
+                                        set output to output & procPID & "|" & procName & "|" & i & "|" & winName & linefeed
+                                    end try
+                                end repeat
+                            end if
+                        end try
+                    end repeat
+                    return output
+                end tell
+            ' 2>/dev/null) || true
+            ;;
+        linux)
+            if command -v xdotool &>/dev/null; then
+                local all_wids
+                all_wids=$(xdotool search --onlyvisible --name '' 2>/dev/null) || true
+                while read -r wid; do
+                    [[ -z "$wid" ]] && continue
+                    local win_pid win_name proc_name
+                    win_pid=$(xdotool getwindowpid "$wid" 2>/dev/null) || continue
+                    win_name=$(xdotool getwindowname "$wid" 2>/dev/null) || win_name=""
+                    proc_name=$(ps -o comm= -p "$win_pid" 2>/dev/null | tr -d ' ') || proc_name="unknown"
+                    _WINDOW_CACHE+="${win_pid}|${proc_name}|${wid}|${win_name}"$'\n'
+                done <<< "$all_wids"
+            fi
+            ;;
+    esac
+
+    _WINDOW_CACHE_LOADED=true
+}
+
 # Find the window that owns an agent process by walking the PPID chain
+# Uses the pre-cached window data (no osascript calls)
 # Args: $1 = agent PID
 # Returns (stdout): "window_id|process_name" if found, empty if not
-# The PPID chain walks from the agent up through parent processes until
-# finding one that owns a window (max 20 levels).
 find_window_for_agent() {
     local agent_pid="$1"
     local current_pid="$agent_pid"
     local depth=0
     local max_depth=20
 
-    case "$PLATFORM" in
-        linux)
-            if command -v xdotool &>/dev/null; then
-                while [[ "$depth" -lt "$max_depth" && "$current_pid" -gt 1 ]] 2>/dev/null; do
-                    # Check if this process owns any top-level X11 window
-                    local all_wids
-                    all_wids=$(xdotool search --pid "$current_pid" 2>/dev/null) || true
-                    if [[ -n "$all_wids" ]]; then
-                        # Filter to top-level windows (_NET_WM_WINDOW_TYPE contains NORMAL)
-                        local wid=""
-                        while read -r _candidate; do
-                            [[ -z "$_candidate" ]] && continue
-                            if xprop -id "$_candidate" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q NORMAL; then
-                                wid="$_candidate"
-                                break
-                            fi
-                        done <<< "$all_wids"
-                        # Fallback: use first window if no NORMAL type found
-                        [[ -z "$wid" ]] && wid=$(echo "$all_wids" | head -1)
-                        # Found a window - get the process name
-                        local proc_name
-                        proc_name=$(ps -o comm= -p "$current_pid" 2>/dev/null | tr -d ' ') || proc_name="unknown"
-                        echo "$wid|$proc_name"
-                        return 0
-                    fi
+    [[ -z "$_WINDOW_CACHE" ]] && return 1
 
-                    # Walk up to parent
-                    local ppid
-                    ppid=$(ps -o ppid= -p "$current_pid" 2>/dev/null | tr -d ' ') || break
-                    [[ -z "$ppid" || "$ppid" == "$current_pid" ]] && break
-                    current_pid="$ppid"
-                    ((depth++))
-                done
-            fi
-            ;;
-        macos)
-            while [[ "$depth" -lt "$max_depth" && "$current_pid" -gt 1 ]] 2>/dev/null; do
-                # Check if this process has windows via AppleScript
-                local result
-                result=$(osascript -e "
-                    tell application \"System Events\"
-                        try
-                            set targetProc to first process whose unix id is $current_pid
-                            if (count of windows of targetProc) > 0 then
-                                return name of targetProc & \"|\" & (id of first window of targetProc)
-                            end if
-                        end try
-                    end tell
-                " 2>/dev/null) || true
+    while [[ "$depth" -lt "$max_depth" && "$current_pid" -gt 1 ]] 2>/dev/null; do
+        # Check if this PID owns any window in the cache
+        local match
+        match=$(echo "$_WINDOW_CACHE" | grep "^${current_pid}|" | head -1) || true
+        if [[ -n "$match" ]]; then
+            local proc_name wid
+            # Format: pid|proc_name|window_id|window_name
+            IFS='|' read -r _ proc_name wid _ <<< "$match"
+            echo "$wid|$proc_name"
+            return 0
+        fi
 
-                if [[ -n "$result" ]]; then
-                    local proc_name="${result%%|*}"
-                    local wid="${result#*|}"
-                    echo "$wid|$proc_name"
-                    return 0
-                fi
-
-                # Walk up to parent
-                local ppid
-                ppid=$(ps -o ppid= -p "$current_pid" 2>/dev/null | tr -d ' ') || break
-                [[ -z "$ppid" || "$ppid" == "$current_pid" ]] && break
-                current_pid="$ppid"
-                ((depth++))
-            done
-            ;;
-    esac
+        # Walk up to parent
+        local ppid
+        ppid=$(ps -o ppid= -p "$current_pid" 2>/dev/null | tr -d ' ') || break
+        [[ -z "$ppid" || "$ppid" == "$current_pid" ]] && break
+        current_pid="$ppid"
+        ((depth++))
+    done
 
     return 1
 }
@@ -127,36 +139,28 @@ is_editor_open() {
             fi
             ;;
         macos)
-            local found
-            found=$(osascript -e "
-                tell application \"System Events\"
-                    repeat with proc in (every process whose background only is false)
-                        repeat with win in windows of proc
-                            if name of win contains \"$wt_basename\" then
-                                return (unix id of proc) & \"|\" & (name of proc) & \"|\" & (id of win)
-                            end if
-                        end repeat
-                    end repeat
-                end tell
-                return \"\"
-            " 2>/dev/null) || true
-            if [[ -n "$found" ]]; then
-                local proc_name wid
-                wid="${found##*|}"
-                found="${found%|*}"
-                proc_name="${found#*|}"
-                _last_window_id="$wid"
-                _last_editor_type="$proc_name"
-                return 0
+            # Search cached window data for title match
+            if [[ -n "$_WINDOW_CACHE" ]]; then
+                local found
+                found=$(echo "$_WINDOW_CACHE" | grep -F "$wt_basename" | head -1) || true
+                if [[ -n "$found" ]]; then
+                    local proc_pid proc_name wid win_name
+                    IFS='|' read -r proc_pid proc_name wid win_name <<< "$found"
+                    _last_window_id="$wid"
+                    _last_editor_type="$proc_name"
+                    return 0
+                fi
             fi
 
             # Fallback: lsof-based detection (works over SSH/headless)
-            local lsof_match
-            lsof_match=$(lsof -c zed -c code -c Cursor -c sublime_text 2>/dev/null \
-                | grep -F "$wt_path" | head -1) || true
-            if [[ -n "$lsof_match" ]]; then
-                _last_editor_type=$(echo "$lsof_match" | awk '{print $1}')
-                return 0
+            cache_editor_lsof
+            if [[ -n "$_EDITOR_LSOF_CACHE" ]]; then
+                local lsof_match
+                lsof_match=$(echo "$_EDITOR_LSOF_CACHE" | grep -F "$wt_path" | head -1) || true
+                if [[ -n "$lsof_match" ]]; then
+                    _last_editor_type=$(echo "$lsof_match" | awk '{print $1}')
+                    return 0
+                fi
             fi
             ;;
     esac
@@ -348,34 +352,69 @@ Examples:
 EOF
 }
 
+# =============================================================================
+# Claude process cache: ONE ps + batch lsof per wt-status run
+# Format: "pid|cwd|tty" per line
+# =============================================================================
+_CLAUDE_PROCS_CACHE=""
+_CLAUDE_PROCS_LOADED=false
+
+cache_claude_procs() {
+    [[ "$_CLAUDE_PROCS_LOADED" == "true" ]] && return
+
+    # Find all claude PIDs with their TTYs
+    local pids_ttys
+    pids_ttys=$(ps -e -o pid=,comm=,tty= | awk '$2 == "claude" {print $1"|"$3}') || true
+
+    if [[ -z "$pids_ttys" ]]; then
+        _CLAUDE_PROCS_LOADED=true
+        return
+    fi
+
+    # Batch get CWDs for all claude processes
+    while IFS='|' read -r pid tty; do
+        [[ -z "$pid" ]] && continue
+        pid=$(echo "$pid" | tr -d ' ')
+        tty=$(echo "$tty" | tr -d ' ')
+        local cwd
+        cwd=$(get_proc_cwd "$pid") || cwd=""
+        [[ -n "$cwd" ]] && _CLAUDE_PROCS_CACHE+="${pid}|${cwd}|${tty}"$'\n'
+    done <<< "$pids_ttys"
+
+    _CLAUDE_PROCS_LOADED=true
+}
+
+# =============================================================================
+# Editor lsof cache: ONE lsof call for editor file detection
+# =============================================================================
+_EDITOR_LSOF_CACHE=""
+_EDITOR_LSOF_LOADED=false
+
+cache_editor_lsof() {
+    [[ "$_EDITOR_LSOF_LOADED" == "true" ]] && return
+    _EDITOR_LSOF_CACHE=$(lsof -c zed -c code -c Cursor -c sublime_text 2>/dev/null) || true
+    _EDITOR_LSOF_LOADED=true
+}
+
 # Detect ALL Claude processes for a directory
 # Returns: newline-separated list of "status:pid:window_id:editor_type" entries, or empty if none found
 detect_agents() {
     local wt_path="$1"
 
-    # Find claude processes (use ps instead of pgrep — pgrep skips ancestors on macOS)
-    local pids
-    pids=$(ps -e -o pid=,comm= | awk '$2 == "claude" {print $1}') || true
+    [[ -z "$_CLAUDE_PROCS_CACHE" ]] && return
 
-    if [[ -z "$pids" ]]; then
-        return
-    fi
-
-    # Collect PIDs that belong to this worktree
+    # Collect PIDs that belong to this worktree (from cache)
     local matching_pids=()
-    while read -r pid; do
+    local matching_ttys=()
+    while IFS='|' read -r pid cwd tty; do
         [[ -z "$pid" ]] && continue
 
-        # Get working directory of process
-        local proc_cwd
-        proc_cwd=$(get_proc_cwd "$pid") || continue
-        [[ -z "$proc_cwd" ]] && continue
-
         # Check if process is in this worktree (exact match or subdir)
-        if [[ "$proc_cwd" == "$wt_path" ]] || [[ "$proc_cwd" == "$wt_path/"* ]]; then
+        if [[ "$cwd" == "$wt_path" ]] || [[ "$cwd" == "$wt_path/"* ]]; then
             matching_pids+=("$pid")
+            matching_ttys+=("$tty")
         fi
-    done <<< "$pids"
+    done <<< "$_CLAUDE_PROCS_CACHE"
 
     if [[ ${#matching_pids[@]} -eq 0 ]]; then
         return
@@ -417,8 +456,7 @@ detect_agents() {
 
         # Check if agent is orphaned: no TTY means detached/abandoned process
         # Agents with a valid TTY are legitimate (terminal or IDE-launched)
-        local tty
-        tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+        local tty="${matching_ttys[$i]}"
         if [[ -z "$tty" ]] || [[ "$tty" == "?" ]] || [[ "$tty" == "??" ]]; then
             # No TTY at all — orphan (terminal was closed, process survived)
             status="orphan"
@@ -655,6 +693,11 @@ collect_all_status() {
     local waiting=0
     local idle=0
     local total=0
+
+    # Cache all window data upfront (single osascript/xdotool call)
+    cache_all_windows
+    # Cache all claude process CWDs upfront (single ps + batch lsof)
+    cache_claude_procs
 
     ensure_config
 
