@@ -5,11 +5,14 @@ Table Mixin - Table rendering and row updates
 import json
 import math
 import os
+import subprocess
 from pathlib import Path
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton, QTableWidgetItem
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
+
+from ...constants import SCRIPT_DIR
 
 __all__ = ["TableMixin"]
 
@@ -106,6 +109,7 @@ class TableMixin:
         self.row_to_worktree = {}
         self.row_to_agent = {}
         self.row_to_team_worktree = {}
+        self.row_to_project = {}
         self.running_rows = set()
 
         row = 0
@@ -118,6 +122,7 @@ class TableMixin:
             header_widget = self._create_project_header(proj_name, proj_filter, proj_unread)
             self.table.setCellWidget(row, 0, header_widget)
             self.table.setSpan(row, 0, 1, NUM_COLS)
+            self.row_to_project[row] = proj_name
             # Make header row not selectable
             for col in range(NUM_COLS):
                 item = QTableWidgetItem("")
@@ -155,8 +160,23 @@ class TableMixin:
         # Adjust window height to fit content
         self.adjust_height_to_content()
 
+    def get_memory_status(self, project: str) -> dict:
+        """Check shodh-memory availability and stats for a project.
+        Returns {"available": bool, "count": int}. Safe — never raises."""
+        try:
+            result = subprocess.run(
+                [str(SCRIPT_DIR / "wt-memory"), "--project", project, "status", "--json"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                data = json.loads(result.stdout.strip())
+                return {"available": data.get("available", False), "count": data.get("count", 0)}
+        except Exception:
+            pass
+        return {"available": False, "count": 0}
+
     def _create_project_header(self, project: str, filter_state: int, unread: int) -> QWidget:
-        """Create a project header widget with team filter and chat buttons"""
+        """Create a project header widget with team filter, chat, and memory buttons"""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(5, 2, 5, 2)
@@ -168,6 +188,24 @@ class TableMixin:
         layout.addWidget(label)
 
         layout.addStretch()
+
+        # Memory [M] button
+        mem_status = self.get_memory_status(project)
+        mem_btn = QPushButton("M")
+        mem_btn.setFixedSize(22, 22)
+        if mem_status["available"] and mem_status["count"] > 0:
+            mem_color = self.get_color("status_compacting")  # purple
+            mem_tooltip = f"Memory: {mem_status['count']} memories"
+        elif mem_status["available"]:
+            mem_color = self.get_color("status_idle")
+            mem_tooltip = "Memory: no memories yet"
+        else:
+            mem_color = self.get_color("status_idle")
+            mem_tooltip = "Memory: not installed"
+        mem_btn.setStyleSheet(f"QPushButton {{ background-color: {mem_color}; color: white; border-radius: 4px; font-weight: bold; font-size: 11px; }}")
+        mem_btn.setToolTip(mem_tooltip)
+        mem_btn.clicked.connect(lambda checked, p=project: self.show_memory_browse_dialog(p))
+        layout.addWidget(mem_btn)
 
         # Team filter button - show for projects with team enabled
         project_team_enabled = self.get_project_team_enabled(project)

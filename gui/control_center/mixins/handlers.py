@@ -23,6 +23,7 @@ from ...dialogs import (
     get_text, get_item, get_existing_directory,
 )
 from ...logging_setup import log_exceptions
+from ...dialogs.memory_dialog import MemoryBrowseDialog, RememberNoteDialog
 from ...platform import get_platform
 
 __all__ = ["HandlersMixin"]
@@ -644,3 +645,13 @@ class HandlersMixin:
             cmd = [str(SCRIPT_DIR / "wt-close"), "-p", wt["project"], wt["change_id"], "--force"]
             self.run_command_dialog(f"Closing {wt['change_id']}", cmd)
             self.refresh_status()
+
+    def show_memory_browse_dialog(self, project: str):
+        """Open the memory browse dialog for a project"""
+        dialog = MemoryBrowseDialog(self, project)
+        dialog.exec()
+
+    def show_remember_note_dialog(self, project: str):
+        """Open the remember note dialog for a project"""
+        dialog = RememberNoteDialog(self, project)
+        dialog.exec()

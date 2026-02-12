@@ -1,33 +1,80 @@
 #!/usr/bin/env bash
 # wt-memory - CLI helper for Shodh-Memory (Python library)
-# Provides remember/recall operations with graceful degradation.
+# Provides per-project remember/recall operations with graceful degradation.
 # If shodh-memory is not installed, all commands silently succeed (no-op).
 
 set -euo pipefail
 
-# Storage path (override with env var)
+# Storage root (override with env var). Per-project dirs created underneath.
 SHODH_STORAGE="${SHODH_STORAGE:-${HOME}/.local/share/wt-tools/memory}"
+
+# Global --project override (set by main before dispatch)
+PROJECT=""
 
 usage() {
     cat <<EOF
 Usage: wt-memory <command> [options]
 
-CLI helper for Shodh-Memory (local cognitive memory).
+CLI helper for Shodh-Memory (local per-project cognitive memory).
 
 Commands:
   health                          Check if shodh-memory Python package is available
   remember --type TYPE [--tags t1,t2] < content
                                   Save a memory (reads content from stdin)
   recall "query" [--limit N]      Semantic search (JSON stdout)
-  status                          Show config and health
+  list                            List all memories for current project (JSON stdout)
+  status [--json]                 Show config, health, and memory count
+  projects                        List all projects with memory counts
+
+Global options:
+  --project NAME                  Override project name (default: auto-detect from git root)
 
 Environment:
-  SHODH_STORAGE   Storage path (default: ~/.local/share/wt-tools/memory)
+  SHODH_STORAGE   Storage root (default: ~/.local/share/wt-tools/memory)
 
 Graceful degradation:
-  If shodh-memory is not installed, 'remember' exits silently (exit 0)
-  and 'recall' returns empty JSON array [].
+  If shodh-memory is not installed, 'remember' exits silently (exit 0),
+  'recall' and 'list' return empty JSON array [], and 'status --json'
+  returns {"available": false, ...}.
 EOF
+}
+
+# Resolve project name from git root or --project flag
+resolve_project() {
+    if [[ -n "$PROJECT" ]]; then
+        echo "$PROJECT"
+        return 0
+    fi
+
+    # Auto-detect from git root
+    local toplevel
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || true
+    if [[ -n "$toplevel" ]]; then
+        basename "$toplevel"
+    else
+        echo "_global"
+    fi
+}
+
+# Get the per-project storage path
+get_storage_path() {
+    local project
+    project=$(resolve_project)
+
+    # Legacy detection: if .sst files exist directly in SHODH_STORAGE root,
+    # and we'd resolve to _global, use _legacy instead
+    if [[ "$project" == "_global" ]] && ls "$SHODH_STORAGE"/*.sst >/dev/null 2>&1; then
+        echo "$SHODH_STORAGE/_legacy"
+        return 0
+    fi
+
+    echo "$SHODH_STORAGE/$project"
+}
+
+# Run python3 with shodh-memory, filtering the star banner from stdout
+# shodh-memory prints "⭐ Love shodh-memory?..." to stdout on import
+run_shodh_python() {
+    python3 "$@" 2>/dev/null | grep -v "^⭐"
 }
 
 # Check if shodh-memory Python package is importable
@@ -72,6 +119,10 @@ cmd_remember() {
         return 0
     fi
 
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+
     # Build tags as Python list
     local tags_py="[]"
     if [[ -n "$tags" ]]; then
@@ -79,17 +130,17 @@ cmd_remember() {
     fi
 
     # Pass data via env vars to avoid shell escaping issues
-    _SHODH_STORAGE="$SHODH_STORAGE" \
+    _SHODH_STORAGE="$storage_path" \
     _SHODH_CONTENT="$content" \
     _SHODH_TYPE="$memory_type" \
     _SHODH_TAGS="$tags_py" \
-    python3 -c "
+    run_shodh_python -c "
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 tags = json.loads(os.environ['_SHODH_TAGS'])
 m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], tags=tags)
-" 2>/dev/null || true
+" || true
 
     return 0
 }
@@ -124,45 +175,169 @@ cmd_recall() {
         return 0
     fi
 
-    _SHODH_STORAGE="$SHODH_STORAGE" \
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
     _SHODH_QUERY="$query" \
     _SHODH_LIMIT="$limit" \
-    python3 -c "
+    run_shodh_python -c "
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 results = m.recall(os.environ['_SHODH_QUERY'], limit=int(os.environ['_SHODH_LIMIT']))
 print(json.dumps(results, default=str))
-" 2>/dev/null || echo "[]"
+" || echo "[]"
+
+    return 0
+}
+
+# List all memories for current project
+cmd_list() {
+    # Health check — return empty array if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "[]"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    # If storage dir doesn't exist yet, no memories
+    if [[ ! -d "$storage_path" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    _SHODH_STORAGE="$storage_path" \
+    run_shodh_python -c "
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+memories = m.list_memories()
+print(json.dumps(memories, default=str))
+" || echo "[]"
 
     return 0
 }
 
 # Show configuration and health status
 cmd_status() {
-    echo "Shodh-Memory Configuration:"
-    echo "  Storage:  $SHODH_STORAGE"
-    echo ""
+    local json_mode=false
 
-    echo -n "Health: "
-    if cmd_health >/dev/null 2>&1; then
-        echo "available"
-        _SHODH_STORAGE="$SHODH_STORAGE" python3 -c "
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    local project
+    project=$(resolve_project)
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    if [[ "$json_mode" == "true" ]]; then
+        # JSON output for GUI consumption
+        if cmd_health >/dev/null 2>&1; then
+            local count
+            count=$(_SHODH_STORAGE="$storage_path" run_shodh_python -c "
 import os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 stats = m.get_stats()
-print(f'  Memories: {stats.get(\"total_memories\", \"?\")}')" 2>/dev/null || true
+print(stats.get('total_memories', 0))
+") || count=0
+            [[ "$count" =~ ^[0-9]+$ ]] || count=0
+            echo "{\"available\": true, \"project\": \"$project\", \"count\": $count, \"storage_path\": \"$storage_path\"}"
+        else
+            echo "{\"available\": false, \"project\": \"$project\", \"count\": 0, \"storage_path\": \"$storage_path\"}"
+        fi
     else
-        echo "not installed"
+        # Human-readable output
+        echo "Shodh-Memory Configuration:"
+        echo "  Project: $project"
+        echo "  Storage: $storage_path"
         echo ""
-        echo "Install:"
-        echo "  pip install shodh-memory"
+
+        echo -n "Health: "
+        if cmd_health >/dev/null 2>&1; then
+            echo "available"
+            _SHODH_STORAGE="$storage_path" run_shodh_python -c "
+import os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+stats = m.get_stats()
+print(f'  Memories: {stats.get(\"total_memories\", \"?\")}')" || true
+        else
+            echo "not installed"
+            echo ""
+            echo "Install:"
+            echo "  pip install shodh-memory"
+        fi
     fi
 }
 
-# Main dispatch
+# List all projects with memory counts
+cmd_projects() {
+    if [[ ! -d "$SHODH_STORAGE" ]]; then
+        echo "No memory storage found at $SHODH_STORAGE"
+        return 0
+    fi
+
+    local has_projects=false
+
+    for dir in "$SHODH_STORAGE"/*/; do
+        [[ -d "$dir" ]] || continue
+        local proj_name
+        proj_name=$(basename "$dir")
+
+        # Skip if it's not a shodh-memory storage (no memories subdir)
+        [[ -d "$dir/memories" ]] || [[ -d "$dir/memory_index" ]] || continue
+
+        has_projects=true
+
+        if cmd_health >/dev/null 2>&1; then
+            local count
+            count=$(_SHODH_STORAGE="$dir" run_shodh_python -c "
+import os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+stats = m.get_stats()
+print(stats.get('total_memories', 0))
+") || count="?"
+            echo "  $proj_name: $count memories"
+        else
+            echo "  $proj_name: (shodh-memory not installed)"
+        fi
+    done
+
+    # Check for legacy storage (sst files directly in root)
+    if ls "$SHODH_STORAGE"/*.sst >/dev/null 2>&1; then
+        has_projects=true
+        echo "  _legacy: (unmigrared global storage)"
+    fi
+
+    if [[ "$has_projects" == "false" ]]; then
+        echo "No projects with memories found."
+    fi
+}
+
+# Main dispatch — parse global --project flag before command
 main() {
+    # Parse global options before command
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project)
+                PROJECT="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
     if [[ $# -eq 0 ]]; then
         usage
         exit 0
@@ -175,7 +350,9 @@ main() {
         health)   cmd_health "$@" ;;
         remember) cmd_remember "$@" ;;
         recall)   cmd_recall "$@" ;;
+        list)     cmd_list "$@" ;;
         status)   cmd_status "$@" ;;
+        projects) cmd_projects "$@" ;;
         -h|--help|help) usage ;;
         *)
             echo "Error: Unknown command '$command'" >&2

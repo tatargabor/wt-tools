@@ -140,10 +140,16 @@ class MenusMixin:
             self.show_team_row_context_menu(pos, row, team_wt)
             return
 
-        # Get worktree data for this row (skip header rows)
+        # Check if this is a project header row
+        project = getattr(self, 'row_to_project', {}).get(row)
+        if project is not None:
+            self.show_project_header_context_menu(pos, project)
+            return
+
+        # Get worktree data for this row (skip non-mapped rows)
         wt = self.row_to_worktree.get(row)
         if wt is None:
-            return  # Header row, no menu
+            return
 
         logger.info("context_menu: project=%s change=%s", wt.get("project", ""), wt.get("change_id", ""))
         # Select the row
@@ -274,6 +280,99 @@ class MenusMixin:
             config_action.triggered.connect(lambda: self.show_worktree_config(wt_path))
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def show_project_header_context_menu(self, pos, project: str):
+        """Show context menu for project header row"""
+        menu = QMenu(self)
+
+        # Memory submenu
+        memory_menu = menu.addMenu("Memory")
+        mem_status = self.get_memory_status(project)
+
+        if mem_status["available"]:
+            status_text = f"Status: available ({mem_status['count']} memories)"
+        else:
+            status_text = "Status: not installed"
+        status_action = memory_menu.addAction(status_text)
+        status_action.setEnabled(False)
+
+        memory_menu.addSeparator()
+
+        browse_action = memory_menu.addAction("Browse Memories...")
+        browse_action.setEnabled(mem_status["available"])
+        browse_action.triggered.connect(lambda: self.show_memory_browse_dialog(project))
+
+        remember_action = memory_menu.addAction("Remember Note...")
+        remember_action.setEnabled(mem_status["available"])
+        remember_action.triggered.connect(lambda: self.show_remember_note_dialog(project))
+
+        # Check SKILL.md hook status
+        skill_hooked = self._check_skill_memory_hooks(project)
+        if not skill_hooked:
+            memory_menu.addSeparator()
+            warn_action = memory_menu.addAction("\u26a0 OpenSpec skills not hooked")
+            warn_action.setEnabled(False)
+
+        menu.addSeparator()
+
+        # Standard project actions
+        new_action = menu.addAction("+ New Worktree...")
+        new_action.triggered.connect(lambda: self.on_new(preset_project=project))
+
+        # Team actions (if team enabled)
+        project_team_enabled = self.get_project_team_enabled(project)
+        has_team_data = self._project_has_team_data(project)
+        if project_team_enabled and has_team_data:
+            chat_action = menu.addAction("Team Chat...")
+            chat_action.triggered.connect(lambda: self.show_chat_dialog(project))
+
+            team_settings_action = menu.addAction("Team Settings...")
+            team_settings_action.triggered.connect(lambda: self.open_team_settings(project))
+
+        # wt-control init
+        first_wt = self._get_first_worktree_for_project(project)
+        if first_wt:
+            wt_path = first_wt.get("path", "")
+            main_repo = get_main_repo_path(wt_path)
+            wt_control_initialized = main_repo and Path(main_repo, ".wt-control").exists()
+            if wt_control_initialized:
+                init_action = menu.addAction("wt-control (initialized)")
+                init_action.setEnabled(False)
+            else:
+                init_action = menu.addAction("Initialize wt-control...")
+                init_action.triggered.connect(lambda: self.init_wt_control_for_project(project))
+
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _check_skill_memory_hooks(self, project: str) -> bool:
+        """Check if any SKILL.md file in the project contains wt-memory references"""
+        first_wt = self._get_first_worktree_for_project(project)
+        if not first_wt:
+            return False
+        wt_path = first_wt.get("path", "")
+        main_repo = get_main_repo_path(wt_path)
+        if not main_repo:
+            return False
+        skills_dir = Path(main_repo) / ".claude" / "skills"
+        if not skills_dir.exists():
+            return False
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.name.startswith("openspec-"):
+                skill_file = skill_dir / "SKILL.md"
+                if skill_file.exists():
+                    try:
+                        if "wt-memory" in skill_file.read_text():
+                            return True
+                    except Exception:
+                        pass
+        return False
+
+    def _get_first_worktree_for_project(self, project: str):
+        """Get the first (main) worktree for a project"""
+        for wt in getattr(self, 'worktrees', []):
+            if wt.get("project") == project:
+                return wt
+        return None
 
     def show_team_row_context_menu(self, pos, row: int, team_wt: dict):
         """Show read-only context menu for team worktree row"""
