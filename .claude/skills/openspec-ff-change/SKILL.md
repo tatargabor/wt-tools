@@ -46,6 +46,23 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
    If `wt-memory health` fails, skip silently.
 
+3c. **Recognize user-shared knowledge mid-flow (ongoing)**
+
+   While creating artifacts, the user may share corrections, constraints, or contextual knowledge. When you recognize such knowledge, save it immediately.
+
+   **Recognize by intent** (works in any language):
+   - User corrects your approach or shares a better alternative
+   - User warns about a dependency, API behavior, or known issue
+   - User shares a project constraint or preference
+
+   **Do NOT save**: simple confirmations ("ok", "jó", "continue"), task-specific instructions, or questions.
+
+   **When recognized**:
+   1. Run `wt-memory health` — if it fails, skip silently
+   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Observation|Learning> --tags repo,<change-name>,<topic>`
+   3. Confirm: `[Memory saved: <Type> — <summary>]`
+   4. Adjust the artifact being created if needed, then continue
+
 4. **Create artifacts in sequence until apply-ready**
 
    Use the **TodoWrite tool** to track progress through the artifacts.

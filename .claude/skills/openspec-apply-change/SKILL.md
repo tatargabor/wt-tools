@@ -64,6 +64,25 @@ Implement tasks from an OpenSpec change.
 
    If `wt-memory health` fails, skip silently.
 
+4c. **Recognize user-shared knowledge mid-flow (ongoing)**
+
+   Throughout implementation, the user may share corrections, warnings, or contextual knowledge between tasks. When you recognize such knowledge, save it immediately — don't wait for step 7.
+
+   **Recognize by intent** (works in any language):
+   - User corrects your approach or shares a better alternative
+   - User warns about a dependency, API behavior, or known issue
+   - User shares a project constraint or preference
+
+   **Do NOT save**: simple confirmations ("ok", "jó", "continue"), task-specific instructions ("edit that line"), or questions.
+
+   **When recognized**:
+   1. Run `wt-memory health` — if it fails, skip silently
+   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Observation|Learning> --tags repo,<change-name>,<topic>`
+   3. Confirm: `[Memory saved: <Type> — <summary>]`
+   4. Adjust implementation if needed, then continue
+
+   Step 7's remember block handles implementation-level learnings (errors, patterns). This mid-flow save covers user-provided knowledge.
+
 5. **Show current progress**
 
    Display:

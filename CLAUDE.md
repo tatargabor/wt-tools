@@ -1,4 +1,36 @@
 
+## Proactive Memory
+
+This project uses `wt-memory` (shodh-memory) for persistent developer memory across sessions. During ANY conversation — not just inside OpenSpec skills — recognize and save valuable knowledge.
+
+### When to save
+
+Save when the user shares something a **future agent in a different session** would benefit from knowing:
+- **Negative past experience**: something was tried and didn't work
+- **Decision or preference**: a rule, constraint, or workflow preference for this project
+- **Technical learning**: a discovered pattern, gotcha, or non-obvious behavior
+
+### When NOT to save
+
+- Simple confirmations, task instructions, or questions
+- General knowledge any developer would know
+- Session-specific context ("fix this typo", "run the test")
+
+### How to save
+
+1. Run `wt-memory health` — if it fails, skip silently
+2. Save: `echo "<insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>`
+3. Confirm in one line: `[Memory saved: <Type> — <summary>]`
+4. Continue with current work
+
+### Recall before major work
+
+Before starting significant work (new feature, debugging session, architecture discussion), consider running `wt-memory recall "<topic>" --limit 5` to check for relevant past experience. Use results silently to inform your approach — don't announce the recall unless directly relevant results are found.
+
+### Deduplication
+
+If you are currently executing an OpenSpec skill that has its own memory hooks (check for `wt-memory` steps in the active skill), defer to those hooks — do not save duplicates from this ambient instruction.
+
 ## GUI Testing
 
 When the user says "futtass tesztet", "run tests", "teljes teszt", or similar — run this:

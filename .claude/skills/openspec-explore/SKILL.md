@@ -91,6 +91,17 @@ This tells you:
 - Their names, schemas, and status
 - What the user might be working on
 
+### Recall past experience
+
+If the user provided a topic or focus area, check for relevant memories:
+- Run `wt-memory health` — if it fails, skip silently and proceed without memory
+- If healthy, run: `wt-memory recall "<user's topic or keywords>" --limit 5`
+- If relevant memories are returned, weave them naturally into the conversation early on:
+  - "Past experience suggests..." or "We have a note that..."
+  - Use memories to inform the exploration direction, not to constrain it
+- If no relevant results, proceed normally without mentioning memory
+- Do NOT announce the recall mechanism itself — just use the information naturally
+
 ### When no change exists
 
 Think freely. When insights crystallize, you might offer:
@@ -277,6 +288,32 @@ When it feels like things are crystallizing, you might summarize:
 But this summary is optional. Sometimes the thinking IS the value.
 
 ---
+
+## Recognizing Knowledge Worth Saving
+
+During exploration, the user may share knowledge that would be valuable in future sessions. Recognize and save these using `wt-memory remember`, regardless of language.
+
+**What to recognize** (by semantic intent, not keywords):
+- **Negative past experience**: The user expresses that something was tried and didn't work
+- **Decision or preference**: The user states a rule, preference, or constraint for the project
+- **Technical learning**: The user shares a discovered pattern, gotcha, or non-obvious behavior
+
+**What NOT to save**:
+- Conversational filler ("hmm interesting", "what do you think?")
+- Questions or requests ("can you check...", "what about...")
+- General knowledge that any developer would know
+- Session-specific instructions ("edit that line", "run the test")
+
+**How to save** (when you recognize something worth saving):
+1. Run `wt-memory health` — if it fails, skip silently
+2. Save with appropriate type and tags:
+   ```bash
+   echo "<concise description of the insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>,<relevant-keywords>
+   ```
+3. Confirm briefly in one line: `[Memory saved: <Type> — <short summary>]`
+4. Continue the conversation without breaking flow
+
+**Threshold**: Save only if a future agent in a different session would benefit from knowing this. When in doubt, don't save.
 
 ## Guardrails
 

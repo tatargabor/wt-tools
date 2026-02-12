@@ -14,6 +14,7 @@ HOOK_SKILLS=(
     "openspec-ff-change"
     "openspec-apply-change"
     "openspec-archive-change"
+    "openspec-explore"
 )
 
 usage() {
@@ -118,6 +119,21 @@ HOOK
    If `wt-memory health` fails, skip silently.
 HOOK
             ;;
+        openspec-explore)
+            # explore has TWO hook blocks: recall (at start) and remember (mid-exploration)
+            cat <<'HOOK'
+### Recall past experience
+
+If the user provided a topic or focus area, check for relevant memories:
+- Run `wt-memory health` — if it fails, skip silently and proceed without memory
+- If healthy, run: `wt-memory recall "<user's topic or keywords>" --limit 5`
+- If relevant memories are returned, weave them naturally into the conversation early on:
+  - "Past experience suggests..." or "We have a note that..."
+  - Use memories to inform the exploration direction, not to constrain it
+- If no relevant results, proceed normally without mentioning memory
+- Do NOT announce the recall mechanism itself — just use the information naturally
+HOOK
+            ;;
         openspec-archive-change)
             cat <<'HOOK'
 7. **Save to developer memory (automatic)**
@@ -140,6 +156,84 @@ HOOK
 HOOK
             ;;
     esac
+}
+
+# Get mid-flow remember content for apply/continue/ff
+get_midflow_remember_content() {
+    local skill="$1"
+    local step_prefix
+    case "$skill" in
+        openspec-apply-change)    step_prefix="4c" ;;
+        openspec-continue-change) step_prefix="2c" ;;
+        openspec-ff-change)       step_prefix="3c" ;;
+    esac
+
+    local context_noun
+    case "$skill" in
+        openspec-apply-change)    context_noun="implementation" ;;
+        openspec-continue-change) context_noun="artifact creation" ;;
+        openspec-ff-change)       context_noun="artifact creation" ;;
+    esac
+
+    cat <<HOOK
+${step_prefix}. **Recognize user-shared knowledge mid-flow (ongoing)**
+
+   While ${context_noun} proceeds, the user may share corrections, constraints, or contextual knowledge. When you recognize such knowledge, save it immediately.
+
+   **Recognize by intent** (works in any language):
+   - User corrects your approach or shares a better alternative
+   - User warns about a dependency, API behavior, or known issue
+   - User shares a project constraint or preference
+
+   **Do NOT save**: simple confirmations ("ok", "jó", "continue"), task-specific instructions, or questions.
+
+   **When recognized**:
+   1. Run \`wt-memory health\` — if it fails, skip silently
+   2. Save: \`echo "<insight>" | wt-memory remember --type <Decision|Observation|Learning> --tags repo,<change-name>,<topic>\`
+   3. Confirm: \`[Memory saved: <Type> — <summary>]\`
+   4. Adjust the ${context_noun} if needed, then continue
+HOOK
+}
+
+# Get anchor for mid-flow remember block
+get_midflow_anchor() {
+    local skill="$1"
+    case "$skill" in
+        openspec-apply-change)    echo '5. \*\*Show current progress' ;;
+        openspec-continue-change) echo '3. \*\*Act based on status' ;;
+        openspec-ff-change)       echo '4. \*\*Create artifacts in sequence' ;;
+    esac
+}
+
+# Get the remember block for explore (mid-exploration)
+get_explore_remember_content() {
+    cat <<'HOOK'
+## Recognizing Knowledge Worth Saving
+
+During exploration, the user may share knowledge that would be valuable in future sessions. Recognize and save these using `wt-memory remember`, regardless of language.
+
+**What to recognize** (by semantic intent, not keywords):
+- **Negative past experience**: The user expresses that something was tried and didn't work
+- **Decision or preference**: The user states a rule, preference, or constraint for the project
+- **Technical learning**: The user shares a discovered pattern, gotcha, or non-obvious behavior
+
+**What NOT to save**:
+- Conversational filler ("hmm interesting", "what do you think?")
+- Questions or requests ("can you check...", "what about...")
+- General knowledge that any developer would know
+- Session-specific instructions ("edit that line", "run the test")
+
+**How to save** (when you recognize something worth saving):
+1. Run `wt-memory health` — if it fails, skip silently
+2. Save with appropriate type and tags:
+   ```bash
+   echo "<concise description of the insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>,<relevant-keywords>
+   ```
+3. Confirm briefly in one line: `[Memory saved: <Type> — <short summary>]`
+4. Continue the conversation without breaking flow
+
+**Threshold**: Save only if a future agent in a different session would benefit from knowing this. When in doubt, don't save.
+HOOK
 }
 
 # Get the remember extension for apply-change (step 7)
@@ -171,7 +265,13 @@ get_anchor_after() {
         openspec-ff-change)        echo '4. \*\*Create artifacts in sequence' ;;
         openspec-apply-change)     echo '5. \*\*Show current progress' ;;
         openspec-archive-change)   echo '\*\*Guardrails\*\*' ;;
+        openspec-explore)          echo '### When no change exists' ;;
     esac
+}
+
+# Get anchor for explore remember block
+get_explore_remember_anchor() {
+    echo '## Guardrails'
 }
 
 # Get anchor for apply-change remember block
@@ -219,6 +319,70 @@ install_single() {
         echo "  $skill: WARNING — anchor pattern not found, skipping" >&2
         rm -f "$tmpfile"
         return 1
+    fi
+
+    # For apply/continue/ff, also insert the mid-flow remember block
+    if [[ "$skill" == "openspec-apply-change" || "$skill" == "openspec-continue-change" || "$skill" == "openspec-ff-change" ]]; then
+        local midflow_content
+        midflow_content=$(get_midflow_remember_content "$skill")
+        local midflow_anchor
+        midflow_anchor=$(get_midflow_anchor "$skill")
+
+        local tmpfile2
+        tmpfile2=$(mktemp)
+
+        local inserted2=false
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$inserted2" == "false" ]] && echo "$line" | grep -qE "$midflow_anchor"; then
+                echo "${MARKER_START/hooks/hooks-midflow}"
+                echo ""
+                echo "$midflow_content"
+                echo ""
+                echo "${MARKER_END/hooks/hooks-midflow}"
+                echo ""
+                inserted2=true
+            fi
+            echo "$line"
+        done < "$tmpfile" > "$tmpfile2"
+
+        if [[ "$inserted2" == "true" ]]; then
+            mv "$tmpfile2" "$tmpfile"
+        else
+            echo "  $skill: WARNING — midflow anchor not found" >&2
+            rm -f "$tmpfile2"
+        fi
+    fi
+
+    # For explore, also insert the remember block
+    if [[ "$skill" == "openspec-explore" ]]; then
+        local remember_content
+        remember_content=$(get_explore_remember_content)
+        local remember_anchor
+        remember_anchor=$(get_explore_remember_anchor)
+
+        local tmpfile2
+        tmpfile2=$(mktemp)
+
+        local inserted2=false
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$inserted2" == "false" ]] && echo "$line" | grep -qE "$remember_anchor"; then
+                echo "${MARKER_START/hooks/hooks-remember}"
+                echo ""
+                echo "$remember_content"
+                echo ""
+                echo "${MARKER_END/hooks/hooks-remember}"
+                echo ""
+                inserted2=true
+            fi
+            echo "$line"
+        done < "$tmpfile" > "$tmpfile2"
+
+        if [[ "$inserted2" == "true" ]]; then
+            mv "$tmpfile2" "$tmpfile"
+        else
+            echo "  $skill: WARNING — remember anchor not found" >&2
+            rm -f "$tmpfile2"
+        fi
     fi
 
     # For apply-change, also insert the remember block
@@ -272,11 +436,11 @@ remove_single() {
 
     local in_block=false
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if echo "$line" | grep -q "wt-memory hooks start" || echo "$line" | grep -q "wt-memory hooks-remember start"; then
+        if echo "$line" | grep -q "wt-memory hooks start" || echo "$line" | grep -q "wt-memory hooks-remember start" || echo "$line" | grep -q "wt-memory hooks-midflow start"; then
             in_block=true
             continue
         fi
-        if echo "$line" | grep -q "wt-memory hooks end" || echo "$line" | grep -q "wt-memory hooks-remember end"; then
+        if echo "$line" | grep -q "wt-memory hooks end" || echo "$line" | grep -q "wt-memory hooks-remember end" || echo "$line" | grep -q "wt-memory hooks-midflow end"; then
             in_block=false
             continue
         fi
