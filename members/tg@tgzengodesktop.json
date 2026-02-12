@@ -24,15 +24,15 @@
       "agent_status": null,
       "last_activity": "2026-02-12T18:16:32Z",
       "activity": {
-        "skill": "opsx:archive",
+        "skill": "opsx:explore",
         "skill_args": null,
         "broadcast": null,
         "modified_files": [],
-        "updated_at": "2026-02-12T18:19:09Z"
+        "updated_at": "2026-02-12T18:22:20Z"
       }
     }
   ],
-  "last_seen": "2026-02-12T18:22:16Z",
+  "last_seen": "2026-02-12T18:22:46Z",
   "chat_public_key": "420TbtCbIz++T/zRl2Jky/6QlkidXWHZyWsKXXaV3gI=",
   "chat_key_fingerprint": "edb975b8"
 }
