@@ -284,9 +284,9 @@ install_single() {
     local skill="$1"
     local file="$2"
 
+    # Always remove existing hooks first (ensures content is up-to-date)
     if has_hooks "$file"; then
-        echo "  $skill: already installed, skipping"
-        return 0
+        remove_single "$skill" "$file" >/dev/null 2>&1
     fi
 
     local hook_content
