@@ -30,6 +30,10 @@
 
 - [x] 6.1 Update `tests/gui/test_29_memory.py` if it references Observation/Event types — ensure it uses valid types
 
-## 7. Cleanup test memories
+## 7. GUI: allow reinstalling memory hooks
+
+- [x] 7.1 In `menus.py`: when hooks are already installed, change disabled "Memory Hooks: installed" to a clickable "Reinstall Memory Hooks..." action that calls `_run_memory_hooks_install`
+
+## 8. Cleanup test memories
 
 - [x] 7.1 Delete the test "test event type" memories from wt-memory storage (2 orphan Context entries from our investigation)

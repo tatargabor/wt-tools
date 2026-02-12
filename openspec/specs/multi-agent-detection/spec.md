@@ -17,7 +17,7 @@ The system SHALL detect ALL Claude agent processes associated with a worktree, n
 
 #### Scenario: Per-agent status determination
 - **WHEN** multiple agents exist on a worktree
-- **THEN** each agent's status (running/waiting/compacting) is determined independently using the N most recently modified session files matched to PIDs by mtime order
+- **THEN** each agent's status (running/waiting) is determined independently using the N most recently modified session files matched to PIDs by mtime order
 
 ### Requirement: Per-PID Skill Tracking
 The system SHALL track skills per agent PID rather than per worktree.
@@ -50,4 +50,11 @@ The `wt-status --json` output SHALL use an `agents` array instead of a single `a
 
 #### Scenario: Summary counts reflect agent count
 - **WHEN** `wt-status --json` produces the summary object
-- **THEN** the `running`, `waiting`, `compacting`, and `idle` counts reflect the total number of agents in each state across all worktrees (not worktree count)
+- **THEN** the `running`, `waiting`, and `idle` counts reflect the total number of agents in each state across all worktrees (not worktree count)
+- **AND** the summary SHALL include `compacting: 0` for backward compatibility
+
+## REMOVED Requirements
+
+### Requirement: Compacting status detection
+**Reason**: Compacting detection used unreliable text pattern matching on session JSONL files, causing false positives. The compacting state is transient (2-5 seconds) and functionally equivalent to "running" from the user's perspective. Agents that are compacting context now report as "running".
+**Migration**: Any consumers checking for `status == "compacting"` should treat it as `"running"`. The JSON summary field `compacting` will always be `0`.

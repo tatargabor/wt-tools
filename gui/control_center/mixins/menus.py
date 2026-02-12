@@ -317,8 +317,8 @@ class MenusMixin:
             hooks_installed = mem_status.get("hooks_installed", False)
             memory_menu.addSeparator()
             if hooks_installed:
-                hooks_status_action = memory_menu.addAction("Memory Hooks: installed")
-                hooks_status_action.setEnabled(False)
+                reinstall_hooks_action = memory_menu.addAction("Reinstall Memory Hooks...")
+                reinstall_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
             else:
                 install_hooks_action = memory_menu.addAction("Install Memory Hooks...")
                 install_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
