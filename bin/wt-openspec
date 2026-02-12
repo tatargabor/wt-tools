@@ -193,7 +193,7 @@ cmd_update() {
     fi
 
     echo "Updating OpenSpec skills in $main_repo..."
-    (cd "$main_repo" && openspec update)
+    (cd "$main_repo" && openspec update --force)
 }
 
 # Main dispatch
