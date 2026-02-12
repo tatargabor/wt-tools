@@ -137,6 +137,16 @@ Autonomous agent execution — runs Claude Code in iterations, checking task com
 
 Cross-machine collaboration **without a central server** — using a `wt-control` git branch for team and machine-level coordination. Each machine syncs agent status automatically. Includes encrypted chat (`wt-control-chat`) and directed agent-to-agent messaging (`/wt:msg`). Note: Claude Code's Teams feature does not replace this — wt-tools team sync operates at the agent level, enabling different remote machines, users, or local agents to coordinate at a higher level. See [docs/agent-messaging.md](docs/agent-messaging.md).
 
+### Developer Memory (Experimental)
+
+Per-project cognitive memory powered by [shodh-memory](https://github.com/varun29ankuS/shodh-memory). Agents remember decisions, learnings, and context across sessions — future agents recall relevant past experience before starting work.
+
+- **CLI**: `wt-memory remember/recall/list/status` — store and search memories semantically
+- **GUI**: Browse memories and save notes via the [M] button in the project header
+- **OpenSpec hooks**: Automatic recall at change start, remember at archive — installed via `wt-memory-hooks install`
+- **Memory types**: `Decision` (choices made), `Learning` (patterns/gotchas discovered), `Context` (background info/events)
+- **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)
+
 ### MCP Server
 
 Exposes worktree and Ralph loop status to Claude Code via Model Context Protocol. Auto-configured by the installer.
@@ -223,6 +233,17 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-control-sync` | Sync member status (pull/push/compact) |
 | `wt-control-chat send <to> <msg>` | Send encrypted message |
 | `wt-control-chat read` | Read received messages |
+
+### Developer Memory
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory remember --type TYPE` | Save a memory (reads content from stdin) |
+| `wt-memory recall "query"` | Semantic search across project memories |
+| `wt-memory list` | List all memories for current project (JSON) |
+| `wt-memory status [--json]` | Show memory config, health, and count |
+| `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |
+| `wt-memory-hooks check` | Check if hooks are installed |
 
 ### Utilities
 

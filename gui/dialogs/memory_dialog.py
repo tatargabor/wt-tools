@@ -139,7 +139,7 @@ class MemoryBrowseDialog(QDialog):
         type_label = QLabel(mem_type)
         type_colors = {
             "Learning": "#22c55e", "Decision": "#3b82f6",
-            "Observation": "#f59e0b", "Event": "#a855f7"
+            "Context": "#f59e0b"
         }
         color = type_colors.get(mem_type, "#6b7280")
         type_label.setStyleSheet(f"color: white; background-color: {color}; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: bold;")
@@ -195,7 +195,7 @@ class RememberNoteDialog(QDialog):
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel("Type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["Learning", "Decision", "Observation", "Event"])
+        self.type_combo.addItems(["Learning", "Decision", "Context"])
         type_layout.addWidget(self.type_combo)
         type_layout.addStretch()
         layout.addLayout(type_layout)

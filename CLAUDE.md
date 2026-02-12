@@ -19,7 +19,7 @@ Save when the user shares something a **future agent in a different session** wo
 ### How to save
 
 1. Run `wt-memory health` — if it fails, skip silently
-2. Save: `echo "<insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>`
+2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags <topic>`
 3. Confirm in one line: `[Memory saved: <Type> — <summary>]`
 4. Continue with current work
 

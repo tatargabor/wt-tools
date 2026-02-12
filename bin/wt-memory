@@ -26,6 +26,15 @@ Commands:
   status [--json]                 Show config, health, and memory count
   projects                        List all projects with memory counts
 
+Valid types for --type:
+  Decision    A technical choice or preference (stored as Decision)
+  Learning    A discovered pattern, gotcha, or lesson (stored as Learning)
+  Context     Background info, events, or general notes (stored as Context)
+
+  Legacy aliases (mapped automatically with a warning):
+    Observation → Learning
+    Event       → Context
+
 Global options:
   --project NAME                  Override project name (default: auto-detect from git root)
 
@@ -119,6 +128,18 @@ cmd_remember() {
         echo "Error: --type is required" >&2
         return 1
     fi
+
+    # Map unsupported types to valid shodh-memory types
+    case "$memory_type" in
+        Observation|observation)
+            echo "Note: type '$memory_type' mapped to 'Learning'" >&2
+            memory_type="Learning"
+            ;;
+        Event|event)
+            echo "Note: type '$memory_type' mapped to 'Context'" >&2
+            memory_type="Context"
+            ;;
+    esac
 
     # Read content from stdin
     local content

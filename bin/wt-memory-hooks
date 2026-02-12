@@ -149,7 +149,7 @@ HOOK
       ```
    c. Save a change completion event summarizing the change:
       ```bash
-      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Event --tags repo,<change-name>,archive
+      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Context --tags repo,<change-name>,archive
       ```
 
    If `wt-memory health` fails, skip this step silently — no error, no warning.
@@ -189,7 +189,7 @@ ${step_prefix}. **Recognize user-shared knowledge mid-flow (ongoing)**
 
    **When recognized**:
    1. Run \`wt-memory health\` — if it fails, skip silently
-   2. Save: \`echo "<insight>" | wt-memory remember --type <Decision|Observation|Learning> --tags repo,<change-name>,<topic>\`
+   2. Save: \`echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags repo,<change-name>,<topic>\`
    3. Confirm: \`[Memory saved: <Type> — <summary>]\`
    4. Adjust the ${context_noun} if needed, then continue
 HOOK
@@ -227,7 +227,7 @@ During exploration, the user may share knowledge that would be valuable in futur
 1. Run `wt-memory health` — if it fails, skip silently
 2. Save with appropriate type and tags:
    ```bash
-   echo "<concise description of the insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>,<relevant-keywords>
+   echo "<concise description of the insight>" | wt-memory remember --type <Decision|Learning|Context> --tags <topic>,<relevant-keywords>
    ```
 3. Confirm briefly in one line: `[Memory saved: <Type> — <short summary>]`
 4. Continue the conversation without breaking flow
@@ -242,7 +242,7 @@ get_apply_remember_content() {
    After showing status, if `wt-memory health` succeeds:
    - If errors were encountered during this session, save each:
      ```bash
-     echo "<error description and workaround/fix>" | wt-memory remember --type Observation --tags repo,<change-name>,error
+     echo "<error description and workaround/fix>" | wt-memory remember --type Learning --tags repo,<change-name>,error
      ```
    - If useful patterns were discovered, save each:
      ```bash
@@ -250,7 +250,7 @@ get_apply_remember_content() {
      ```
    - If all tasks are complete, save a completion event:
      ```bash
-     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Event --tags repo,<change-name>,implementation
+     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Context --tags repo,<change-name>,implementation
      ```
    If health fails, skip silently.
 HOOK

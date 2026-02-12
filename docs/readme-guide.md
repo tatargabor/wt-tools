@@ -50,6 +50,7 @@ The README MUST contain these sections in this exact order:
   - **CLI Tools** — worktree commands, project management
   - **Ralph Loop** — autonomous agent loop
   - **Team Sync & Messaging** — cross-machine coordination
+  - **Developer Memory** — per-project remember/recall, OpenSpec hooks, GUI browse (experimental)
   - **MCP Server** — Claude Code tool integration
 - Keep each to 2-4 lines, link to detail sections below
 
@@ -61,7 +62,7 @@ The README MUST contain these sections in this exact order:
 
 ### 8. CLI Reference
 - Categorized tables of all user-facing `bin/wt-*` commands
-- Categories: Worktree Management, Project Management, Ralph Loop, Team & Sync, Utilities
+- Categories: Worktree Management, Project Management, Ralph Loop, Team & Sync, Developer Memory, Utilities
 - Internal/hook scripts (wt-common.sh, wt-hook-*) get a brief note, not full table entries
 - Each command: name + one-line description
 
