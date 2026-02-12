@@ -131,6 +131,7 @@ def control_center(git_env, qapp):
         ("usage_worker", "usage_updated"),
         ("team_worker", "team_updated"),
         ("chat_worker", "unread_count_changed"),
+        ("feature_worker", "features_updated"),
     ]:
         w = getattr(window, attr, None)
         if w:

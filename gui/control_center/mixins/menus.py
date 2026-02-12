@@ -281,7 +281,12 @@ class MenusMixin:
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
-    def show_project_header_context_menu(self, pos, project: str):
+    def show_project_header_context_menu_at_button(self, project: str, button):
+        """Open project header context menu positioned below a button widget."""
+        global_pos = button.mapToGlobal(button.rect().bottomLeft())
+        self.show_project_header_context_menu(global_pos, project, use_global_pos=True)
+
+    def show_project_header_context_menu(self, pos, project: str, use_global_pos: bool = False):
         """Show context menu for project header row"""
         menu = QMenu(self)
 
@@ -313,6 +318,29 @@ class MenusMixin:
             warn_action = memory_menu.addAction("\u26a0 OpenSpec skills not hooked")
             warn_action.setEnabled(False)
 
+        # OpenSpec submenu
+        openspec_menu = menu.addMenu("OpenSpec")
+        os_status = self.get_openspec_status(project)
+
+        if os_status.get("installed"):
+            n = os_status.get("changes_active", 0)
+            os_status_text = f"Installed ({n} active change{'s' if n != 1 else ''})"
+            os_status_action = openspec_menu.addAction(os_status_text)
+            os_status_action.setEnabled(False)
+
+            openspec_menu.addSeparator()
+
+            update_action = openspec_menu.addAction("Update Skills...")
+            update_action.triggered.connect(lambda: self._run_openspec_action("update", project))
+        else:
+            os_status_action = openspec_menu.addAction("Not initialized")
+            os_status_action.setEnabled(False)
+
+            openspec_menu.addSeparator()
+
+            init_action_os = openspec_menu.addAction("Initialize OpenSpec...")
+            init_action_os.triggered.connect(lambda: self._run_openspec_action("init", project))
+
         menu.addSeparator()
 
         # Standard project actions
@@ -342,7 +370,10 @@ class MenusMixin:
                 init_action = menu.addAction("Initialize wt-control...")
                 init_action.triggered.connect(lambda: self.init_wt_control_for_project(project))
 
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        if use_global_pos:
+            menu.exec(pos)
+        else:
+            menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def _check_skill_memory_hooks(self, project: str) -> bool:
         """Check if any SKILL.md file in the project contains wt-memory references"""
@@ -373,6 +404,19 @@ class MenusMixin:
             if wt.get("project") == project:
                 return wt
         return None
+
+    def _run_openspec_action(self, action: str, project: str):
+        """Run wt-openspec init or update via CommandOutputDialog, then refresh cache."""
+        first_wt = self._get_first_worktree_for_project(project)
+        if not first_wt:
+            return
+        wt_path = first_wt.get("path", "")
+        main_repo = get_main_repo_path(wt_path)
+        if not main_repo:
+            main_repo = wt_path
+        cmd = [str(SCRIPT_DIR / "wt-openspec"), action]
+        self.run_command_dialog(f"OpenSpec {action}", cmd, cwd=main_repo)
+        self.refresh_feature_cache()
 
     def show_team_row_context_menu(self, pos, row: int, team_wt: dict):
         """Show read-only context menu for team worktree row"""

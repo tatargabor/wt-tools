@@ -23,7 +23,7 @@ from ..constants import (
 )
 from ..config import Config
 from ..utils import get_version
-from ..workers import StatusWorker, UsageWorker, TeamWorker, ChatWorker
+from ..workers import StatusWorker, UsageWorker, TeamWorker, ChatWorker, FeatureWorker
 from .mixins import TeamMixin, TableMixin, MenusMixin, HandlersMixin
 
 __all__ = ["ControlCenter"]
@@ -84,6 +84,9 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.chat_unread = {}
         self.chat_blink_state = False
 
+        # Feature cache (memory + openspec status per project, from FeatureWorker)
+        self._feature_cache = {}
+
         # Active filter state (show only worktrees with open editor)
         self.filter_active = False
 
@@ -96,6 +99,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.setup_usage_worker()
         self.setup_team_worker()
         self.setup_chat_worker()
+        self.setup_feature_worker()
         self.setup_always_on_top_timer()
 
         # Apply color theme
@@ -443,6 +447,22 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.chat_worker.unread_count_changed.connect(self.update_chat_badge)
         self.chat_worker.start()
 
+    def setup_feature_worker(self):
+        """Setup background feature status polling (memory + openspec)"""
+        self.feature_worker = FeatureWorker()
+        self.feature_worker.features_updated.connect(self.on_features_updated)
+        self.feature_worker.start()
+
+    def on_features_updated(self, data: dict):
+        """Handle feature status update from FeatureWorker"""
+        self._feature_cache = data
+        self.refresh_table_display()
+
+    def refresh_feature_cache(self):
+        """Force an immediate feature cache refresh"""
+        if hasattr(self, 'feature_worker'):
+            self.feature_worker.refresh_now()
+
     def update_chat_badge(self, unread_count: int):
         """Update chat button with unread count"""
         project = self.get_active_project()
@@ -666,6 +686,15 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
 
         self.check_status_changes(new_worktrees)
         self.worktrees = new_worktrees
+
+        # Update FeatureWorker with current project→repo mapping
+        if hasattr(self, 'feature_worker'):
+            projects = {}
+            for wt in new_worktrees:
+                proj = wt.get("project", "")
+                if proj and proj not in projects:
+                    projects[proj] = wt.get("path", "")
+            self.feature_worker.set_projects(projects)
 
         self.wt_summary = summary
         self.update_combined_status()
@@ -895,6 +924,15 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
             old_chat.finished.connect(lambda w=old_chat: self._cleanup_old_worker(w))
             self._old_workers.append(old_chat)
 
+        if hasattr(self, 'feature_worker'):
+            old_feature = self.feature_worker
+            old_feature.stop()
+            self.feature_worker = FeatureWorker()
+            self.feature_worker.features_updated.connect(self.on_features_updated)
+            self.feature_worker.start()
+            old_feature.finished.connect(lambda w=old_feature: self._cleanup_old_worker(w))
+            self._old_workers.append(old_feature)
+
         self.refresh_status()
         self.update_usage_bars()
         self.update_team_display()
@@ -921,11 +959,13 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
             self.team_worker.stop()
         if hasattr(self, 'chat_worker'):
             self.chat_worker.stop()
+        if hasattr(self, 'feature_worker'):
+            self.feature_worker.stop()
 
     def _wait_all_workers(self, timeout_ms=2000):
         """Wait for all worker threads to finish, terminate stragglers"""
         workers = [self.worker]
-        for attr in ('usage_worker', 'team_worker', 'chat_worker'):
+        for attr in ('usage_worker', 'team_worker', 'chat_worker', 'feature_worker'):
             if hasattr(self, attr):
                 workers.append(getattr(self, attr))
         for w in workers:

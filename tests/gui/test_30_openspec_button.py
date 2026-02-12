@@ -1,14 +1,14 @@
 """
-Memory Tests - Verify [M] button in project header, project header context menu,
-and MemoryBrowseDialog instantiation.
+OpenSpec Button Tests - Verify [O] button in project header, context menu,
+and FeatureWorker instantiation.
 """
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QMenu, QPushButton
 
-from gui.dialogs.memory_dialog import MemoryBrowseDialog
+from gui.workers.feature import FeatureWorker
 
 
 class _MenuCapture:
@@ -25,7 +25,6 @@ class _MenuCapture:
 
         def patched_init(menu_self, *args, **kwargs):
             original_init(menu_self, *args, **kwargs)
-            original_exec = menu_self.exec
 
             def non_blocking_exec(*a, **kw):
                 actions = [act.text() for act in menu_self.actions() if not act.isSeparator()]
@@ -55,13 +54,12 @@ class _MenuCapture:
 
 
 def _make_status_data(git_env):
-    """Build a minimal status_data dict with one worktree."""
     return {
         "worktrees": [{
             "project": "test-project",
-            "change_id": "mem-test",
+            "change_id": "os-test",
             "path": str(git_env["project"]),
-            "branch": "change/mem-test",
+            "branch": "change/os-test",
             "agents": [],
             "git": {"last_commit": 0, "uncommitted_changes": False},
         }],
@@ -78,52 +76,61 @@ def _set_feature_cache(cc, memory=None, openspec=None):
     cc._feature_cache = {"test-project": {"memory": memory, "openspec": openspec}}
 
 
-def test_memory_button_in_project_header(control_center, git_env, qtbot):
-    """Project header should contain an [M] button for memory."""
-    _set_feature_cache(control_center)
-    control_center.update_status(_make_status_data(git_env))
-    qtbot.wait(200)
-
-    # Find the project header row (row 0 should be header, spanning columns)
-    assert control_center.table.rowCount() >= 2
-    header_widget = control_center.table.cellWidget(0, 0)
-    assert header_widget is not None, "Project header widget not found"
-
-    # Find the [M] button inside the header widget
-    mem_buttons = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"]
-    assert len(mem_buttons) == 1, f"Expected one [M] button, found {len(mem_buttons)}"
-
-    mem_btn = mem_buttons[0]
-    assert mem_btn.toolTip().startswith("Memory:")
-
-
-def test_memory_button_purple_when_memories_exist(control_center, git_env, qtbot):
-    """[M] button should be purple (status_compacting color) when memories exist."""
-    _set_feature_cache(control_center, memory={"available": True, "count": 5})
+def test_openspec_button_in_project_header(control_center, git_env, qtbot):
+    """Project header should contain an [O] button for OpenSpec."""
+    _set_feature_cache(control_center, openspec={"installed": True, "changes_active": 3, "skills_present": True, "cli_available": True})
     control_center.update_status(_make_status_data(git_env))
     qtbot.wait(200)
 
     header_widget = control_center.table.cellWidget(0, 0)
-    mem_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"][0]
+    assert header_widget is not None
 
-    purple_color = control_center.get_color("status_compacting")
-    assert purple_color in mem_btn.styleSheet()
-    assert "5 memories" in mem_btn.toolTip()
+    os_buttons = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "O"]
+    assert len(os_buttons) == 1
+    assert "3 active changes" in os_buttons[0].toolTip()
 
 
-def test_project_header_context_menu(control_center, git_env, qtbot):
-    """Right-click on project header row should show project header context menu with Memory submenu."""
-    _set_feature_cache(control_center, memory={"available": True, "count": 3})
+def test_openspec_button_green_when_installed(control_center, git_env, qtbot):
+    """[O] button should be green when OpenSpec is installed."""
+    _set_feature_cache(control_center, openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True})
     control_center.update_status(_make_status_data(git_env))
     qtbot.wait(200)
 
-    # Find the project header row
+    header_widget = control_center.table.cellWidget(0, 0)
+    os_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "O"][0]
+
+    green_color = control_center.get_color("status_running")
+    assert green_color in os_btn.styleSheet()
+
+
+def test_openspec_button_gray_when_not_installed(control_center, git_env, qtbot):
+    """[O] button should be gray when OpenSpec is not installed."""
+    _set_feature_cache(control_center, openspec={"installed": False})
+    control_center.update_status(_make_status_data(git_env))
+    qtbot.wait(200)
+
+    header_widget = control_center.table.cellWidget(0, 0)
+    os_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "O"][0]
+
+    assert "not initialized" in os_btn.toolTip()
+
+
+def test_project_header_context_menu_has_openspec(control_center, git_env, qtbot):
+    """Project header context menu should include OpenSpec submenu."""
+    _set_feature_cache(
+        control_center,
+        memory={"available": True, "count": 2},
+        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
+    )
+    control_center.update_status(_make_status_data(git_env))
+    qtbot.wait(200)
+
     header_row = None
     for row, proj in getattr(control_center, 'row_to_project', {}).items():
         if proj == "test-project":
             header_row = row
             break
-    assert header_row is not None, "Project header row not found in row_to_project"
+    assert header_row is not None
 
     with _MenuCapture() as cap:
         row_rect = control_center.table.visualRect(
@@ -132,23 +139,17 @@ def test_project_header_context_menu(control_center, git_env, qtbot):
         with patch.object(type(control_center), '_check_skill_memory_hooks', return_value=True):
             control_center.show_row_context_menu(row_rect.center())
 
-    assert len(cap.menus) > 0, "Project header context menu was not created"
-    actions = cap.last_actions
-    # Memory submenu should appear
-    assert "Memory" in cap.last_submenus or "Memory" in actions
-    # Standard project actions
-    assert "+ New Worktree..." in actions
+    assert len(cap.menus) > 0
+    assert "Memory" in cap.last_submenus or "Memory" in cap.last_actions
+    assert "OpenSpec" in cap.last_submenus or "OpenSpec" in cap.last_actions
 
 
-def test_memory_browse_dialog_empty_state(control_center, qtbot):
-    """MemoryBrowseDialog should show empty state when no memories exist."""
-    with patch("gui.dialogs.memory_dialog._run_wt_memory", return_value="[]"):
-        dialog = MemoryBrowseDialog(control_center, "test-project")
-
-    assert dialog.windowTitle() == "Memory: test-project"
-    assert dialog.windowFlags() & Qt.WindowStaysOnTopHint
-
-    # Status should show 0 memories
-    assert "0 memories" in dialog.status_label.text()
-
-    dialog.close()
+def test_feature_worker_instantiation():
+    """FeatureWorker should instantiate and have expected methods."""
+    worker = FeatureWorker()
+    assert hasattr(worker, 'features_updated')
+    assert hasattr(worker, 'set_projects')
+    assert hasattr(worker, 'refresh_now')
+    assert hasattr(worker, 'stop')
+    # Don't start the thread — just check the interface
+    worker._running = False
