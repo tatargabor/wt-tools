@@ -136,8 +136,7 @@ def test_project_header_context_menu_has_openspec(control_center, git_env, qtbot
         row_rect = control_center.table.visualRect(
             control_center.table.model().index(header_row, 0)
         )
-        with patch.object(type(control_center), '_check_skill_memory_hooks', return_value=True):
-            control_center.show_row_context_menu(row_rect.center())
+        control_center.show_row_context_menu(row_rect.center())
 
     assert len(cap.menus) > 0
     assert "Memory" in cap.last_submenus or "Memory" in cap.last_actions
@@ -152,4 +151,11 @@ def test_feature_worker_instantiation():
     assert hasattr(worker, 'refresh_now')
     assert hasattr(worker, 'stop')
     # Don't start the thread — just check the interface
+    worker._running = False
+
+
+def test_feature_worker_has_memory_hooks_poll():
+    """FeatureWorker should have _poll_memory_hooks method."""
+    worker = FeatureWorker()
+    assert hasattr(worker, '_poll_memory_hooks')
     worker._running = False

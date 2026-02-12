@@ -202,13 +202,19 @@ class TableMixin:
         else:
             mem_color = self.get_color("status_idle")
             mem_tooltip = "Memory: not installed"
+        # Append hook status if openspec is present
+        os_status = self.get_openspec_status(project)
+        if has_cache and os_status.get("installed") and os_status.get("skills_present"):
+            if mem_status.get("hooks_installed"):
+                mem_tooltip += " (hooks installed)"
+            else:
+                mem_tooltip += " (hooks not installed)"
         mem_btn.setStyleSheet(f"QPushButton {{ background-color: {mem_color}; color: white; border-radius: 4px; font-weight: bold; font-size: 11px; }}")
         mem_btn.setToolTip(mem_tooltip)
         mem_btn.clicked.connect(lambda checked, p=project: self.show_memory_browse_dialog(p))
         layout.addWidget(mem_btn)
 
         # OpenSpec [O] button (reads from FeatureWorker cache)
-        os_status = self.get_openspec_status(project)
         os_btn = QPushButton("O")
         os_btn.setFixedSize(22, 22)
         if not has_cache:

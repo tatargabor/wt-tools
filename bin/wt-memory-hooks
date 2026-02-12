@@ -1,0 +1,437 @@
+#!/usr/bin/env bash
+# wt-memory-hooks - Install/check/remove memory hooks in OpenSpec SKILL.md files
+# Patches wt-memory recall/remember steps into OpenSpec skills idempotently.
+
+set -euo pipefail
+
+MARKER_START="<!-- wt-memory hooks start -->"
+MARKER_END="<!-- wt-memory hooks end -->"
+
+# Target skills and their hook definitions
+HOOK_SKILLS=(
+    "openspec-new-change"
+    "openspec-continue-change"
+    "openspec-ff-change"
+    "openspec-apply-change"
+    "openspec-archive-change"
+)
+
+usage() {
+    cat <<EOF
+Usage: wt-memory-hooks <command> [options]
+
+Install, check, or remove memory hooks in OpenSpec SKILL.md files.
+
+Commands:
+  install             Patch memory hooks into OpenSpec SKILL.md files (idempotent)
+  check [--json]      Check whether hooks are installed
+  remove              Remove memory hooks from OpenSpec SKILL.md files
+
+Global options:
+  --project NAME      Override project name (default: auto-detect from git root)
+
+EOF
+}
+
+# Resolve the main repo path (reused from wt-openspec)
+resolve_main_repo() {
+    local toplevel
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || true
+
+    if [[ -z "$toplevel" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local common_dir
+    common_dir=$(git -C "$toplevel" rev-parse --git-common-dir 2>/dev/null) || true
+    if [[ -n "$common_dir" && "$common_dir" != ".git" && "$common_dir" != "$toplevel/.git" ]]; then
+        local resolved
+        resolved=$(cd "$toplevel" && cd "$common_dir" && cd .. && pwd)
+        echo "$resolved"
+    else
+        echo "$toplevel"
+    fi
+}
+
+# Check if a SKILL.md file has hooks installed (markers or raw wt-memory content)
+has_hooks() {
+    local file="$1"
+    grep -q "$MARKER_START" "$file" 2>/dev/null || grep -q "wt-memory health" "$file" 2>/dev/null
+}
+
+# Check if hooks are installed WITH markers (for clean removal)
+has_markers() {
+    local file="$1"
+    grep -q "$MARKER_START" "$file" 2>/dev/null
+}
+
+# Get hook content for a specific skill
+get_hook_content() {
+    local skill="$1"
+    case "$skill" in
+        openspec-new-change)
+            cat <<'HOOK'
+1b. **Check for related past work (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<user-description-or-change-name>" --limit 3`
+   - If relevant memories are found, briefly note: "Note: Related past work found — <one-line summary of most relevant memory>"
+   - This helps the user (and you) avoid repeating past mistakes or rediscovering known patterns
+
+   If `wt-memory health` fails, skip silently.
+HOOK
+            ;;
+        openspec-continue-change)
+            cat <<'HOOK'
+2b. **Recall relevant past experience (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Read proposal.md (if it exists) to understand the change context
+   - Construct a search query from the change name and key terms from the proposal
+   - Run: `wt-memory recall "<change-name> <keywords>" --limit 5`
+   - If relevant memories are returned, keep them in mind when creating artifacts (decisions, patterns, past errors)
+
+   If `wt-memory health` fails, skip silently.
+HOOK
+            ;;
+        openspec-ff-change)
+            cat <<'HOOK'
+3b. **Recall relevant past experience (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<change-name> <description-from-user>" --limit 5`
+   - Keep relevant memories (past decisions, patterns, errors) in mind during artifact creation
+
+   If `wt-memory health` fails, skip silently.
+HOOK
+            ;;
+        openspec-apply-change)
+            # apply-change has TWO hook blocks: recall (4b) and remember (7 extension)
+            cat <<'HOOK'
+4b. **Recall relevant patterns and errors (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<change-name> implementation patterns errors" --limit 5`
+   - Use relevant memories to inform implementation (avoid past errors, reuse working patterns)
+
+   If `wt-memory health` fails, skip silently.
+HOOK
+            ;;
+        openspec-archive-change)
+            cat <<'HOOK'
+7. **Save to developer memory (automatic)**
+
+   If `wt-memory health` succeeds:
+   a. Extract key decisions from design.md → save each as a memory:
+      ```bash
+      echo "<decision summary and rationale>" | wt-memory remember --type Decision --tags repo,<change-name>,schema
+      ```
+   b. Extract lessons learned from tasks.md/design.md (gotchas, surprising outcomes, useful patterns) → save each as:
+      ```bash
+      echo "<lesson description>" | wt-memory remember --type Learning --tags repo,<change-name>
+      ```
+   c. Save a change completion event summarizing the change:
+      ```bash
+      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Event --tags repo,<change-name>,archive
+      ```
+
+   If `wt-memory health` fails, skip this step silently — no error, no warning.
+HOOK
+            ;;
+    esac
+}
+
+# Get the remember extension for apply-change (step 7)
+get_apply_remember_content() {
+    cat <<'HOOK'
+   After showing status, if `wt-memory health` succeeds:
+   - If errors were encountered during this session, save each:
+     ```bash
+     echo "<error description and workaround/fix>" | wt-memory remember --type Observation --tags repo,<change-name>,error
+     ```
+   - If useful patterns were discovered, save each:
+     ```bash
+     echo "<pattern description>" | wt-memory remember --type Learning --tags repo,<change-name>,pattern
+     ```
+   - If all tasks are complete, save a completion event:
+     ```bash
+     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Event --tags repo,<change-name>,implementation
+     ```
+   If health fails, skip silently.
+HOOK
+}
+
+# Get anchor pattern for each skill (line before which to insert)
+get_anchor_after() {
+    local skill="$1"
+    case "$skill" in
+        openspec-new-change)       echo '2. \*\*Determine the workflow schema' ;;
+        openspec-continue-change)  echo '3. \*\*Act based on status' ;;
+        openspec-ff-change)        echo '4. \*\*Create artifacts in sequence' ;;
+        openspec-apply-change)     echo '5. \*\*Show current progress' ;;
+        openspec-archive-change)   echo '\*\*Guardrails\*\*' ;;
+    esac
+}
+
+# Get anchor for apply-change remember block
+get_apply_remember_anchor() {
+    echo '\*\*Output During Implementation\*\*'
+}
+
+# Install hooks into a single SKILL.md file
+install_single() {
+    local skill="$1"
+    local file="$2"
+
+    if has_hooks "$file"; then
+        echo "  $skill: already installed, skipping"
+        return 0
+    fi
+
+    local hook_content
+    hook_content=$(get_hook_content "$skill")
+    local anchor
+    anchor=$(get_anchor_after "$skill")
+
+    # Create temp file
+    local tmpfile
+    tmpfile=$(mktemp)
+    trap "rm -f '$tmpfile'" RETURN
+
+    # Insert hook block before anchor line
+    local inserted=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$inserted" == "false" ]] && echo "$line" | grep -qE "$anchor"; then
+            # Insert hook block before this line
+            echo "$MARKER_START"
+            echo ""
+            echo "$hook_content"
+            echo ""
+            echo "$MARKER_END"
+            echo ""
+            inserted=true
+        fi
+        echo "$line"
+    done < "$file" > "$tmpfile"
+
+    if [[ "$inserted" == "false" ]]; then
+        echo "  $skill: WARNING — anchor pattern not found, skipping" >&2
+        rm -f "$tmpfile"
+        return 1
+    fi
+
+    # For apply-change, also insert the remember block
+    if [[ "$skill" == "openspec-apply-change" ]]; then
+        local remember_content
+        remember_content=$(get_apply_remember_content)
+        local remember_anchor
+        remember_anchor=$(get_apply_remember_anchor)
+
+        local tmpfile2
+        tmpfile2=$(mktemp)
+
+        local inserted2=false
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$inserted2" == "false" ]] && echo "$line" | grep -qE "$remember_anchor"; then
+                echo "${MARKER_START/hooks/hooks-remember}"
+                echo ""
+                echo "$remember_content"
+                echo ""
+                echo "${MARKER_END/hooks/hooks-remember}"
+                echo ""
+                inserted2=true
+            fi
+            echo "$line"
+        done < "$tmpfile" > "$tmpfile2"
+
+        if [[ "$inserted2" == "true" ]]; then
+            mv "$tmpfile2" "$tmpfile"
+        else
+            echo "  $skill: WARNING — remember anchor not found" >&2
+            rm -f "$tmpfile2"
+        fi
+    fi
+
+    mv "$tmpfile" "$file"
+    echo "  $skill: installed"
+}
+
+# Remove hooks from a single SKILL.md file
+remove_single() {
+    local skill="$1"
+    local file="$2"
+
+    if ! has_hooks "$file"; then
+        echo "  $skill: no hooks found"
+        return 0
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+
+    local in_block=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if echo "$line" | grep -q "wt-memory hooks start" || echo "$line" | grep -q "wt-memory hooks-remember start"; then
+            in_block=true
+            continue
+        fi
+        if echo "$line" | grep -q "wt-memory hooks end" || echo "$line" | grep -q "wt-memory hooks-remember end"; then
+            in_block=false
+            continue
+        fi
+        if [[ "$in_block" == "false" ]]; then
+            echo "$line"
+        fi
+    done < "$file" > "$tmpfile"
+
+    mv "$tmpfile" "$file"
+    echo "  $skill: removed"
+}
+
+# Command: check
+cmd_check() {
+    local json_mode=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    local main_repo
+    main_repo=$(resolve_main_repo) || true
+
+    if [[ -z "$main_repo" ]]; then
+        if [[ "$json_mode" == "true" ]]; then
+            echo '{"installed": false, "files_total": 0, "files_patched": 0}'
+        else
+            echo "Not in a git repository"
+        fi
+        return 0
+    fi
+
+    local skills_dir="$main_repo/.claude/skills"
+    local files_total=0
+    local files_patched=0
+
+    for skill in "${HOOK_SKILLS[@]}"; do
+        local file="$skills_dir/$skill/SKILL.md"
+        if [[ -f "$file" ]]; then
+            files_total=$((files_total + 1))
+            if has_hooks "$file"; then
+                files_patched=$((files_patched + 1))
+            fi
+        fi
+    done
+
+    local installed=false
+    if [[ "$files_total" -gt 0 && "$files_patched" -eq "$files_total" ]]; then
+        installed=true
+    fi
+
+    if [[ "$json_mode" == "true" ]]; then
+        echo "{\"installed\": $installed, \"files_total\": $files_total, \"files_patched\": $files_patched}"
+    else
+        echo "Memory Hooks Status:"
+        echo "  Skills found: $files_total"
+        echo "  Skills patched: $files_patched"
+        if [[ "$installed" == "true" ]]; then
+            echo "  Status: fully installed"
+        elif [[ "$files_patched" -gt 0 ]]; then
+            echo "  Status: partially installed ($files_patched/$files_total)"
+        else
+            echo "  Status: not installed"
+        fi
+    fi
+}
+
+# Command: install
+cmd_install() {
+    local main_repo
+    main_repo=$(resolve_main_repo) || true
+
+    if [[ -z "$main_repo" ]]; then
+        echo "Error: not in a git repository" >&2
+        return 1
+    fi
+
+    local skills_dir="$main_repo/.claude/skills"
+    local found=false
+
+    for skill in "${HOOK_SKILLS[@]}"; do
+        local file="$skills_dir/$skill/SKILL.md"
+        if [[ -f "$file" ]]; then
+            found=true
+            install_single "$skill" "$file"
+        fi
+    done
+
+    if [[ "$found" == "false" ]]; then
+        echo "Error: No OpenSpec skills found in $skills_dir" >&2
+        return 1
+    fi
+
+    echo "Done."
+}
+
+# Command: remove
+cmd_remove() {
+    local main_repo
+    main_repo=$(resolve_main_repo) || true
+
+    if [[ -z "$main_repo" ]]; then
+        echo "Error: not in a git repository" >&2
+        return 1
+    fi
+
+    local skills_dir="$main_repo/.claude/skills"
+
+    for skill in "${HOOK_SKILLS[@]}"; do
+        local file="$skills_dir/$skill/SKILL.md"
+        if [[ -f "$file" ]]; then
+            remove_single "$skill" "$file"
+        fi
+    done
+
+    echo "Done."
+}
+
+# Main dispatch
+main() {
+    local PROJECT=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project)
+                PROJECT="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 0
+    fi
+
+    local command="$1"
+    shift
+
+    case "$command" in
+        install)  cmd_install "$@" ;;
+        check)    cmd_check "$@" ;;
+        remove)   cmd_remove "$@" ;;
+        -h|--help|help) usage ;;
+        *)
+            echo "Error: Unknown command '$command'" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

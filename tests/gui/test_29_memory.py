@@ -1,6 +1,6 @@
 """
 Memory Tests - Verify [M] button in project header, project header context menu,
-and MemoryBrowseDialog instantiation.
+MemoryBrowseDialog instantiation, and memory hooks status.
 """
 
 from unittest.mock import patch
@@ -111,6 +111,39 @@ def test_memory_button_purple_when_memories_exist(control_center, git_env, qtbot
     assert "5 memories" in mem_btn.toolTip()
 
 
+def test_memory_button_hooks_installed_tooltip(control_center, git_env, qtbot):
+    """[M] button tooltip should show hooks status when OpenSpec is present."""
+    _set_feature_cache(
+        control_center,
+        memory={"available": True, "count": 3, "hooks_installed": True},
+        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
+    )
+    control_center.update_status(_make_status_data(git_env))
+    qtbot.wait(200)
+
+    header_widget = control_center.table.cellWidget(0, 0)
+    mem_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"][0]
+
+    assert "hooks installed" in mem_btn.toolTip()
+    assert "3 memories" in mem_btn.toolTip()
+
+
+def test_memory_button_hooks_not_installed_tooltip(control_center, git_env, qtbot):
+    """[M] button tooltip should warn when hooks not installed but OpenSpec present."""
+    _set_feature_cache(
+        control_center,
+        memory={"available": True, "count": 0},
+        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
+    )
+    control_center.update_status(_make_status_data(git_env))
+    qtbot.wait(200)
+
+    header_widget = control_center.table.cellWidget(0, 0)
+    mem_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"][0]
+
+    assert "hooks not installed" in mem_btn.toolTip()
+
+
 def test_project_header_context_menu(control_center, git_env, qtbot):
     """Right-click on project header row should show project header context menu with Memory submenu."""
     _set_feature_cache(control_center, memory={"available": True, "count": 3})
@@ -129,8 +162,7 @@ def test_project_header_context_menu(control_center, git_env, qtbot):
         row_rect = control_center.table.visualRect(
             control_center.table.model().index(header_row, 0)
         )
-        with patch.object(type(control_center), '_check_skill_memory_hooks', return_value=True):
-            control_center.show_row_context_menu(row_rect.center())
+        control_center.show_row_context_menu(row_rect.center())
 
     assert len(cap.menus) > 0, "Project header context menu was not created"
     actions = cap.last_actions
@@ -138,6 +170,37 @@ def test_project_header_context_menu(control_center, git_env, qtbot):
     assert "Memory" in cap.last_submenus or "Memory" in actions
     # Standard project actions
     assert "+ New Worktree..." in actions
+
+
+def test_context_menu_install_hooks_action(control_center, git_env, qtbot):
+    """Context menu should show 'Install Memory Hooks' when openspec present but hooks not installed."""
+    _set_feature_cache(
+        control_center,
+        memory={"available": True, "count": 0},
+        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
+    )
+    control_center.update_status(_make_status_data(git_env))
+    qtbot.wait(200)
+
+    header_row = None
+    for row, proj in getattr(control_center, 'row_to_project', {}).items():
+        if proj == "test-project":
+            header_row = row
+            break
+    assert header_row is not None
+
+    # Collect all actions from all menus (parent + submenus)
+    all_actions = []
+    with _MenuCapture() as cap:
+        row_rect = control_center.table.visualRect(
+            control_center.table.model().index(header_row, 0)
+        )
+        control_center.show_row_context_menu(row_rect.center())
+
+    for menu_data in cap.menus:
+        all_actions.extend(menu_data["actions"])
+
+    assert "Install Memory Hooks..." in all_actions
 
 
 def test_memory_browse_dialog_empty_state(control_center, qtbot):
