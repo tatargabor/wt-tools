@@ -39,7 +39,8 @@ Graceful degradation:
 EOF
 }
 
-# Resolve project name from git root or --project flag
+# Resolve project name from git root or --project flag.
+# For worktrees, resolves to the main repo name so all worktrees share memory.
 resolve_project() {
     if [[ -n "$PROJECT" ]]; then
         echo "$PROJECT"
@@ -49,10 +50,23 @@ resolve_project() {
     # Auto-detect from git root
     local toplevel
     toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || true
-    if [[ -n "$toplevel" ]]; then
-        basename "$toplevel"
-    else
+    if [[ -z "$toplevel" ]]; then
         echo "_global"
+        return 0
+    fi
+
+    # Check if this is a worktree — git-common-dir points to main repo's .git
+    local common_dir
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || true
+
+    if [[ -n "$common_dir" && "$common_dir" != ".git" ]]; then
+        # Worktree: common_dir is /path/to/main-repo/.git (absolute or relative)
+        local abs_common
+        abs_common=$(cd "$toplevel" && cd "$common_dir" && pwd)
+        basename "$(dirname "$abs_common")"
+    else
+        # Main repo
+        basename "$toplevel"
     fi
 }
 
