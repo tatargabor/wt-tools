@@ -93,6 +93,15 @@ is_editor_open() {
     _last_window_id=""
     _last_editor_type=""
 
+    # Resolve configured editor type (ide or terminal)
+    local _cfg_editor _cfg_editor_type
+    _cfg_editor=$(get_active_editor 2>/dev/null) || true
+    if [[ -n "$_cfg_editor" ]]; then
+        _cfg_editor_type=$(get_editor_property "$_cfg_editor" type 2>/dev/null) || _cfg_editor_type="ide"
+    else
+        _cfg_editor_type="ide"  # default: require a window
+    fi
+
     # Try PPID chain detection using agent PIDs in this worktree
     local agent_pids
     agent_pids=$(ps -e -o pid=,comm= | awk '$2 == "claude" {print $1}') || true
@@ -118,13 +127,14 @@ is_editor_open() {
                 return 0
             fi
 
-            # No window found - check TTY as fallback (remote session)
-            local tty
-            tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
-            if [[ -n "$tty" && "$tty" != "?" && "$tty" != "??" ]]; then
-                # Has a TTY - likely remote/interactive session, not orphan
-                _last_editor_type="terminal"
-                return 0
+            # No window found - TTY fallback only for terminal-type editors
+            if [[ "$_cfg_editor_type" == "terminal" ]]; then
+                local tty
+                tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+                if [[ -n "$tty" && "$tty" != "?" && "$tty" != "??" ]]; then
+                    _last_editor_type="terminal"
+                    return 0
+                fi
             fi
         done <<< "$agent_pids"
     fi
