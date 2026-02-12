@@ -23,6 +23,15 @@ COL_EXTRA = 5
 NUM_COLS = 6
 
 
+# Known IDE process names (from PPID chain detection in wt-status)
+_IDE_EDITOR_TYPES = {"zed", "Zed", "code", "Code", "cursor", "Cursor", "windsurf", "Windsurf"}
+
+
+def _is_ide_editor_type(editor_type: str) -> bool:
+    """Return True if editor_type matches a known IDE process name."""
+    return bool(editor_type) and editor_type in _IDE_EDITOR_TYPES
+
+
 class TableMixin:
     """Mixin for table rendering functionality"""
 
@@ -253,7 +262,13 @@ class TableMixin:
             row_text = self.get_color("row_running_text")
             self.running_rows.add(row)
         elif status == "waiting":
-            if key not in self.needs_attention:
+            editor_type = wt.get("editor_type") or ""
+            in_terminal = editor_type and not _is_ide_editor_type(editor_type)
+            if in_terminal:
+                # Terminal-based agent: dim — expected state, not needing attention
+                row_bg = self.get_color("row_idle")
+                row_text = self.get_color("text_muted")
+            elif key not in self.needs_attention:
                 row_bg = self.get_color("row_waiting")
                 row_text = self.get_color("row_waiting_text")
             else:

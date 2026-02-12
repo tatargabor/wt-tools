@@ -478,6 +478,17 @@ class HandlersMixin:
 
         plat = get_platform()
 
+        # Known IDE process names (from PPID chain detection)
+        _IDE_TYPES = {"zed", "Zed", "code", "Code", "cursor", "Cursor", "windsurf", "Windsurf"}
+
+        editor_type = wt.get("editor_type") or ""
+        window_id = wt.get("window_id")
+
+        # If editor_type is a terminal (not IDE), skip title search — go straight to window_id
+        if editor_type and editor_type not in _IDE_TYPES and window_id:
+            plat.focus_window(str(window_id), app_name=editor_type)
+            return
+
         # Primary: title-based search (reliable for multi-window IDEs like Zed)
         # Never use exact match — Zed appends " — filename" to the title
         wt_basename = Path(wt_path).name
@@ -488,9 +499,7 @@ class HandlersMixin:
             return
 
         # Fallback: window_id from status data (PPID chain detection)
-        window_id = wt.get("window_id")
         if window_id:
-            editor_type = wt.get("editor_type", "")
             plat.focus_window(str(window_id), app_name=editor_type)
             return
 
