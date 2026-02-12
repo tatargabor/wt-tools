@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Automatic skill registration via hook
 The system SHALL register the active skill for agent status display automatically when a skill is invoked, using a Claude Code PreToolUse hook instead of manual LLM instruction.
@@ -29,3 +29,18 @@ All SKILL.md files SHALL NOT contain manual `wt-skill-start` instructions since 
 #### Scenario: Skill prompt loaded
 - **WHEN** a SKILL.md prompt is expanded for the LLM
 - **THEN** it does not contain a `wt-skill-start` bash instruction block
+
+### Requirement: Memory hooks use only valid shodh-memory types
+All `wt-memory remember --type` invocations in hook templates SHALL use valid shodh-memory types: `Decision`, `Learning`, or `Context`. The hooks SHALL NOT use `Observation` or `Event`.
+
+#### Scenario: Archive hook saves completion record
+- **WHEN** the archive hook saves a change completion event
+- **THEN** it uses `--type Context` (not `--type Event`)
+
+#### Scenario: Apply hook saves error observations
+- **WHEN** the apply hook saves error descriptions
+- **THEN** it uses `--type Learning` (not `--type Observation`)
+
+#### Scenario: Hooks reinstalled after update
+- **WHEN** `wt-memory-hooks install` is run after the type mapping fix
+- **THEN** all installed SKILL.md files contain only valid types
