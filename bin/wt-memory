@@ -94,15 +94,41 @@ get_storage_path() {
     echo "$SHODH_STORAGE/$project"
 }
 
-# Run python3 with shodh-memory, filtering the star banner from stdout
-# shodh-memory prints "⭐ Love shodh-memory?..." to stdout on import
+# Get the per-project log file path for error logging
+get_log_path() {
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+    echo "$storage_path/wt-memory.log"
+}
+
+# Run python3 with shodh-memory.
+# Banner suppressed at Python level (sys._shodh_star_shown).
+# Stderr goes to log file for diagnosis (not /dev/null).
 run_shodh_python() {
-    python3 "$@" 2>/dev/null | grep -v "^⭐"
+    local log_file
+    log_file=$(get_log_path)
+    python3 "$@" 2>>"$log_file"
+}
+
+# Run a command under a per-project flock to prevent concurrent RocksDB access.
+# Uses fd-based flock so it works with bash functions (not just external commands).
+# Usage: run_with_lock <command> [args...]
+run_with_lock() {
+    local project
+    project=$(resolve_project)
+    local lock_file="/tmp/wt-memory-${project}.lock"
+    (
+        flock --timeout 10 9 || { echo "wt-memory: lock timeout after 10s" >&2; return 1; }
+        "$@"
+    ) 9>"$lock_file"
 }
 
 # Check if shodh-memory Python package is importable
+# No flock needed — does not open the DB, just imports.
+# Stderr suppressed — expected to fail when not installed.
 cmd_health() {
-    if python3 -c "from shodh_memory import Memory" 2>/dev/null; then
+    if python3 -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
         echo "ok"
         return 0
     else
@@ -165,18 +191,23 @@ cmd_remember() {
     fi
 
     # Pass data via env vars to avoid shell escaping issues
+    local rc=0
     _SHODH_STORAGE="$storage_path" \
     _SHODH_CONTENT="$content" \
     _SHODH_TYPE="$memory_type" \
     _SHODH_TAGS="$tags_py" \
-    run_shodh_python -c "
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 tags = json.loads(os.environ['_SHODH_TAGS'])
 m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], tags=tags)
-" || true
+" || rc=$?
 
+    if [[ $rc -ne 0 ]]; then
+        echo "wt-memory remember: failed (exit $rc), see $(get_log_path)" >&2
+    fi
     return 0
 }
 
@@ -216,7 +247,8 @@ cmd_recall() {
     _SHODH_STORAGE="$storage_path" \
     _SHODH_QUERY="$query" \
     _SHODH_LIMIT="$limit" \
-    run_shodh_python -c "
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
@@ -245,7 +277,8 @@ cmd_list() {
     fi
 
     _SHODH_STORAGE="$storage_path" \
-    run_shodh_python -c "
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
@@ -276,7 +309,8 @@ cmd_status() {
         # JSON output for GUI consumption
         if cmd_health >/dev/null 2>&1; then
             local count
-            count=$(_SHODH_STORAGE="$storage_path" run_shodh_python -c "
+            count=$(_SHODH_STORAGE="$storage_path" run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
@@ -298,7 +332,8 @@ print(stats.get('total_memories', 0))
         echo -n "Health: "
         if cmd_health >/dev/null 2>&1; then
             echo "available"
-            _SHODH_STORAGE="$storage_path" run_shodh_python -c "
+            _SHODH_STORAGE="$storage_path" run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
@@ -335,6 +370,7 @@ cmd_projects() {
         if cmd_health >/dev/null 2>&1; then
             local count
             count=$(_SHODH_STORAGE="$dir" run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
 import os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
