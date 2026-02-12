@@ -356,6 +356,13 @@ class HandlersMixin:
             return self.row_to_worktree.get(row)
         return None
 
+    def get_selected_agent(self):
+        """Get the agent data for the currently selected row."""
+        row = self.table.currentRow()
+        if row >= 0 and hasattr(self, 'row_to_agent'):
+            return self.row_to_agent.get(row, {})
+        return {}
+
     def on_double_click(self):
         """Handle double-click on row - focus IDE window if open, otherwise open via wt-work"""
         wt = self.get_selected_worktree()
@@ -384,10 +391,11 @@ class HandlersMixin:
                 plat.focus_window(title_wid, app_name=app_name)
                 return
 
-            # Fallback: window_id from status data (PPID chain detection)
-            window_id = wt.get("window_id")
+            # Fallback: per-agent window_id, then worktree-level
+            agent = self.get_selected_agent()
+            window_id = agent.get("window_id") or wt.get("window_id")
+            editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
             if window_id:
-                editor_type = wt.get("editor_type", "")
                 plat.focus_window(str(window_id), app_name=editor_type)
                 return
 
@@ -481,8 +489,10 @@ class HandlersMixin:
         # Known IDE process names (from PPID chain detection)
         _IDE_TYPES = {"zed", "Zed", "code", "Code", "cursor", "Cursor", "windsurf", "Windsurf"}
 
-        editor_type = wt.get("editor_type") or ""
-        window_id = wt.get("window_id")
+        # Per-agent window info (preferred), with worktree-level fallback
+        agent = self.get_selected_agent()
+        editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
+        window_id = agent.get("window_id") or wt.get("window_id")
 
         # If editor_type is a terminal (not IDE), skip title search — go straight to window_id
         if editor_type and editor_type not in _IDE_TYPES and window_id:
@@ -527,10 +537,11 @@ class HandlersMixin:
             plat.close_window(title_wid, app_name=app_name)
             return
 
-        # Fallback: window_id from status data (PPID chain detection)
-        window_id = wt.get("window_id")
+        # Fallback: per-agent window_id, then worktree-level
+        agent = self.get_selected_agent()
+        window_id = agent.get("window_id") or wt.get("window_id")
+        editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
         if window_id:
-            editor_type = wt.get("editor_type", "")
             plat.close_window(str(window_id), app_name=editor_type)
 
     def on_new(self, preset_project: str = None):

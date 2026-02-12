@@ -173,7 +173,23 @@ class LinuxPlatform(PlatformInterface):
                     text=True,
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    window_id = result.stdout.strip().split("\n")[0]
+                    candidates = result.stdout.strip().split("\n")
+                    # Prefer top-level windows (_NET_WM_WINDOW_TYPE contains NORMAL)
+                    window_id = None
+                    for candidate in candidates:
+                        try:
+                            xprop_result = subprocess.run(
+                                ["xprop", "-id", candidate, "_NET_WM_WINDOW_TYPE"],
+                                capture_output=True, text=True,
+                            )
+                            if "NORMAL" in xprop_result.stdout:
+                                window_id = candidate
+                                break
+                        except subprocess.CalledProcessError:
+                            continue
+                    # Fallback: use first window if no NORMAL type found
+                    if not window_id:
+                        window_id = candidates[0]
                     # Get process name
                     proc_name = "unknown"
                     try:

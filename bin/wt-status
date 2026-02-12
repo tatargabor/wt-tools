@@ -25,10 +25,21 @@ find_window_for_agent() {
         linux)
             if command -v xdotool &>/dev/null; then
                 while [[ "$depth" -lt "$max_depth" && "$current_pid" -gt 1 ]] 2>/dev/null; do
-                    # Check if this process owns any X11 window
-                    local wid
-                    wid=$(xdotool search --pid "$current_pid" 2>/dev/null | head -1) || true
-                    if [[ -n "$wid" ]]; then
+                    # Check if this process owns any top-level X11 window
+                    local all_wids
+                    all_wids=$(xdotool search --pid "$current_pid" 2>/dev/null) || true
+                    if [[ -n "$all_wids" ]]; then
+                        # Filter to top-level windows (_NET_WM_WINDOW_TYPE contains NORMAL)
+                        local wid=""
+                        while read -r _candidate; do
+                            [[ -z "$_candidate" ]] && continue
+                            if xprop -id "$_candidate" _NET_WM_WINDOW_TYPE 2>/dev/null | grep -q NORMAL; then
+                                wid="$_candidate"
+                                break
+                            fi
+                        done <<< "$all_wids"
+                        # Fallback: use first window if no NORMAL type found
+                        [[ -z "$wid" ]] && wid=$(echo "$all_wids" | head -1)
                         # Found a window - get the process name
                         local proc_name
                         proc_name=$(ps -o comm= -p "$current_pid" 2>/dev/null | tr -d ' ') || proc_name="unknown"
@@ -80,8 +91,8 @@ find_window_for_agent() {
     return 1
 }
 
-# Check if an editor window is open for a given worktree
-# Uses PPID chain walking when agents exist, falls back to TTY check
+# Check if an editor window is open for a given worktree (title-based search only)
+# Agent PPID chain detection is now done per-agent in detect_agents()
 # Args: $1 = worktree path, $2 = "true" if main repo
 # Sets global: _last_window_id, _last_editor_type
 # Returns: 0 (true) if editor window found, 1 (false) otherwise
@@ -93,53 +104,7 @@ is_editor_open() {
     _last_window_id=""
     _last_editor_type=""
 
-    # Resolve configured editor type (ide or terminal)
-    local _cfg_editor _cfg_editor_type
-    _cfg_editor=$(get_active_editor 2>/dev/null) || true
-    if [[ -n "$_cfg_editor" ]]; then
-        _cfg_editor_type=$(get_editor_property "$_cfg_editor" type 2>/dev/null) || _cfg_editor_type="ide"
-    else
-        _cfg_editor_type="ide"  # default: require a window
-    fi
-
-    # Try PPID chain detection using agent PIDs in this worktree
-    local agent_pids
-    agent_pids=$(ps -e -o pid=,comm= | awk '$2 == "claude" {print $1}') || true
-
-    if [[ -n "$agent_pids" ]]; then
-        while read -r pid; do
-            [[ -z "$pid" ]] && continue
-
-            # Check if this agent is in this worktree
-            local proc_cwd
-            proc_cwd=$(get_proc_cwd "$pid") || continue
-            [[ -z "$proc_cwd" ]] && continue
-            if [[ "$proc_cwd" != "$wt_path" && "$proc_cwd" != "$wt_path/"* ]]; then
-                continue
-            fi
-
-            # Found an agent in this worktree - walk its PPID chain
-            local result
-            result=$(find_window_for_agent "$pid") || true
-            if [[ -n "$result" ]]; then
-                _last_window_id="${result%%|*}"
-                _last_editor_type="${result#*|}"
-                return 0
-            fi
-
-            # No window found - TTY fallback only for terminal-type editors
-            if [[ "$_cfg_editor_type" == "terminal" ]]; then
-                local tty
-                tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
-                if [[ -n "$tty" && "$tty" != "?" && "$tty" != "??" ]]; then
-                    _last_editor_type="terminal"
-                    return 0
-                fi
-            fi
-        done <<< "$agent_pids"
-    fi
-
-    # No agents or no windows found via PPID chain — try title-based search
+    # Title-based search for editor window
     local wt_basename
     wt_basename=$(basename "$wt_path")
 
@@ -281,13 +246,29 @@ reset_orphan_marker() {
     rm -f "$marker_dir/$pid" 2>/dev/null
 }
 
-# Clean up orphan agents: kill "waiting" agents in worktrees with no editor and no Ralph loop
-# Args: $1 = worktree path, $2 = agent_lines (status:pid entries), $3 = is_main_repo
+# Check if a process has an active TTY with a shell running on it
+# Args: $1 = PID
+# Returns: 0 (true) if TTY has a shell, 1 (false) otherwise
+has_tty_with_shell() {
+    local pid="$1"
+    local _tty
+    _tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [[ -n "$_tty" ]] && [[ "$_tty" != "?" ]] && [[ "$_tty" != "??" ]]; then
+        local _tty_procs
+        _tty_procs=$(ps -t "$_tty" -o comm= 2>/dev/null)
+        if echo "$_tty_procs" | grep -qE '^(zsh|bash|fish|sh|dash|-zsh|-bash|-fish|-sh|-dash|/usr/bin/login|login)$'; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Clean up orphan agents: kill "waiting" agents with no window and no interactive shell
+# Args: $1 = worktree path, $2 = agent_lines (status:pid:window_id:editor_type entries)
 # Outputs: filtered agent_lines with orphans removed
 cleanup_orphan_agents() {
     local wt_path="$1"
     local agent_lines="$2"
-    local is_main="${3:-false}"
 
     [[ -z "$agent_lines" ]] && return
 
@@ -297,63 +278,49 @@ cleanup_orphan_agents() {
     # Clean up stale markers for PIDs that no longer exist
     cleanup_stale_markers "$marker_dir"
 
-    # If editor is open or Ralph loop is active, keep all agents and reset all markers
-    if is_editor_open "$wt_path" "$is_main" || is_ralph_loop_active "$wt_path"; then
-        while IFS=: read -r _s _p; do
+    # Ralph loop protects ALL agents (worktree-level)
+    if is_ralph_loop_active "$wt_path"; then
+        while IFS=: read -r _s _p _w _e; do
             [[ -n "$_p" ]] && reset_orphan_marker "$marker_dir" "$_p"
         done <<< "$agent_lines"
         echo "$agent_lines"
         return
     fi
 
-    # No editor, no Ralph loop — apply grace period to "waiting" agents
+    # Per-agent cleanup: each agent evaluated independently
     local kept_lines=""
-    while IFS=: read -r agent_status agent_pid; do
+    while IFS=: read -r agent_status agent_pid agent_wid agent_etype; do
         [[ -z "$agent_status" ]] && continue
 
         if [[ "$agent_status" == "waiting" ]]; then
-            # Safety check: never kill agents with an active TTY + shell (interactive session)
-            local _tty
-            _tty=$(ps -o tty= -p "$agent_pid" 2>/dev/null | tr -d ' ')
-            if [[ -n "$_tty" ]] && [[ "$_tty" != "?" ]] && [[ "$_tty" != "??" ]]; then
-                local _tty_procs
-                _tty_procs=$(ps -t "$_tty" -o comm= 2>/dev/null)
-                if echo "$_tty_procs" | grep -qE '^(zsh|bash|fish|sh|dash|-zsh|-bash|-fish|-sh|-dash|/usr/bin/login|login)$'; then
-                    # Agent has active TTY with shell — interactive, do not kill
-                    reset_orphan_marker "$marker_dir" "$agent_pid"
-                    if [[ -n "$kept_lines" ]]; then
-                        kept_lines+=$'\n'
-                    fi
-                    kept_lines+="${agent_status}:${agent_pid}"
+            if [[ -n "$agent_wid" ]]; then
+                # Agent has its own window → keep
+                reset_orphan_marker "$marker_dir" "$agent_pid"
+            elif has_tty_with_shell "$agent_pid"; then
+                # Interactive terminal session → keep
+                reset_orphan_marker "$marker_dir" "$agent_pid"
+            else
+                # No window, no interactive shell → orphan candidate
+                record_orphan_detection "$marker_dir" "$agent_pid"
+
+                if should_kill_orphan "$marker_dir" "$agent_pid"; then
+                    kill "$agent_pid" 2>/dev/null || true
+                    echo "wt-status: killed orphan agent PID $agent_pid in $wt_path (grace period expired: 3x + 15s)" >&2
+                    rm -f "$marker_dir/$agent_pid" 2>/dev/null
+                    local skill_file="$wt_path/.wt-tools/agents/${agent_pid}.skill"
+                    rm -f "$skill_file" 2>/dev/null
                     continue
                 fi
             fi
-
-            # Record this orphan detection (grace period)
-            record_orphan_detection "$marker_dir" "$agent_pid"
-
-            # Only kill if threshold met: 3 consecutive detections AND 15s elapsed
-            if should_kill_orphan "$marker_dir" "$agent_pid"; then
-                kill "$agent_pid" 2>/dev/null || true
-                echo "wt-status: killed orphan agent PID $agent_pid in $wt_path (grace period expired: 3x + 15s)" >&2
-                rm -f "$marker_dir/$agent_pid" 2>/dev/null
-                local skill_file="$wt_path/.wt-tools/agents/${agent_pid}.skill"
-                rm -f "$skill_file" 2>/dev/null
-            else
-                # Keep agent alive during grace period (still shown as orphan in status)
-                if [[ -n "$kept_lines" ]]; then
-                    kept_lines+=$'\n'
-                fi
-                kept_lines+="${agent_status}:${agent_pid}"
-            fi
         else
-            # Keep running agents and reset their markers
+            # running/orphan: keep as-is, reset marker
             reset_orphan_marker "$marker_dir" "$agent_pid"
-            if [[ -n "$kept_lines" ]]; then
-                kept_lines+=$'\n'
-            fi
-            kept_lines+="${agent_status}:${agent_pid}"
         fi
+
+        if [[ -n "$kept_lines" ]]; then
+            kept_lines+=$'\n'
+        fi
+        kept_lines+="${agent_status}:${agent_pid}:${agent_wid}:${agent_etype}"
     done <<< "$agent_lines"
 
     [[ -n "$kept_lines" ]] && echo "$kept_lines"
@@ -382,7 +349,7 @@ EOF
 }
 
 # Detect ALL Claude processes for a directory
-# Returns: newline-separated list of "status:pid" entries, or empty if none found
+# Returns: newline-separated list of "status:pid:window_id:editor_type" entries, or empty if none found
 detect_agents() {
     local wt_path="$1"
 
@@ -457,7 +424,16 @@ detect_agents() {
             status="orphan"
         fi
 
-        echo "$status:$pid"
+        # Per-agent window detection via PPID chain
+        local agent_wid="" agent_etype=""
+        local win_result
+        win_result=$(find_window_for_agent "$pid") || true
+        if [[ -n "$win_result" ]]; then
+            agent_wid="${win_result%%|*}"
+            agent_etype="${win_result#*|}"
+        fi
+
+        echo "$status:$pid:$agent_wid:$agent_etype"
     done
 }
 
@@ -557,31 +533,54 @@ collect_worktree_status() {
     # Clean up stale agent skill files
     cleanup_stale_agents "$wt_path"
 
-    # Detect all agents on this worktree
+    # Detect all agents on this worktree (with per-agent window info)
     local agent_lines
     agent_lines=$(detect_agents "$wt_path")
 
-    # Check editor window presence (also sets _last_window_id, _last_editor_type)
+    # Derive worktree-level editor info from per-agent window data
     local editor_open="false"
     local window_id="null"
     local editor_type="null"
-    if is_editor_open "$wt_path" "$is_main_repo"; then
-        editor_open="true"
-        [[ -n "$_last_window_id" ]] && window_id="\"$_last_window_id\""
-        [[ -n "$_last_editor_type" ]] && editor_type="\"$_last_editor_type\""
-    fi
-
-    # Cleanup orphan agents (waiting agents with no editor and no Ralph loop)
     if [[ -n "$agent_lines" ]]; then
-        agent_lines=$(cleanup_orphan_agents "$wt_path" "$agent_lines" "$is_main_repo")
+        while IFS=: read -r _s _p _wid _etype; do
+            if [[ -n "$_wid" ]]; then
+                editor_open="true"
+                window_id="\"$_wid\""
+                editor_type="\"$_etype\""
+                break
+            fi
+        done <<< "$agent_lines"
     fi
 
-    # Build agents JSON array
+    # No agent has a window — fall back to title-based search
+    if [[ "$editor_open" == "false" ]]; then
+        if is_editor_open "$wt_path" "$is_main_repo"; then
+            editor_open="true"
+            [[ -n "$_last_window_id" ]] && window_id="\"$_last_window_id\""
+            [[ -n "$_last_editor_type" ]] && editor_type="\"$_last_editor_type\""
+        fi
+    fi
+
+    # Cleanup orphan agents (per-agent: window/TTY/grace period)
+    if [[ -n "$agent_lines" ]]; then
+        agent_lines=$(cleanup_orphan_agents "$wt_path" "$agent_lines")
+    fi
+
+    # Build agents JSON array (with per-agent window_id and editor_type)
     local agents_json="["
     local first_agent=true
+    _wt_running_count=0
+    _wt_waiting_count=0
+    _wt_agent_count=0
     if [[ -n "$agent_lines" ]]; then
-        while IFS=: read -r agent_status agent_pid; do
+        while IFS=: read -r agent_status agent_pid agent_wid agent_etype; do
             [[ -z "$agent_status" ]] && continue
+
+            _wt_agent_count=$((_wt_agent_count + 1))
+            case "$agent_status" in
+                running) _wt_running_count=$((_wt_running_count + 1)) ;;
+                waiting) _wt_waiting_count=$((_wt_waiting_count + 1)) ;;
+            esac
 
             local skill_raw skill_name skill_fresh
             skill_raw=$(get_agent_skill "$wt_path" "$agent_pid")
@@ -594,12 +593,17 @@ collect_worktree_status() {
                 skill_fresh_json="\"$skill_fresh\""
             fi
 
+            local wid_json="null"
+            local etype_json="null"
+            [[ -n "$agent_wid" ]] && wid_json="\"$agent_wid\""
+            [[ -n "$agent_etype" ]] && etype_json="\"$agent_etype\""
+
             if ! $first_agent; then
                 agents_json+=","
             fi
             first_agent=false
 
-            agents_json+="{\"pid\":$agent_pid,\"status\":\"$agent_status\",\"skill\":$skill_json,\"skill_fresh\":$skill_fresh_json}"
+            agents_json+="{\"pid\":$agent_pid,\"status\":\"$agent_status\",\"skill\":$skill_json,\"skill_fresh\":$skill_fresh_json,\"window_id\":$wid_json,\"editor_type\":$etype_json}"
         done <<< "$agent_lines"
     fi
     agents_json+="]"
@@ -677,20 +681,14 @@ collect_all_status() {
 
         collect_worktree_status "$_proj" "$_path" "$_name" "$_branch" "$_is_main"
 
-        # Count agent statuses (per-agent, not per-worktree)
-        local agent_lines
-        agent_lines=$(detect_agents "$_path")
-        if [[ -n "$agent_lines" ]]; then
-            while IFS=: read -r _status _pid; do
-                case "$_status" in
-                    running) ((running++)) ;;
-                    waiting) ((waiting++)) ;;
-                esac
-            done <<< "$agent_lines"
+        # Use counters set by collect_worktree_status (avoids double detect_agents call)
+        if [[ $_wt_agent_count -gt 0 ]]; then
+            running=$(( running + _wt_running_count ))
+            waiting=$(( waiting + _wt_waiting_count ))
         else
-            ((idle++))
+            idle=$((idle + 1))
         fi
-        ((total++))
+        total=$((total + 1))
     }
 
     while IFS= read -r proj_name; do

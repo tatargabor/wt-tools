@@ -104,6 +104,7 @@ class TableMixin:
 
         # Track row mapping: row_index -> worktree data
         self.row_to_worktree = {}
+        self.row_to_agent = {}
         self.row_to_team_worktree = {}
         self.running_rows = set()
 
@@ -132,6 +133,7 @@ class TableMixin:
                     agent = agents[0] if agents else {}
                     self._render_worktree_row(row, wt, agent, is_primary=True, agent_index=0)
                     self.row_to_worktree[row] = wt
+                    self.row_to_agent[row] = agent
                     row += 1
                 else:
                     # Multiple agents — one row per agent
@@ -139,6 +141,7 @@ class TableMixin:
                         is_primary = (i == 0)
                         self._render_worktree_row(row, wt, agent, is_primary=is_primary, agent_index=i)
                         self.row_to_worktree[row] = wt
+                        self.row_to_agent[row] = agent
                         row += 1
 
             # 3. Team worktree rows (if enabled, not hidden, and filter not active)
@@ -262,7 +265,7 @@ class TableMixin:
             row_text = self.get_color("row_running_text")
             self.running_rows.add(row)
         elif status == "waiting":
-            editor_type = wt.get("editor_type") or ""
+            editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
             in_terminal = editor_type and not _is_ide_editor_type(editor_type)
             if in_terminal:
                 # Terminal-based agent: dim — expected state, not needing attention
