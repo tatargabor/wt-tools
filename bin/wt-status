@@ -307,14 +307,18 @@ cleanup_orphan_agents() {
                 # No window, no interactive shell → orphan candidate
                 record_orphan_detection "$marker_dir" "$agent_pid"
 
-                if should_kill_orphan "$marker_dir" "$agent_pid"; then
-                    kill "$agent_pid" 2>/dev/null || true
-                    echo "wt-status: killed orphan agent PID $agent_pid in $wt_path (grace period expired: 3x + 15s)" >&2
-                    rm -f "$marker_dir/$agent_pid" 2>/dev/null
-                    local skill_file="$wt_path/.wt-tools/agents/${agent_pid}.skill"
-                    rm -f "$skill_file" 2>/dev/null
-                    continue
-                fi
+                # Auto-kill disabled: window detection is unreliable (especially
+                # macOS osascript), causing active sessions to be killed.
+                # Orphans are shown in UI with ⚠ — user kills manually via
+                # GUI context menu "Kill Orphan Process".
+                # if should_kill_orphan "$marker_dir" "$agent_pid"; then
+                #     kill "$agent_pid" 2>/dev/null || true
+                #     echo "wt-status: killed orphan agent PID $agent_pid in $wt_path (grace period expired: 3x + 15s)" >&2
+                #     rm -f "$marker_dir/$agent_pid" 2>/dev/null
+                #     local skill_file="$wt_path/.wt-tools/agents/${agent_pid}.skill"
+                #     rm -f "$skill_file" 2>/dev/null
+                #     continue
+                # fi
             fi
         else
             # running/orphan: keep as-is, reset marker
