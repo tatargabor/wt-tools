@@ -6,7 +6,6 @@ All GUI modules use child loggers under the 'wt-control' root.
 """
 
 import logging
-import platform
 import sys
 import tempfile
 from functools import wraps
@@ -20,7 +19,10 @@ def setup_logging():
     Log file: /tmp/wt-control.log (macOS/Linux) or %TEMP%/wt-control.log (Windows)
     Rotation: 5 MB max, 3 backup files.
     """
-    log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    if sys.platform == "win32":
+        log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    else:
+        log_path = Path("/tmp") / "wt-control.log"
 
     root_logger = logging.getLogger("wt-control")
     root_logger.setLevel(logging.DEBUG)
@@ -45,9 +47,9 @@ def setup_logging():
     root_logger.addHandler(handler)
 
     root_logger.info(
-        "GUI starting — Python %s, platform %s",
+        "GUI starting — Python %s, %s",
         sys.version.split()[0],
-        platform.platform(),
+        sys.platform,
     )
 
 

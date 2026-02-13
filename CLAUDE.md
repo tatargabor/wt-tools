@@ -52,6 +52,25 @@ The README structure is defined in `docs/readme-guide.md`. When updating the REA
 
 When the user asks to update or regenerate the README, use the guide as the authoritative source. The guide contains AI generation instructions — it's designed to be enough context for a full README rewrite.
 
+## GUI Debug Log
+
+The GUI writes a rotating debug log to `/tmp/wt-control.log` (macOS/Linux) or `%TEMP%\wt-control.log` (Windows). **When debugging or fixing GUI bugs, always check this log first.** It contains:
+
+- All user actions (`on_double_click`, `on_focus`, git ops) with parameters
+- All platform calls (`find_window_by_title`, `focus_window`) with inputs and results
+- All subprocess invocations with commands and return codes
+- Exceptions caught by `@log_exceptions` in Qt signal handlers
+
+```bash
+# View the log
+cat /tmp/wt-control.log
+
+# Follow live
+tail -f /tmp/wt-control.log
+```
+
+Rotation: 5 MB max, 3 backups. Setup: `gui/logging_setup.py`. Each module uses `logging.getLogger("wt-control.<module>")`.
+
 ## GUI Startup
 
 To start the Control Center GUI:

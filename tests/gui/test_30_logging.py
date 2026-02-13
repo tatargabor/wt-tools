@@ -3,11 +3,18 @@ Tests for GUI logging infrastructure.
 """
 
 import logging
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
+
+
+def _expected_log_path():
+    """Return the expected log path matching production logic."""
+    if sys.platform == "win32":
+        return Path(tempfile.gettempdir()) / "wt-control.log"
+    return Path("/tmp") / "wt-control.log"
 
 
 def test_setup_logging_creates_handler():
@@ -18,9 +25,7 @@ def test_setup_logging_creates_handler():
     # Clear any existing handlers from prior test runs
     root.handlers.clear()
 
-    with patch("gui.logging_setup.tempfile") as mock_tempfile:
-        mock_tempfile.gettempdir.return_value = tempfile.gettempdir()
-        setup_logging()
+    setup_logging()
 
     assert root.level == logging.DEBUG
     assert len(root.handlers) == 1
@@ -41,7 +46,7 @@ def test_setup_logging_writes_startup_message():
     root = logging.getLogger("wt-control")
     root.handlers.clear()
 
-    log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    log_path = _expected_log_path()
     setup_logging()
 
     assert log_path.exists()
@@ -73,7 +78,7 @@ def test_log_format():
     root.handlers.clear()
     setup_logging()
 
-    log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    log_path = _expected_log_path()
 
     # Write a test message
     test_logger = logging.getLogger("wt-control.test")
@@ -105,7 +110,7 @@ def test_log_exceptions_decorator():
     with pytest.raises(ValueError, match="test error 12345"):
         failing_function()
 
-    log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    log_path = _expected_log_path()
     content = log_path.read_text()
     assert "test error 12345" in content
     assert "Exception in failing_function" in content
@@ -126,7 +131,7 @@ def test_child_logger_hierarchy():
     assert len(child.handlers) == 0
     assert child.parent is root
 
-    log_path = Path(tempfile.gettempdir()) / "wt-control.log"
+    log_path = _expected_log_path()
     child.info("child_test_message")
 
     content = log_path.read_text()
