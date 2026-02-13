@@ -3,6 +3,7 @@ Status Worker - Background thread for polling wt-status
 """
 
 import json
+import logging
 import subprocess
 
 from PySide6.QtCore import QThread, Signal
@@ -11,6 +12,8 @@ from ..constants import SCRIPT_DIR
 from ..config import Config
 
 __all__ = ["StatusWorker"]
+
+logger = logging.getLogger("wt-control.workers.status")
 
 
 class StatusWorker(QThread):
@@ -38,10 +41,13 @@ class StatusWorker(QThread):
                 else:
                     self.error_occurred.emit(result.stderr)
             except subprocess.TimeoutExpired:
+                logger.error("wt-status timed out")
                 self.error_occurred.emit("Status check timed out")
             except json.JSONDecodeError as e:
+                logger.error("wt-status invalid JSON: %s", e)
                 self.error_occurred.emit(f"Invalid JSON: {e}")
             except Exception as e:
+                logger.error("wt-status error: %s", e)
                 self.error_occurred.emit(str(e))
 
             # Sleep for configured interval

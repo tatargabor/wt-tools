@@ -2,6 +2,7 @@
 Menus Mixin - Context menus and actions
 """
 
+import logging
 import os
 import signal
 import subprocess
@@ -23,6 +24,8 @@ from ...dialogs import (
 from ...utils import get_main_repo_path
 
 __all__ = ["MenusMixin"]
+
+logger = logging.getLogger("wt-control.menus")
 
 
 class MenusMixin:
@@ -142,6 +145,7 @@ class MenusMixin:
         if wt is None:
             return  # Header row, no menu
 
+        logger.info("context_menu: project=%s change=%s", wt.get("project", ""), wt.get("change_id", ""))
         # Select the row
         self.table.selectRow(row)
 
@@ -514,15 +518,18 @@ class MenusMixin:
 
     def _kill_orphan_process(self, pid: int):
         """Send SIGTERM to an orphan claude process."""
+        logger.info("kill_orphan: pid=%d", pid)
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass  # Already dead
         except PermissionError:
+            logger.error("kill_orphan: permission denied for pid=%d", pid)
             show_warning(self, "Kill Failed", f"Permission denied to kill PID {pid}.")
 
     def _install_hooks(self, wt_path: str):
         """Install Claude Code hooks to a worktree via wt-deploy-hooks."""
+        logger.info("install_hooks: path=%s", wt_path)
         deploy_script = SCRIPT_DIR / "wt-deploy-hooks"
         try:
             result = subprocess.run(

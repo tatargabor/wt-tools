@@ -3,6 +3,7 @@ Handlers Mixin - Event handlers and actions
 """
 
 import json
+import logging
 import os
 import subprocess
 import webbrowser
@@ -21,9 +22,12 @@ from ...dialogs import (
     show_warning, show_information, show_question,
     get_text, get_item, get_existing_directory,
 )
+from ...logging_setup import log_exceptions
 from ...platform import get_platform
 
 __all__ = ["HandlersMixin"]
+
+logger = logging.getLogger("wt-control.handlers")
 
 
 class HandlersMixin:
@@ -62,6 +66,7 @@ class HandlersMixin:
 
     def git_merge(self, path: str, project: str, change_id: str):
         """Merge worktree branch - ask for target branch"""
+        logger.info("git_merge: project=%s change=%s path=%s", project, change_id, path)
         # Get available branches
         branches = ["master", "main"]
         try:
@@ -120,6 +125,7 @@ class HandlersMixin:
 
     def git_merge_from(self, path: str, current_branch: str):
         """Merge another branch into current worktree"""
+        logger.info("git_merge_from: branch=%s path=%s", current_branch, path)
         # Get available branches to merge from (change/* branches and main branches)
         branches = []
         try:
@@ -166,6 +172,7 @@ class HandlersMixin:
 
     def git_push(self, path: str):
         """Git push in worktree"""
+        logger.info("git_push: path=%s", path)
         # Check if upstream is set
         result = subprocess.run(
             ["git", "-C", path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
@@ -185,16 +192,19 @@ class HandlersMixin:
 
     def git_pull(self, path: str):
         """Git pull in worktree"""
+        logger.info("git_pull: path=%s", path)
         cmd = ["git", "-C", path, "pull"]
         self.run_command_dialog("Git Pull", cmd)
 
     def git_fetch(self, path: str):
         """Git fetch in worktree"""
+        logger.info("git_fetch: path=%s", path)
         cmd = ["git", "-C", path, "fetch"]
         self.run_command_dialog("Git Fetch", cmd)
 
     def create_worktree(self, values: dict):
         """Create worktree with given values"""
+        logger.info("create_worktree: project=%s change=%s", values.get("project", ""), values.get("change_id", ""))
         project = values["project"]
         change_id = values["change_id"]
         local_path = values.get("local_path")
@@ -363,13 +373,20 @@ class HandlersMixin:
             return self.row_to_agent.get(row, {})
         return {}
 
+    @log_exceptions
     def on_double_click(self):
         """Handle double-click on row - focus IDE window if open, otherwise open via wt-work"""
         wt = self.get_selected_worktree()
         if not wt:
+            logger.debug("on_double_click: no worktree selected")
             return
 
-        key = f"{wt.get('project', '')}:{wt.get('change_id', '')}"
+        project = wt.get('project', '')
+        change_id = wt.get('change_id', '')
+        wt_path = wt.get("path", "")
+        logger.info("on_double_click: project=%s change=%s path=%s", project, change_id, wt_path)
+
+        key = f"{project}:{change_id}"
         if key in self.needs_attention:
             self.needs_attention.discard(key)
             self.save_state()
@@ -378,7 +395,6 @@ class HandlersMixin:
         self._set_row_background(row, QColor("transparent"))
 
         # Check if window exists for this worktree
-        wt_path = wt.get("path", "")
         if wt_path:
             plat = get_platform()
 
@@ -388,6 +404,7 @@ class HandlersMixin:
             app_name = self._get_editor_app_name()
             title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
             if title_wid:
+                logger.info("on_double_click: found window by title=%r, focusing", title_wid)
                 plat.focus_window(title_wid, app_name=app_name)
                 return
 
@@ -396,6 +413,7 @@ class HandlersMixin:
             window_id = agent.get("window_id") or wt.get("window_id")
             editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
             if window_id:
+                logger.info("on_double_click: focusing window_id=%s editor=%s", window_id, editor_type)
                 plat.focus_window(str(window_id), app_name=editor_type)
                 return
 
@@ -404,6 +422,7 @@ class HandlersMixin:
             cmd = self._get_editor_open_command(wt_path)
         else:
             cmd = [str(SCRIPT_DIR / "wt-work"), "-p", wt["project"], wt["change_id"]]
+        logger.info("on_double_click: opening editor cmd=%s", cmd)
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _get_editor_open_command(self, wt_path: str) -> list:
@@ -474,6 +493,7 @@ class HandlersMixin:
             pass
         return "Zed"
 
+    @log_exceptions
     def on_focus(self):
         """Focus the selected worktree's editor window, or open it if not found"""
         wt = self.get_selected_worktree()
@@ -484,6 +504,7 @@ class HandlersMixin:
         if not wt_path:
             return
 
+        logger.info("on_focus: project=%s change=%s", wt.get("project", ""), wt.get("change_id", ""))
         plat = get_platform()
 
         # Known IDE process names (from PPID chain detection)
@@ -496,6 +517,7 @@ class HandlersMixin:
 
         # If editor_type is a terminal (not IDE), skip title search — go straight to window_id
         if editor_type and editor_type not in _IDE_TYPES and window_id:
+            logger.info("on_focus: terminal editor=%s window_id=%s", editor_type, window_id)
             plat.focus_window(str(window_id), app_name=editor_type)
             return
 
@@ -505,18 +527,22 @@ class HandlersMixin:
         app_name = self._get_editor_app_name()
         title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
         if title_wid:
+            logger.info("on_focus: found window by title=%r, focusing", title_wid)
             plat.focus_window(title_wid, app_name=app_name)
             return
 
         # Fallback: window_id from status data (PPID chain detection)
         if window_id:
+            logger.info("on_focus: focusing window_id=%s editor=%s", window_id, editor_type)
             plat.focus_window(str(window_id), app_name=editor_type)
             return
 
         # No window found — open via editor CLI
         cmd = self._get_editor_open_command(wt_path)
+        logger.info("on_focus: opening editor cmd=%s", cmd)
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    @log_exceptions
     def on_close_editor(self):
         """Close the selected worktree's editor window (silent no-op if not found)"""
         wt = self.get_selected_worktree()
@@ -527,6 +553,7 @@ class HandlersMixin:
         if not wt_path:
             return
 
+        logger.info("on_close_editor: project=%s change=%s", wt.get("project", ""), wt.get("change_id", ""))
         plat = get_platform()
 
         # Primary: title-based search (reliable for multi-window IDEs like Zed)
@@ -534,6 +561,7 @@ class HandlersMixin:
         app_name = self._get_editor_app_name()
         title_wid = plat.find_window_by_title(wt_basename, app_name=app_name)
         if title_wid:
+            logger.info("on_close_editor: closing window title=%r", title_wid)
             plat.close_window(title_wid, app_name=app_name)
             return
 
@@ -542,10 +570,13 @@ class HandlersMixin:
         window_id = agent.get("window_id") or wt.get("window_id")
         editor_type = agent.get("editor_type") or wt.get("editor_type") or ""
         if window_id:
+            logger.info("on_close_editor: closing window_id=%s", window_id)
             plat.close_window(str(window_id), app_name=editor_type)
 
+    @log_exceptions
     def on_new(self, preset_project: str = None):
         """Create a new worktree using the NewWorktreeDialog"""
+        logger.info("on_new: preset_project=%s", preset_project)
         self.hide()
         dialog = NewWorktreeDialog(self, preset_project)
         result = dialog.exec()
@@ -554,8 +585,10 @@ class HandlersMixin:
         if result == QDialog.Accepted:
             self.create_worktree(dialog.get_values())
 
+    @log_exceptions
     def on_work(self):
         """Show dialog to select and open a worktree"""
+        logger.info("on_work")
         self.hide()
 
         # Get currently open worktrees
@@ -572,8 +605,10 @@ class HandlersMixin:
                 subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.show_window()
 
+    @log_exceptions
     def on_add(self):
         """Add an existing git repository or worktree using folder browser"""
+        logger.info("on_add")
         self.hide()
 
         folder = get_existing_directory(
@@ -591,11 +626,13 @@ class HandlersMixin:
 
         self.show()
 
+    @log_exceptions
     def on_close(self):
         """Close the selected worktree"""
         wt = self.get_selected_worktree()
         if not wt:
             return
+        logger.info("on_close: project=%s change=%s", wt.get("project", ""), wt.get("change_id", ""))
 
         from PySide6.QtWidgets import QMessageBox
         reply = show_question(

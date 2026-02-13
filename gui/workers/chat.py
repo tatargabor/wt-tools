@@ -3,6 +3,7 @@ Chat Worker - Background thread for chat message polling
 """
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from ..constants import SCRIPT_DIR, CONFIG_DIR
 from ..config import Config
 
 __all__ = ["ChatWorker"]
+
+logger = logging.getLogger("wt-control.workers.chat")
 
 
 class ChatWorker(QThread):
@@ -99,8 +102,9 @@ class ChatWorker(QThread):
                             pass
 
             except subprocess.TimeoutExpired:
-                pass
+                logger.error("chat poll timed out")
             except Exception as e:
+                logger.error("chat poll error: %s", e)
                 self.error_occurred.emit(str(e))
 
             # Poll every 10 seconds

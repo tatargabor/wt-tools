@@ -3,6 +3,7 @@ Team Worker - Background thread for team synchronization via wt-control
 """
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from ..constants import SCRIPT_DIR, CONFIG_DIR
 from ..config import Config
 
 __all__ = ["TeamWorker"]
+
+logger = logging.getLogger("wt-control.workers.team")
 
 
 class TeamWorker(QThread):
@@ -171,12 +174,16 @@ class TeamWorker(QThread):
                 })
 
             except subprocess.TimeoutExpired:
+                logger.error("team sync timed out")
                 self.error_occurred.emit("Team sync timed out")
             except FileNotFoundError:
+                logger.error("wt-control-sync not found")
                 self.error_occurred.emit("wt-control-sync not found")
             except json.JSONDecodeError as e:
+                logger.error("team sync invalid JSON: %s", e)
                 self.error_occurred.emit(f"Invalid team JSON: {e}")
             except Exception as e:
+                logger.error("team sync error: %s", e)
                 self.error_occurred.emit(str(e))
 
             # Sleep for configured interval

@@ -2,6 +2,7 @@
 Command Output Dialog - Show command execution and output
 """
 
+import logging
 import os
 import subprocess
 
@@ -11,6 +12,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 
 __all__ = ["CommandOutputDialog"]
+
+logger = logging.getLogger("wt-control.dialogs")
 
 
 class CommandOutputDialog(QDialog):
@@ -72,6 +75,7 @@ class CommandOutputDialog(QDialog):
 
     def run_command(self):
         """Run the command and capture output"""
+        logger.info("run_command: cmd=%s cwd=%s", self.cmd, self.cwd)
         try:
             self.process = subprocess.Popen(
                 self.cmd,
@@ -87,6 +91,7 @@ class CommandOutputDialog(QDialog):
             self.read_timer.start(100)
 
         except Exception as e:
+            logger.error("run_command: failed — %s", e)
             self.output.append(f"Error: {e}")
             self.finish_with_error()
 
@@ -131,9 +136,11 @@ class CommandOutputDialog(QDialog):
                 pass
 
             if retcode == 0:
+                logger.info("run_command: completed successfully cmd=%s", self.cmd)
                 self.status_label.setText("✓ Completed successfully")
                 self.status_label.setStyleSheet("color: green; font-weight: bold;")
             else:
+                logger.error("run_command: failed exit_code=%d cmd=%s", retcode, self.cmd)
                 self.status_label.setText(f"✗ Failed (exit code {retcode})")
                 self.status_label.setStyleSheet("color: red; font-weight: bold;")
 

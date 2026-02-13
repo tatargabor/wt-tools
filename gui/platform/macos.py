@@ -1,11 +1,14 @@
 """macOS platform implementation."""
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
 from .base import PlatformInterface
+
+logger = logging.getLogger("wt-control.macos")
 
 
 class MacOSPlatform(PlatformInterface):
@@ -63,6 +66,7 @@ class MacOSPlatform(PlatformInterface):
         Returns:
             True if the window was focused successfully.
         """
+        logger.debug("focus_window: window_id=%r app_name=%r", window_id, app_name)
         if app_name:
             # Activate the app, then raise the specific window by title
             # Try exact match first, fall back to substring
@@ -90,8 +94,10 @@ class MacOSPlatform(PlatformInterface):
                 capture_output=True,
                 timeout=5,
             )
+            logger.debug("focus_window: success")
             return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error("focus_window: failed — %s", e)
             return False
 
     def close_window(self, window_id: str, app_name: str = "") -> bool:
@@ -101,6 +107,7 @@ class MacOSPlatform(PlatformInterface):
             window_id: The window title (as returned by find_window_by_title).
             app_name: Application name (e.g. "Zed").
         """
+        logger.debug("close_window: window_id=%r app_name=%r", window_id, app_name)
         if app_name:
             # Use System Events (not the app's scripting API) — works with all editors
             script = f'''
@@ -127,8 +134,10 @@ class MacOSPlatform(PlatformInterface):
                 capture_output=True,
                 timeout=5,
             )
+            logger.debug("close_window: success")
             return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error("close_window: failed — %s", e)
             return False
 
     def find_window_by_title(self, title: str, app_name: str = "", exact: bool = False) -> Optional[str]:
@@ -144,6 +153,7 @@ class MacOSPlatform(PlatformInterface):
         Returns:
             The matching window's title (used as identifier on macOS), or None.
         """
+        logger.debug("find_window_by_title: title=%r app_name=%r exact=%s", title, app_name, exact)
         if app_name:
             if exact:
                 script = f'''
@@ -216,13 +226,17 @@ class MacOSPlatform(PlatformInterface):
                 timeout=5,
             )
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            pass
+                found = result.stdout.strip()
+                logger.debug("find_window_by_title: found=%r", found)
+                return found
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error("find_window_by_title: error — %s", e)
+        logger.debug("find_window_by_title: not found")
         return None
 
     def find_window_by_pid(self, agent_pid: int) -> Optional[Tuple[str, str]]:
         """Find window by walking PPID chain using AppleScript."""
+        logger.debug("find_window_by_pid: agent_pid=%d", agent_pid)
         current_pid = agent_pid
         for _ in range(20):
             if current_pid <= 1:
@@ -248,6 +262,7 @@ class MacOSPlatform(PlatformInterface):
                 output = result.stdout.strip()
                 if output and "|" in output:
                     proc_name, window_id = output.split("|", 1)
+                    logger.debug("find_window_by_pid: found proc=%s wid=%s at pid=%d", proc_name, window_id, current_pid)
                     return (window_id, proc_name)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass

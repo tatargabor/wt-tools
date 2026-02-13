@@ -59,6 +59,10 @@ def acquire_lock():
 
 def main():
     """Main entry point"""
+    # Initialize logging before anything else
+    from gui.logging_setup import setup_logging
+    setup_logging()
+
     # Kill existing instance (for development reload)
     kill_existing_instance()
 

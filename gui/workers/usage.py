@@ -6,6 +6,7 @@ Secondary: Claude.ai API with session key (optional, for exact data)
 """
 
 import json
+import logging
 import subprocess
 import urllib.request
 import urllib.error
@@ -22,6 +23,8 @@ except ImportError:
     cffi_requests = None
 
 __all__ = ["UsageWorker"]
+
+logger = logging.getLogger("wt-control.workers.usage")
 
 _API_BASE = "https://claude.ai/api"
 _HEADERS = {
@@ -185,7 +188,7 @@ class UsageWorker(QThread):
                 limit_weekly=limit_weekly
             )
         except Exception as e:
-            print(f"Local usage calculation error: {e}")
+            logger.error("local usage calculation error: %s", e)
             return None
 
     def _interruptible_sleep(self, ms):

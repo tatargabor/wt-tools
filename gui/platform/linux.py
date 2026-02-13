@@ -1,5 +1,6 @@
 """Linux platform implementation."""
 
+import logging
 import os
 import shutil
 import subprocess
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .base import PlatformInterface
+
+logger = logging.getLogger("wt-control.linux")
 
 
 class LinuxPlatform(PlatformInterface):
@@ -59,7 +62,9 @@ class LinuxPlatform(PlatformInterface):
 
     def focus_window(self, window_id: str, app_name: str = "") -> bool:
         """Focus window using xdotool."""
+        logger.debug("focus_window: window_id=%r app_name=%r", window_id, app_name)
         if not shutil.which("xdotool"):
+            logger.error("focus_window: xdotool not found")
             return False
         try:
             subprocess.run(
@@ -67,13 +72,17 @@ class LinuxPlatform(PlatformInterface):
                 check=True,
                 capture_output=True,
             )
+            logger.debug("focus_window: success")
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            logger.error("focus_window: failed — %s", e)
             return False
 
     def close_window(self, window_id: str, app_name: str = "") -> bool:
         """Close window gracefully using xdotool windowclose (WM_DELETE_WINDOW)."""
+        logger.debug("close_window: window_id=%r", window_id)
         if not shutil.which("xdotool"):
+            logger.error("close_window: xdotool not found")
             return False
         try:
             subprocess.run(
@@ -81,8 +90,10 @@ class LinuxPlatform(PlatformInterface):
                 check=True,
                 capture_output=True,
             )
+            logger.debug("close_window: success")
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            logger.error("close_window: failed — %s", e)
             return False
 
     def find_window_by_title(self, title: str, app_name: str = "", exact: bool = False) -> Optional[str]:
@@ -93,7 +104,9 @@ class LinuxPlatform(PlatformInterface):
         Python-side title matching to avoid false positives from Chrome tabs
         or similarly-named worktree windows.
         """
+        logger.debug("find_window_by_title: title=%r app_name=%r exact=%s", title, app_name, exact)
         if not shutil.which("xdotool"):
+            logger.error("find_window_by_title: xdotool not found")
             return None
 
         # Two-step approach when we know the editor's WM_CLASS
@@ -117,11 +130,13 @@ class LinuxPlatform(PlatformInterface):
                                 window_title = wname.stdout.strip()
                                 # Exact match or editor's "folder — file" pattern
                                 if window_title == title or window_title.startswith(title + " \u2014 "):
+                                    logger.debug("find_window_by_title: found wid=%s title=%r", wid, window_title)
                                     return wid
                         except subprocess.CalledProcessError:
                             continue
             except subprocess.CalledProcessError:
                 pass
+            logger.debug("find_window_by_title: not found (class search)")
             return None
 
         # Fallback: no app_name or unknown WM_CLASS — use xdotool substring search
@@ -136,9 +151,12 @@ class LinuxPlatform(PlatformInterface):
                 text=True,
             )
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip().split("\n")[0]
+                found = result.stdout.strip().split("\n")[0]
+                logger.debug("find_window_by_title: found wid=%s", found)
+                return found
         except subprocess.CalledProcessError:
             pass
+        logger.debug("find_window_by_title: not found")
         return None
 
     def find_window_by_class(self, window_class: str) -> Optional[str]:
@@ -159,6 +177,7 @@ class LinuxPlatform(PlatformInterface):
 
     def find_window_by_pid(self, agent_pid: int) -> Optional[Tuple[str, str]]:
         """Find window by walking PPID chain using /proc and xdotool."""
+        logger.debug("find_window_by_pid: agent_pid=%d", agent_pid)
         if not shutil.which("xdotool"):
             return None
 

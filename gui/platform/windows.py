@@ -1,11 +1,14 @@
 """Windows platform implementation."""
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Optional
 
 from .base import PlatformInterface
+
+logger = logging.getLogger("wt-control.windows")
 
 
 class WindowsPlatform(PlatformInterface):
@@ -68,10 +71,12 @@ class WindowsPlatform(PlatformInterface):
 
     def focus_window(self, window_id: str, app_name: str = "") -> bool:
         """Focus window - not implemented on Windows without additional libs."""
+        logger.debug("focus_window: not implemented (window_id=%r)", window_id)
         return False
 
     def find_window_by_title(self, title: str, app_name: str = "", exact: bool = False) -> Optional[str]:
         """Find window by title - not implemented on Windows without additional libs."""
+        logger.debug("find_window_by_title: not implemented (title=%r)", title)
         return None
 
     def open_file(self, path: str) -> bool:
