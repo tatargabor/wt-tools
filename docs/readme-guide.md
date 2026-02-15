@@ -59,7 +59,7 @@ The README MUST contain these sections in this exact order:
     1. Negative experience recall: "An agent saves that RocksDB crashes without file locking → months later, another agent avoids the same mistake"
     2. OpenSpec automatic hooks: "When starting a new change, memory hooks recall past decisions about the same topic"
     3. Mid-flow learning: "During implementation, the agent saves non-obvious constraints the user shares"
-  - **OpenSpec memory hook coverage matrix**: Include a table showing which OpenSpec skills have which memory integration. Columns: Skill, Recall, Mid-flow User Save, Agent Self-Reflection, Structured Tags. Rows: new, continue, ff, explore, apply, verify, sync-specs, archive. Use checkmarks for coverage, dashes for n/a. This helps users understand that agent insights are captured across the entire OpenSpec lifecycle — not just at archive time.
+  - **OpenSpec memory hook coverage matrix**: Include a table showing which OpenSpec skills have which memory integration. Columns: Skill, Recall, Mid-flow User Save, Agent Self-Reflection, Structured Tags. Rows: new, continue, ff, explore, apply, verify, sync-specs, archive, bulk-archive. Use checkmarks for coverage, dashes for n/a. This helps users understand that agent insights are captured across the entire OpenSpec lifecycle — not just at archive time.
   - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`, `wt-memory forget`, `wt-memory context`
   - GUI: mention [M] button for browsing memories (summary view default, paginated list via "Show All", semantic search) and saving memories
   - Link to `docs/developer-memory.md` for full documentation
