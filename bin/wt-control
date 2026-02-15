@@ -32,21 +32,9 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 GUI_DIR="$PROJECT_ROOT/gui"
 LOG_FILE="$HOME/.cache/wt-control.log"
 
-# Find python3 - check common locations if not in PATH
-find_python() {
-    if command -v python3 &>/dev/null; then
-        command -v python3
-        return 0
-    fi
-    # Check common locations
-    for p in /usr/bin/python3 "$HOME/.local/bin/python3" "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3"; do
-        if [[ -x "$p" ]]; then
-            echo "$p"
-            return 0
-        fi
-    done
-    return 1
-}
+# Source wt-common.sh for shared find_python()
+# shellcheck source=wt-common.sh
+source "$SCRIPT_DIR/wt-common.sh"
 
 PYTHON=$(find_python)
 if [[ -z "$PYTHON" ]]; then

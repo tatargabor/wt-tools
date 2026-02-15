@@ -5,6 +5,23 @@
 
 set -euo pipefail
 
+# Source wt-common.sh for shared functions (find_python, find_shodh_python, etc.)
+_wt_memory_script="${BASH_SOURCE[0]}"
+while [[ -L "$_wt_memory_script" ]]; do
+    _link=$(readlink "$_wt_memory_script")
+    if [[ "$_link" == /* ]]; then _wt_memory_script="$_link"; else _wt_memory_script="$(dirname "$_wt_memory_script")/$_link"; fi
+done
+_wt_memory_bin_dir="$(cd "$(dirname "$_wt_memory_script")" && pwd)"
+# shellcheck source=wt-common.sh
+source "$_wt_memory_bin_dir/wt-common.sh"
+
+# Resolve the Python binary that has shodh-memory installed.
+# Cached for the lifetime of this script invocation.
+SHODH_PYTHON=""
+if _sp=$(find_shodh_python 2>/dev/null); then
+    SHODH_PYTHON="$_sp"
+fi
+
 # Storage root (override with env var). Per-project dirs created underneath.
 SHODH_STORAGE="${SHODH_STORAGE:-${HOME}/.local/share/wt-tools/memory}"
 
@@ -129,13 +146,13 @@ get_log_path() {
     echo "$storage_path/wt-memory.log"
 }
 
-# Run python3 with shodh-memory.
+# Run the resolved shodh-memory Python.
 # Banner suppressed at Python level (sys._shodh_star_shown).
 # Stderr goes to log file for diagnosis (not /dev/null).
 run_shodh_python() {
     local log_file
     log_file=$(get_log_path)
-    python3 "$@" 2>>"$log_file"
+    "$SHODH_PYTHON" "$@" 2>>"$log_file"
 }
 
 # Run a command under a per-project lock to prevent concurrent RocksDB access.
@@ -179,7 +196,7 @@ cmd_health() {
         esac
     done
 
-    if ! python3 -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
+    if [[ -z "$SHODH_PYTHON" ]]; then
         if [[ "$index_check" == "true" ]]; then
             echo "{}"
         fi

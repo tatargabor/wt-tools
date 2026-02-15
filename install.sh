@@ -2,31 +2,19 @@
 # wt-tools installer for Linux and macOS
 set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${HOME}/.local/bin"
 
+# Source wt-common.sh for shared functions (find_python, save_shodh_python, etc.)
+source "$SCRIPT_DIR/bin/wt-common.sh"
+
+# Override color helpers with installer-style prefixes (wt-common.sh defines simpler versions)
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${HOME}/.local/bin"
-
-# Detect platform
-detect_platform() {
-    case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
-        Darwin*) echo "macos" ;;
-        *)       echo "unknown" ;;
-    esac
-}
-
-PLATFORM=$(detect_platform)
+# PLATFORM is already set by wt-common.sh (detect_platform)
 
 # Ensure ~/.local/bin is in PATH by adding to shell rc file
 ensure_path() {
@@ -289,8 +277,17 @@ install_zed() {
 install_shodh_memory() {
     info "Checking Shodh-Memory..."
 
-    if python3 -c "from shodh_memory import Memory" 2>/dev/null; then
-        success "Shodh-Memory already installed"
+    # Use find_python() to locate the target Python (shared from wt-common.sh)
+    local PYTHON=""
+    if ! PYTHON=$(find_python); then
+        warn "No python3 found. Skipping Shodh-Memory."
+        return 0
+    fi
+
+    # Already installed in a reachable Python?
+    if "$PYTHON" -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
+        save_shodh_python "$PYTHON"
+        success "Shodh-Memory already installed ($(basename "$PYTHON"))"
         return 0
     fi
 
@@ -305,27 +302,27 @@ install_shodh_memory() {
         return 0
     fi
 
-    local pip_cmd=""
-    if check_command pip3; then
-        pip_cmd="pip3"
-    elif check_command pip; then
-        pip_cmd="pip"
+    info "Installing Shodh-Memory into $PYTHON..."
+    # Use $PYTHON -m pip to guarantee pip matches the target Python
+    if "$PYTHON" -m pip install shodh-memory >/dev/null 2>&1; then
+        :
+    elif "$PYTHON" -m pip install --user shodh-memory >/dev/null 2>&1; then
+        :
+    elif "$PYTHON" -m pip install --break-system-packages shodh-memory 2>&1; then
+        :
     else
-        warn "pip not found. Install manually: pip install shodh-memory"
+        warn "Shodh-Memory installation failed. Install manually: $PYTHON -m pip install shodh-memory"
         return 0
     fi
 
-    info "Installing Shodh-Memory..."
-    # Suppress stderr on early attempts to avoid confusing externally-managed-environment errors
-    if $pip_cmd install shodh-memory >/dev/null 2>&1; then
+    # Verify and persist
+    if "$PYTHON" -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
+        save_shodh_python "$PYTHON"
         success "Shodh-Memory installed"
+        echo "  Python: $PYTHON"
         echo "  Check status with: wt-memory status"
-    elif $pip_cmd install --user shodh-memory >/dev/null 2>&1; then
-        success "Shodh-Memory installed (user)"
-    elif $pip_cmd install --break-system-packages shodh-memory 2>&1; then
-        success "Shodh-Memory installed"
     else
-        warn "Shodh-Memory installation failed. Install manually: pip install shodh-memory"
+        warn "Shodh-Memory installed but import verification failed"
     fi
 }
 
@@ -365,32 +362,25 @@ install_gui_dependencies() {
         return 1
     fi
 
-    # Check if pip is available
-    local pip_cmd=""
-    if check_command pip3; then
-        pip_cmd="pip3"
-    elif check_command pip; then
-        pip_cmd="pip"
-    else
-        warn "pip not found. Skipping GUI dependencies."
-        echo "  Install Python/pip first, then run: pip install -r $requirements_file"
+    # Use find_python() to locate the target Python (shared from wt-common.sh)
+    local PYTHON=""
+    if ! PYTHON=$(find_python); then
+        warn "No python3 found. Skipping GUI dependencies."
+        echo "  Install Python 3 first, then run: python3 -m pip install -r $requirements_file"
         return 1
     fi
 
-    # Install from requirements.txt
-    info "Installing from $requirements_file..."
-    # Try plain install first (works in virtualenv/conda), then --user, then --break-system-packages
-    # Suppress stderr on early attempts to avoid confusing externally-managed-environment errors
-    if $pip_cmd install -r "$requirements_file" >/dev/null 2>&1; then
+    # Install from requirements.txt using $PYTHON -m pip
+    info "Installing from $requirements_file into $PYTHON..."
+    if "$PYTHON" -m pip install -r "$requirements_file" >/dev/null 2>&1; then
         success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
-    elif $pip_cmd install --user -r "$requirements_file" >/dev/null 2>&1; then
+    elif "$PYTHON" -m pip install --user -r "$requirements_file" >/dev/null 2>&1; then
         success "GUI dependencies installed with --user (PySide6, psutil, PyNaCl)"
-    elif $pip_cmd install --break-system-packages -r "$requirements_file" 2>&1; then
+    elif "$PYTHON" -m pip install --break-system-packages -r "$requirements_file" 2>&1; then
         success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
     else
         warn "Some GUI dependencies may have failed to install"
-        echo "  Try manually: $pip_cmd install -r $requirements_file"
-        echo "  Or with --user: $pip_cmd install --user -r $requirements_file"
+        echo "  Try manually: $PYTHON -m pip install -r $requirements_file"
     fi
 }
 
@@ -504,18 +494,24 @@ WRAPPER
 verify_gui_startup() {
     info "Verifying GUI startup..."
 
+    local PYTHON=""
+    if ! PYTHON=$(find_python); then
+        warn "No python3 found — cannot verify GUI"
+        return 1
+    fi
+
     # Test Python imports
     local project_root="$SCRIPT_DIR"
-    if ! PYTHONPATH="$project_root" python3 -c "from gui.control_center import ControlCenter" 2>/dev/null; then
+    if ! PYTHONPATH="$project_root" "$PYTHON" -c "from gui.control_center import ControlCenter" 2>/dev/null; then
         warn "GUI import test failed"
-        echo "  Try: PYTHONPATH=$project_root python3 -c 'from gui.control_center import ControlCenter'"
+        echo "  Try: PYTHONPATH=$project_root $PYTHON -c 'from gui.control_center import ControlCenter'"
         return 1
     fi
 
     # Test PySide6
-    if ! python3 -c "from PySide6.QtWidgets import QApplication" 2>/dev/null; then
+    if ! "$PYTHON" -c "from PySide6.QtWidgets import QApplication" 2>/dev/null; then
         warn "PySide6 import test failed"
-        echo "  Try: pip3 install PySide6"
+        echo "  Try: $PYTHON -m pip install PySide6"
         return 1
     fi
 
