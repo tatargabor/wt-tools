@@ -40,6 +40,9 @@ npm init -y --silent
 
 openspec init --tools claude
 
+# openspec init skips config in non-interactive mode — create it
+echo "schema: spec-driven" > openspec/config.yaml
+
 wt-deploy-hooks .
 
 # --- Directories ---
@@ -54,6 +57,23 @@ cp "$SCRIPT_DIR/project-spec.md" docs/benchmark/project-spec.md
 # --- Extract agent-only sections from change definitions ---
 for f in "$SCRIPT_DIR"/changes/0*.md; do
   sed '/<!-- EVALUATOR NOTES BELOW/,$d' "$f" > docs/benchmark/"$(basename "$f")"
+done
+
+# --- Create OpenSpec changes with proposals ---
+for f in "$SCRIPT_DIR"/changes/0*.md; do
+  # Derive change name: 01-product-catalog.md -> product-catalog
+  change_name=$(basename "$f" .md | sed 's/^[0-9]*-//')
+
+  # Create the change
+  openspec new change "$change_name" >/dev/null 2>&1
+
+  # Extract agent input as proposal (everything above EVALUATOR NOTES marker,
+  # skipping the first "# Change NN:" header line)
+  sed '/<!-- EVALUATOR NOTES BELOW/,$d' "$f" \
+    | sed '1{/^# Change/d}' \
+    > openspec/changes/"$change_name"/proposal.md
+
+  echo "  ✔ Change: $change_name (proposal ready)"
 done
 
 # --- Verify extraction ---
@@ -75,7 +95,7 @@ echo ""
 echo "=== Done ==="
 echo "  Directory: $TARGET"
 echo "  CLAUDE.md: baseline (PORT=3000, no memory)"
-echo "  Changes:   $(ls docs/benchmark/0*.md | wc -l) extracted"
+echo "  Changes:   6 OpenSpec changes with proposals"
 echo ""
 echo "Start the run:"
 echo "  cd $TARGET"
