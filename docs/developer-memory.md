@@ -233,6 +233,8 @@ Toggle between views with the **"Show All"** / **"Summary"** button.
 
 Both views share:
 - **Search bar** — semantic search across all memories (uses `wt-memory recall`, up to 20 results). Search overrides either view; "Clear" returns to the previous view mode.
+- **Export button** — export all project memories to a JSON file. Opens a directory picker; file is auto-named `<project>-memory-<date>.json`.
+- **Import button** — import memories from a JSON export file. Opens a file picker (JSON filter); shows imported/skipped counts. Duplicate detection prevents re-importing the same memories.
 - **Card display** — each memory shown with type badge (Learning=green, Decision=blue, Context=amber), content preview, tags, and creation date.
 - **Status bar** — shows view mode and memory count.
 
@@ -317,6 +319,15 @@ Agents watch for these patterns in conversation:
 | `wt-memory get <id>` | Get a single memory by ID (JSON output) |
 | `wt-memory context [topic]` | Condensed summary by category |
 | `wt-memory brain` | 3-tier memory visualization |
+
+**Export / Import:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory export [--output FILE]` | Export all memories to JSON (stdout or file) |
+| `wt-memory import FILE [--dry-run]` | Import memories from JSON (skip duplicates) |
+
+Export produces a single JSON file with version header, project name, and all records. Import uses UUID-based deduplication — records already present (by ID or `metadata.original_id`) are skipped. Safe for roundtrip: A→export→B→import→B→export→A→import produces no duplicates. Use `--dry-run` to preview without writing.
 
 **Maintenance:**
 
