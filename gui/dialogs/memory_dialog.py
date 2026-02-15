@@ -3,8 +3,9 @@ Memory Dialogs - Browse and remember memories via shodh-memory
 """
 
 import json
+import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, date
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ..constants import SCRIPT_DIR
+from .helpers import show_information, show_warning, get_existing_directory, get_open_filename
 
 __all__ = ["MemoryBrowseDialog", "RememberNoteDialog"]
 
@@ -96,6 +98,16 @@ class MemoryBrowseDialog(QDialog):
         self.toggle_btn.setFixedWidth(80)
         self.toggle_btn.clicked.connect(self._on_toggle)
         top_layout.addWidget(self.toggle_btn)
+
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setFixedWidth(60)
+        self.export_btn.clicked.connect(self._on_export)
+        top_layout.addWidget(self.export_btn)
+
+        self.import_btn = QPushButton("Import")
+        self.import_btn.setFixedWidth(60)
+        self.import_btn.clicked.connect(self._on_import)
+        top_layout.addWidget(self.import_btn)
 
         layout.addLayout(top_layout)
 
@@ -311,6 +323,79 @@ class MemoryBrowseDialog(QDialog):
             self._cached_memories = []  # refresh on return
             self._load_list()
         else:
+            self._load_summary()
+
+    # ── Export / Import ────────────────────────────────────────────
+
+    def _on_export(self):
+        """Export all project memories to a JSON file."""
+        # Check if there are memories to export
+        output = _run_wt_memory("--project", self.project, "status", "--json")
+        try:
+            status = json.loads(output) if output else {}
+        except json.JSONDecodeError:
+            status = {}
+
+        if not status.get("available"):
+            show_warning(self, "Export", "Memory system is not available.")
+            return
+
+        if status.get("count", 0) == 0:
+            show_warning(self, "Export", "No memories to export.")
+            return
+
+        # Pick directory
+        directory = get_existing_directory(self, "Export Memories — Choose Directory")
+        if not directory:
+            return
+
+        filename = f"{self.project}-memory-{date.today().isoformat()}.json"
+        filepath = os.path.join(directory, filename)
+
+        result = _run_wt_memory("--project", self.project, "export", "--output", filepath)
+        if result is not None and os.path.isfile(filepath):
+            try:
+                data = json.loads(open(filepath).read())
+                count = data.get("count", 0)
+            except Exception:
+                count = "?"
+            show_information(self, "Export Complete", f"Exported {count} memories to:\n{filepath}")
+        else:
+            show_warning(self, "Export Failed", "Could not export memories.")
+
+    def _on_import(self):
+        """Import memories from a JSON export file."""
+        filepath, _ = get_open_filename(
+            self, "Import Memories", "", "JSON Files (*.json)"
+        )
+        if not filepath:
+            return
+
+        output = _run_wt_memory("--project", self.project, "import", filepath)
+        try:
+            result = json.loads(output) if output else {}
+        except json.JSONDecodeError:
+            result = {}
+
+        if "error" in result:
+            show_warning(self, "Import Failed", result["error"])
+            return
+
+        imported = result.get("imported", 0)
+        skipped = result.get("skipped", 0)
+        errors = result.get("errors", 0)
+
+        msg = f"Imported: {imported}\nSkipped (duplicates): {skipped}"
+        if errors:
+            msg += f"\nErrors: {errors}"
+
+        show_information(self, "Import Complete", msg)
+
+        # Refresh the current view
+        self._cached_memories = []
+        if self._mode == self.MODE_LIST:
+            self._load_list()
+        elif self._mode == self.MODE_SUMMARY:
             self._load_summary()
 
     # ── Shared helpers ──────────────────────────────────────────────

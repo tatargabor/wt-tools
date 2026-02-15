@@ -39,6 +39,10 @@ Introspection:
   context [topic]                 Condensed summary by category
   brain                           3-tier memory visualization
 
+Export / Import:
+  export [--output FILE]          Export all memories to JSON (stdout or file)
+  import FILE [--dry-run]         Import memories from JSON (skip duplicates)
+
 Maintenance:
   health --index                  Check index health (JSON stdout)
   repair                          Repair index integrity
@@ -598,6 +602,187 @@ except AttributeError:
     return 0
 }
 
+# Export all memories to JSON
+# Usage: wt-memory export [--output FILE]
+cmd_export() {
+    local output_file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output) output_file="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Health check — silent no-op if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+    local project
+    project=$(resolve_project)
+
+    local json_output
+    json_output=$(_SHODH_STORAGE="$storage_path" \
+    _SHODH_PROJECT="$project" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from datetime import datetime, timezone
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+records = m.list_memories()
+export_data = {
+    'version': 1,
+    'format': 'wt-memory-export',
+    'project': os.environ['_SHODH_PROJECT'],
+    'exported_at': datetime.now(timezone.utc).isoformat(),
+    'count': len(records),
+    'records': records
+}
+print(json.dumps(export_data, indent=2, default=str))
+") || { echo '{"version":1,"format":"wt-memory-export","count":0,"records":[]}'; return 0; }
+
+    if [[ -n "$output_file" ]]; then
+        echo "$json_output" > "$output_file"
+    else
+        echo "$json_output"
+    fi
+    return 0
+}
+
+# Import memories from JSON export file
+# Usage: wt-memory import FILE [--dry-run]
+cmd_import() {
+    local import_file=""
+    local dry_run=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) dry_run=true; shift ;;
+            -*)
+                echo "Error: Unknown option '$1'" >&2
+                return 1
+                ;;
+            *)
+                if [[ -z "$import_file" ]]; then
+                    import_file="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$import_file" ]]; then
+        echo "Error: import file path required" >&2
+        return 1
+    fi
+
+    if [[ ! -f "$import_file" ]]; then
+        echo "Error: file not found: $import_file" >&2
+        return 1
+    fi
+
+    # Health check — silent no-op if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_FILE="$import_file" \
+    _SHODH_DRY_RUN="$dry_run" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+
+# Read and validate import file
+file_path = os.environ['_SHODH_FILE']
+dry_run = os.environ.get('_SHODH_DRY_RUN', 'false') == 'true'
+
+try:
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+except json.JSONDecodeError as e:
+    print(json.dumps({'error': f'Invalid JSON: {e}'}))
+    sys.exit(1)
+
+# Validate format
+if data.get('format') != 'wt-memory-export':
+    print(json.dumps({'error': 'Invalid file: missing or wrong format field (expected wt-memory-export)'}))
+    sys.exit(1)
+
+if data.get('version', 0) != 1:
+    print(json.dumps({'error': f\"Unsupported version: {data.get('version')} (only version 1 supported)\"}))
+    sys.exit(1)
+
+records = data.get('records', [])
+
+# Open memory store and build known-ID set for dedup
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+existing = m.list_memories()
+
+known_ids = set()
+for rec in existing:
+    known_ids.add(rec['id'])
+    orig = rec.get('metadata', {}).get('original_id')
+    if orig:
+        known_ids.add(orig)
+
+imported = 0
+skipped = 0
+errors = 0
+
+for rec in records:
+    # Check all dedup conditions
+    rec_id = rec.get('id', '')
+    rec_original_id = rec.get('metadata', {}).get('original_id', '')
+
+    if rec_id in known_ids:
+        skipped += 1
+        continue
+    if rec_original_id and rec_original_id in known_ids:
+        skipped += 1
+        continue
+
+    if dry_run:
+        imported += 1
+        continue
+
+    try:
+        # Build metadata with original_id tracking
+        metadata = dict(rec.get('metadata', {}) or {})
+        metadata['original_id'] = rec_id
+
+        m.remember(
+            rec.get('content', ''),
+            memory_type=rec.get('experience_type', 'Context'),
+            tags=rec.get('tags', []),
+            entities=rec.get('entities', []),
+            metadata=metadata,
+            is_failure=rec.get('is_failure', False),
+            is_anomaly=rec.get('is_anomaly', False),
+        )
+        imported += 1
+        # Add to known set so subsequent records in same file are deduped
+        known_ids.add(rec_id)
+    except Exception as e:
+        errors += 1
+
+if dry_run:
+    print(json.dumps({'would_import': imported, 'would_skip': skipped, 'dry_run': True}))
+else:
+    print(json.dumps({'imported': imported, 'skipped': skipped, 'errors': errors}))
+"
+    return $?
+}
+
 # Get single memory by ID
 # Usage: wt-memory get <memory_id>
 cmd_get() {
@@ -809,6 +994,8 @@ main() {
         context)  cmd_context "$@" ;;
         brain)    cmd_brain "$@" ;;
         get|inspect) cmd_get "$@" ;;
+        export)   cmd_export "$@" ;;
+        import)   cmd_import "$@" ;;
         repair)   cmd_repair "$@" ;;
         status)   cmd_status "$@" ;;
         projects) cmd_projects "$@" ;;
