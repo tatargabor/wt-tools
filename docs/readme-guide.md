@@ -61,7 +61,7 @@ The README MUST contain these sections in this exact order:
     3. Mid-flow learning: "During implementation, the agent saves non-obvious constraints the user shares"
   - **OpenSpec memory hook coverage matrix**: Include a table showing which OpenSpec skills have which memory integration. Columns: Skill, Recall, Mid-flow User Save, Agent Self-Reflection, Structured Tags. Rows: new, continue, ff, explore, apply, verify, sync-specs, archive. Use checkmarks for coverage, dashes for n/a. This helps users understand that agent insights are captured across the entire OpenSpec lifecycle — not just at archive time.
   - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`, `wt-memory forget`, `wt-memory context`
-  - GUI: mention [M] button for browsing and saving memories
+  - GUI: mention [M] button for browsing memories (summary view default, paginated list via "Show All", semantic search) and saving memories
   - Link to `docs/developer-memory.md` for full documentation
   - Mark as **(Experimental)** — note graceful degradation if shodh-memory not installed
 

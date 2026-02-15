@@ -148,7 +148,7 @@ Per-project cognitive memory powered by [shodh-memory](https://github.com/varun2
 
 **How to use it:**
 - **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory forget` to clean up, `wt-memory context` for summaries
-- **GUI**: Browse memories and save notes via the [M] button in the project header
+- **GUI**: Browse memories via the [M] button — opens with a context summary, toggle to paginated list with "Show All", search semantically anytime
 - **OpenSpec hooks**: Automatic recall/remember across all 8 skill phases — agent insights captured across the entire lifecycle
 - **Ambient**: Agents recognize and save knowledge during any conversation, not just OpenSpec workflows
 - **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)

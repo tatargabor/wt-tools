@@ -224,14 +224,17 @@ The `[M]` indicator in the project header row shows memory status. Hover to see:
 
 **Menu → Memory → Browse Memories...**
 
-Opens a dialog with:
-- **Search bar** — semantic search across all memories (uses `wt-memory recall`)
-- **Card view** — each memory shown as a card with:
-  - Type badge (color-coded: Learning=green, Decision=blue, Context=orange)
-  - Content (truncated preview)
-  - Tags (as hashtags)
-  - Creation date
-- **Status bar** — total memory count
+Opens a dialog with two view modes:
+
+- **Summary mode** (default) — context summary grouped by category (Decisions, Learnings, Context). Shows the top 5 items per category via `wt-memory context`. Opens instantly regardless of memory count.
+- **List mode** — paginated card list showing all memories, 50 at a time. Click "Load More" to see the next batch. Data is fetched once and cached; subsequent pages render from cache without new subprocess calls.
+
+Toggle between views with the **"Show All"** / **"Summary"** button.
+
+Both views share:
+- **Search bar** — semantic search across all memories (uses `wt-memory recall`, up to 20 results). Search overrides either view; "Clear" returns to the previous view mode.
+- **Card display** — each memory shown with type badge (Learning=green, Decision=blue, Context=amber), content preview, tags, and creation date.
+- **Status bar** — shows view mode and memory count.
 
 ### Remember Note
 
