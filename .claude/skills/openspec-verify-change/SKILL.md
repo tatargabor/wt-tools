@@ -49,6 +49,10 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    If `wt-memory health` fails, skip silently.
 
+3c. **Agent discovery saving during verification**
+
+   When you discover something non-obvious while verifying (unexpected behavior, architecture findings, environment quirks), save it BEFORE reporting. Order: **Discover → Save → Tell**.
+
 4. **Initialize verification report structure**
 
    Create a report structure with three dimensions:

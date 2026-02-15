@@ -27,6 +27,10 @@ Save when the user shares something a **future agent in a different session** wo
 
 Before starting significant work (new feature, debugging session, architecture discussion), consider running `wt-memory recall "<topic>" --limit 5 --mode hybrid` to check for relevant past experience. Use results silently to inform your approach — don't announce the recall unless directly relevant results are found.
 
+### Agent discovery saving
+
+When you discover something non-obvious during investigation (running commands, reading code, testing behavior), save it BEFORE summarizing to the user. Order: **Discover → Save → Tell**. Not: Discover → Tell → (forget to save). What counts: gotchas, unexpected behavior, architecture findings, environment quirks — things a future agent would hit. What doesn't: routine observations, things already in docs/specs.
+
 ### Deduplication
 
 If you are currently executing an OpenSpec skill that has its own memory hooks (check for `wt-memory` steps in the active skill), defer to those hooks — do not save duplicates from this ambient instruction.

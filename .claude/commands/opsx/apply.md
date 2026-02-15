@@ -60,9 +60,11 @@ Implement tasks from an OpenSpec change.
 
    If `wt-memory health` fails, skip silently.
 
-4c. **Recognize user-shared knowledge mid-flow (ongoing)**
+4c. **Recognize knowledge mid-flow (ongoing)**
 
-   Throughout implementation, the user may share corrections, warnings, or contextual knowledge between tasks. When you recognize such knowledge, save it immediately — don't wait for step 7.
+   **Agent discoveries**: When you discover something non-obvious during implementation (unexpected errors, environment quirks, workarounds), save it BEFORE continuing. Order: **Discover → Save → Tell**. Don't defer to step 7.
+
+   **User-shared knowledge**: The user may also share corrections, warnings, or contextual knowledge between tasks. When you recognize such knowledge, save it immediately — don't wait for step 7.
 
    **Recognize by intent** (works in any language):
    - User corrects your approach or shares a better alternative

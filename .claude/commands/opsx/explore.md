@@ -175,7 +175,9 @@ When things crystallize, you might offer a summary - but it's optional. Sometime
 
 ## Recognizing Knowledge Worth Saving
 
-During exploration, the user may share knowledge that would be valuable in future sessions. Recognize and save these using `wt-memory remember`, regardless of language.
+**Agent discoveries**: When YOU discover something non-obvious during investigation (running commands, reading code, testing behavior), save it BEFORE summarizing to the user. Order: **Discover → Save → Tell**. This applies to your own findings, not just user-shared knowledge.
+
+**User-shared knowledge**: The user may also share knowledge that would be valuable in future sessions. Recognize and save these using `wt-memory remember`, regardless of language.
 
 **What to recognize** (by semantic intent, not keywords):
 - **Negative past experience**: The user expresses that something was tried and didn't work

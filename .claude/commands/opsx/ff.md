@@ -42,9 +42,11 @@ Fast-forward through artifact creation - generate everything needed to start imp
 
    If `wt-memory health` fails, skip silently.
 
-3c. **Recognize user-shared knowledge mid-flow (ongoing)**
+3c. **Recognize knowledge mid-flow (ongoing)**
 
-   While creating artifacts, the user may share corrections, constraints, or contextual knowledge. When you recognize such knowledge, save it immediately.
+   **Agent discoveries**: When you discover something non-obvious during codebase research, save it BEFORE summarizing. Order: **Discover → Save → Tell**.
+
+   **User-shared knowledge**: The user may also share corrections, constraints, or contextual knowledge. When you recognize such knowledge, save it immediately.
 
    **Recognize by intent** (works in any language):
    - User corrects your approach or shares a better alternative
