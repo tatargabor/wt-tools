@@ -50,9 +50,19 @@ The README MUST contain these sections in this exact order:
   - **CLI Tools** — worktree commands, project management
   - **Ralph Loop** — autonomous agent loop
   - **Team Sync & Messaging** — cross-machine coordination
-  - **Developer Memory** — per-project remember/recall, OpenSpec hooks, GUI browse (experimental)
+  - **Developer Memory** (see detailed instructions below)
   - **MCP Server** — Claude Code tool integration
 - Keep each to 2-4 lines, link to detail sections below
+- **Developer Memory subsection detailed instructions:**
+  - One paragraph overview: per-project cognitive memory powered by shodh-memory, agents save decisions/learnings/context, future agents recall relevant past experience
+  - Three concrete inline examples (one sentence each):
+    1. Negative experience recall: "An agent saves that RocksDB crashes without file locking → months later, another agent avoids the same mistake"
+    2. OpenSpec automatic hooks: "When starting a new change, memory hooks recall past decisions about the same topic"
+    3. Mid-flow learning: "During implementation, the agent saves non-obvious constraints the user shares"
+  - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`
+  - GUI: mention [M] button for browsing and saving memories
+  - Link to `docs/developer-memory.md` for full documentation
+  - Mark as **(Experimental)** — note graceful degradation if shodh-memory not installed
 
 ### 7. Installation
 - Prerequisites table (Git, Python 3.10+, jq, Node.js)
@@ -65,6 +75,7 @@ The README MUST contain these sections in this exact order:
 - Categories: Worktree Management, Project Management, Ralph Loop, Team & Sync, Developer Memory, Utilities
 - Internal/hook scripts (wt-common.sh, wt-hook-*) get a brief note, not full table entries
 - Each command: name + one-line description
+- **Developer Memory category must include:** `wt-memory remember`, `wt-memory recall`, `wt-memory list`, `wt-memory status`, `wt-memory-hooks install`, `wt-memory-hooks check`
 
 ### 9. Configuration
 - Config file locations table
@@ -89,10 +100,17 @@ The README MUST contain these sections in this exact order:
 
 ### 13. Use Cases
 - Practical examples showing when and why each feature is useful
-- Start from basics (why the GUI?) and build up to advanced (Ralph Loop, Team Sync)
+- Start from basics (why the GUI?) and build up to advanced (Ralph Loop, Team Sync, Developer Memory)
 - Include CLI examples and ASCII sketches where helpful
 - End with a "When to use what" summary table
 - Keep it grounded — honest about what works well and what's experimental
+- **Developer Memory use case instructions:**
+  - Title: "Developer Memory: agents that learn across sessions"
+  - Scenario 1: Cross-session recall — an agent saves a failure or decision, months later a different agent recalls it and avoids the same mistake. Show `wt-memory remember` and `wt-memory recall` commands with realistic content.
+  - Scenario 2: OpenSpec integration — when starting a new change (`/opsx:new`), memory hooks automatically recall related past work. Show what the agent sees and how it changes behavior.
+  - Include a "Best for" line: projects with multiple agents or contributors over time, where institutional knowledge matters.
+  - Mark as experimental. Link to `docs/developer-memory.md`.
+  - Add entry to the "When to use what" summary table: "Want agents to learn from past sessions" → "Developer Memory (`wt-memory remember/recall`)"
 
 ### 14. Related Projects
 - Categorized tables: Worktree+Agent Managers, Multi-Agent Orchestration, Desktop Apps & Monitoring

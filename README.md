@@ -139,13 +139,21 @@ Cross-machine collaboration **without a central server** — using a `wt-control
 
 ### Developer Memory (Experimental)
 
-Per-project cognitive memory powered by [shodh-memory](https://github.com/varun29ankuS/shodh-memory). Agents remember decisions, learnings, and context across sessions — future agents recall relevant past experience before starting work.
+Per-project cognitive memory powered by [shodh-memory](https://github.com/varun29ankuS/shodh-memory). Agents save decisions, learnings, and context as they work — future agents in different sessions recall relevant past experience before starting. The result: agents that learn from past mistakes, remember architectural decisions, and don't repeat work that's already been done.
 
-- **CLI**: `wt-memory remember/recall/list/status` — store and search memories semantically
+**Concrete examples of what this enables:**
+- An agent saves that RocksDB crashes without file locking → months later, another agent avoids the same mistake
+- When starting a new change with `/opsx:new`, memory hooks recall past decisions about the same topic automatically
+- During implementation, the agent recognizes and saves non-obvious constraints you share ("always use absolute imports here")
+
+**How to use it:**
+- **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory status` to check health
 - **GUI**: Browse memories and save notes via the [M] button in the project header
-- **OpenSpec hooks**: Automatic recall at change start, remember at archive — installed via `wt-memory-hooks install`
-- **Memory types**: `Decision` (choices made), `Learning` (patterns/gotchas discovered), `Context` (background info/events)
+- **OpenSpec hooks**: Automatic recall/remember across all 6 phases — installed via `wt-memory-hooks install`
+- **Ambient**: Agents recognize and save knowledge during any conversation, not just OpenSpec workflows
 - **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)
+
+See [docs/developer-memory.md](docs/developer-memory.md) for the full guide with use cases, OpenSpec integration details, and CLI reference.
 
 ### MCP Server
 
@@ -238,10 +246,12 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 
 | Command | Description |
 |---------|-------------|
+| `wt-memory health` | Check if shodh-memory is available |
 | `wt-memory remember --type TYPE` | Save a memory (reads content from stdin) |
 | `wt-memory recall "query"` | Semantic search across project memories |
 | `wt-memory list` | List all memories for current project (JSON) |
 | `wt-memory status [--json]` | Show memory config, health, and count |
+| `wt-memory projects` | List all projects with memory counts |
 | `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |
 | `wt-memory-hooks check` | Check if hooks are installed |
 
@@ -518,6 +528,45 @@ The vision goes further: even locally, worktree agents can see each other throug
 
 **Best for:** When you have multiple machines or team members working on the same project and want agents to be aware of each other. Experimental — expect rough edges.
 
+### Developer Memory: agents that learn across sessions (Experimental)
+
+You've been working on a project for weeks. Different agents have tackled different features. One agent discovered that your PySide6 GUI crashes if you call `QTimer` from a background thread. Another found that the test suite needs `PYTHONPATH=.` to work. A third made an architectural decision about using SSE instead of WebSocket.
+
+Without memory, each new agent starts from zero. With memory, knowledge accumulates:
+
+```bash
+# Agent 1 saves a hard-won lesson:
+echo "PySide6 QTimer must only be called from the main thread. \
+Use QMetaObject.invokeMethod for cross-thread calls." \
+  | wt-memory remember --type Learning --tags pyside6,threading
+
+# Agent 2 saves an architectural decision:
+echo "Chose SSE over WebSocket for notifications — \
+our Cloudflare Workers infra doesn't support persistent connections." \
+  | wt-memory remember --type Decision --tags architecture,sse
+```
+
+Weeks later, a new agent starts a change:
+
+```
+> /opsx:new "add real-time dashboard"
+
+# OpenSpec memory hook runs automatically:
+#   wt-memory recall "real-time dashboard" --limit 3
+#
+# Agent sees:
+#   Decision: Chose SSE over WebSocket — infra doesn't support persistent connections.
+#   Learning: PySide6 QTimer must only be called from the main thread.
+#
+# → Agent uses SSE (not WebSocket) and handles threading correctly from the start.
+```
+
+Memory also works outside OpenSpec. During any conversation, if you share something non-obvious ("by the way, the CI cache breaks when you change `package.json`"), the agent recognizes it and saves it for future sessions.
+
+See [docs/developer-memory.md](docs/developer-memory.md) for the full guide.
+
+**Best for:** Projects with multiple agents or contributors over time, where institutional knowledge matters. Experimental — requires `pip install shodh-memory`.
+
 ### When to use what
 
 | Situation | Tool |
@@ -531,6 +580,7 @@ The vision goes further: even locally, worktree agents can see each other throug
 | Multiple machines or team members on same project | Team Sync (`wt-control-init`) |
 | Want agents to coordinate without you relaying messages | Agent Messaging (`/wt:msg`) |
 | Want agents to see each other's progress | MCP Server (`get_team_status`, `get_worktree_tasks`) |
+| Want agents to learn from past sessions | Developer Memory (`wt-memory remember/recall`) |
 
 ---
 
