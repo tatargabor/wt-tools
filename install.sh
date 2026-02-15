@@ -316,10 +316,11 @@ install_shodh_memory() {
     fi
 
     info "Installing Shodh-Memory..."
-    if $pip_cmd install shodh-memory 2>&1; then
+    # Suppress stderr on early attempts to avoid confusing externally-managed-environment errors
+    if $pip_cmd install shodh-memory >/dev/null 2>&1; then
         success "Shodh-Memory installed"
         echo "  Check status with: wt-memory status"
-    elif $pip_cmd install --user shodh-memory 2>&1; then
+    elif $pip_cmd install --user shodh-memory >/dev/null 2>&1; then
         success "Shodh-Memory installed (user)"
     elif $pip_cmd install --break-system-packages shodh-memory 2>&1; then
         success "Shodh-Memory installed"
@@ -379,10 +380,11 @@ install_gui_dependencies() {
     # Install from requirements.txt
     info "Installing from $requirements_file..."
     # Try plain install first (works in virtualenv/conda), then --user, then --break-system-packages
-    if $pip_cmd install -r "$requirements_file" 2>&1; then
+    # Suppress stderr on early attempts to avoid confusing externally-managed-environment errors
+    if $pip_cmd install -r "$requirements_file" >/dev/null 2>&1; then
         success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
-    elif $pip_cmd install --user -r "$requirements_file" 2>&1; then
-        success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
+    elif $pip_cmd install --user -r "$requirements_file" >/dev/null 2>&1; then
+        success "GUI dependencies installed with --user (PySide6, psutil, PyNaCl)"
     elif $pip_cmd install --break-system-packages -r "$requirements_file" 2>&1; then
         success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
     else

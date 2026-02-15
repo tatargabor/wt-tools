@@ -337,6 +337,15 @@ class MenusMixin:
 
             update_action = openspec_menu.addAction("Update Skills...")
             update_action.triggered.connect(lambda: self._run_openspec_action("update", project))
+
+            # Memory hooks (install/reinstall) in OpenSpec menu too
+            hooks_installed = mem_status.get("hooks_installed", False)
+            openspec_menu.addSeparator()
+            if hooks_installed:
+                os_hooks_action = openspec_menu.addAction("Reinstall Memory Hooks...")
+            else:
+                os_hooks_action = openspec_menu.addAction("Install Memory Hooks...")
+            os_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
         else:
             os_status_action = openspec_menu.addAction("Not initialized")
             os_status_action.setEnabled(False)
@@ -447,6 +456,7 @@ class MenusMixin:
 
     def show_team_worktree_details(self, team_wt: dict):
         """Show details dialog for team worktree"""
+        self.hide()
         dialog = QDialog(self)
         dialog.setWindowTitle("Team Worktree Details")
         dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
@@ -493,6 +503,7 @@ class MenusMixin:
         layout.addWidget(close_btn)
 
         dialog.exec()
+        self.show()
 
     def show_chat_dialog(self, project=None):
         """Show the chat dialog"""

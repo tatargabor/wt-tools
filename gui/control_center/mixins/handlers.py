@@ -284,6 +284,7 @@ class HandlersMixin:
                 # Fallback: show in a dialog
                 try:
                     content = log_file.read_text()[-50000:]  # Last 50k chars
+                    self.hide()
                     dialog = QDialog(self)
                     dialog.setWindowTitle("Ralph Loop Log")
                     dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
@@ -295,6 +296,7 @@ class HandlersMixin:
                     text.moveCursor(text.textCursor().End)
                     layout.addWidget(text)
                     dialog.exec()
+                    self.show()
                 except Exception:
                     pass
         else:
@@ -648,10 +650,14 @@ class HandlersMixin:
 
     def show_memory_browse_dialog(self, project: str):
         """Open the memory browse dialog for a project"""
+        self.hide()
         dialog = MemoryBrowseDialog(self, project)
         dialog.exec()
+        self.show()
 
     def show_remember_note_dialog(self, project: str):
         """Open the remember note dialog for a project"""
+        self.hide()
         dialog = RememberNoteDialog(self, project)
         dialog.exec()
+        self.show()
