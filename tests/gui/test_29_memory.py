@@ -458,3 +458,130 @@ def test_browse_dialog_context_error_falls_back_to_list(control_center, qtbot):
     assert dialog._rendered_count == 3
 
     dialog.close()
+
+
+# -- Export / Import button tests --
+
+
+def test_export_import_buttons_exist(control_center, qtbot):
+    """MemoryBrowseDialog should have Export and Import buttons."""
+    with patch("gui.dialogs.memory_dialog._run_wt_memory", return_value=_SAMPLE_CONTEXT):
+        dialog = MemoryBrowseDialog(control_center, "test-project")
+
+    assert hasattr(dialog, "export_btn")
+    assert hasattr(dialog, "import_btn")
+    assert dialog.export_btn.text() == "Export"
+    assert dialog.import_btn.text() == "Import"
+
+    dialog.close()
+
+
+def test_export_no_memories_shows_warning(control_center, qtbot):
+    """Export with 0 memories should show a warning dialog."""
+    status_json = json.dumps({"available": True, "count": 0})
+
+    def mock_wt_memory(*args):
+        args_list = list(args)
+        if "context" in args_list:
+            return _SAMPLE_CONTEXT
+        if "status" in args_list and "--json" in args_list:
+            return status_json
+        return ""
+
+    with patch("gui.dialogs.memory_dialog._run_wt_memory", side_effect=mock_wt_memory):
+        dialog = MemoryBrowseDialog(control_center, "test-project")
+        with patch("gui.dialogs.memory_dialog.show_warning") as mock_warn:
+            dialog._on_export()
+
+    mock_warn.assert_called_once()
+    assert "No memories" in mock_warn.call_args[0][2]
+    dialog.close()
+
+
+def test_export_triggers_directory_picker(control_center, qtbot, tmp_path):
+    """Export with memories should open directory picker and write file."""
+    status_json = json.dumps({"available": True, "count": 5})
+    export_json = json.dumps({"version": 1, "format": "wt-memory-export", "count": 5, "records": []})
+
+    def mock_wt_memory(*args):
+        args_list = list(args)
+        if "context" in args_list:
+            return _SAMPLE_CONTEXT
+        if "status" in args_list and "--json" in args_list:
+            return status_json
+        if "export" in args_list and "--output" in args_list:
+            # Simulate writing the file
+            idx = args_list.index("--output")
+            filepath = args_list[idx + 1]
+            with open(filepath, "w") as f:
+                f.write(export_json)
+            return ""
+        return ""
+
+    with patch("gui.dialogs.memory_dialog._run_wt_memory", side_effect=mock_wt_memory):
+        dialog = MemoryBrowseDialog(control_center, "test-project")
+        with patch("gui.dialogs.memory_dialog.get_existing_directory", return_value=str(tmp_path)) as mock_dir, \
+             patch("gui.dialogs.memory_dialog.show_information") as mock_info:
+            dialog._on_export()
+
+    mock_dir.assert_called_once()
+    mock_info.assert_called_once()
+    assert "5 memories" in mock_info.call_args[0][2]
+    dialog.close()
+
+
+def test_import_triggers_file_picker_and_shows_result(control_center, qtbot, tmp_path):
+    """Import should open file picker, run import, show result dialog, and refresh."""
+    import_result = json.dumps({"imported": 3, "skipped": 1, "errors": 0})
+
+    def mock_wt_memory(*args):
+        args_list = list(args)
+        if "context" in args_list:
+            return _SAMPLE_CONTEXT
+        if "import" in args_list:
+            return import_result
+        return ""
+
+    fake_file = str(tmp_path / "import.json")
+    with open(fake_file, "w") as f:
+        f.write("{}")
+
+    with patch("gui.dialogs.memory_dialog._run_wt_memory", side_effect=mock_wt_memory):
+        dialog = MemoryBrowseDialog(control_center, "test-project")
+        with patch("gui.dialogs.memory_dialog.get_open_filename", return_value=(fake_file, "")) as mock_open, \
+             patch("gui.dialogs.memory_dialog.show_information") as mock_info:
+            dialog._on_import()
+
+    mock_open.assert_called_once()
+    mock_info.assert_called_once()
+    info_text = mock_info.call_args[0][2]
+    assert "Imported: 3" in info_text
+    assert "Skipped (duplicates): 1" in info_text
+    dialog.close()
+
+
+def test_import_error_shows_warning(control_center, qtbot, tmp_path):
+    """Import with error response should show warning dialog."""
+    error_result = json.dumps({"error": "Invalid JSON: blah"})
+
+    def mock_wt_memory(*args):
+        args_list = list(args)
+        if "context" in args_list:
+            return _SAMPLE_CONTEXT
+        if "import" in args_list:
+            return error_result
+        return ""
+
+    fake_file = str(tmp_path / "bad.json")
+    with open(fake_file, "w") as f:
+        f.write("not json")
+
+    with patch("gui.dialogs.memory_dialog._run_wt_memory", side_effect=mock_wt_memory):
+        dialog = MemoryBrowseDialog(control_center, "test-project")
+        with patch("gui.dialogs.memory_dialog.get_open_filename", return_value=(fake_file, "")), \
+             patch("gui.dialogs.memory_dialog.show_warning") as mock_warn:
+            dialog._on_import()
+
+    mock_warn.assert_called_once()
+    assert "Invalid JSON" in mock_warn.call_args[0][2]
+    dialog.close()

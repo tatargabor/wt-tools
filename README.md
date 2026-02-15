@@ -147,8 +147,8 @@ Per-project cognitive memory powered by [shodh-memory](https://github.com/varun2
 - During implementation, the agent recognizes and saves non-obvious constraints you share ("always use absolute imports here")
 
 **How to use it:**
-- **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory forget` to clean up, `wt-memory context` for summaries
-- **GUI**: Browse memories via the [M] button — opens with a context summary, toggle to paginated list with "Show All", search semantically anytime
+- **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory forget` to clean up, `wt-memory context` for summaries, `wt-memory export/import` to transfer between machines
+- **GUI**: Browse memories via the [M] button — opens with a context summary, toggle to paginated list with "Show All", search semantically, export/import with buttons
 - **OpenSpec hooks**: Automatic recall/remember across all 8 skill phases — agent insights captured across the entire lifecycle
 - **Ambient**: Agents recognize and save knowledge during any conversation, not just OpenSpec workflows
 - **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)
@@ -270,6 +270,8 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory context [topic]` | Condensed summary by category |
 | `wt-memory brain` | 3-tier memory visualization |
 | `wt-memory get <id>` | Get a single memory by ID |
+| `wt-memory export [--output FILE]` | Export all memories to JSON (stdout or file) |
+| `wt-memory import FILE [--dry-run]` | Import memories from JSON (skip duplicates) |
 | `wt-memory repair` | Repair index integrity |
 | `wt-memory status [--json]` | Show memory config, health, and count |
 | `wt-memory projects` | List all projects with memory counts |
