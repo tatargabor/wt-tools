@@ -59,7 +59,8 @@ The README MUST contain these sections in this exact order:
     1. Negative experience recall: "An agent saves that RocksDB crashes without file locking → months later, another agent avoids the same mistake"
     2. OpenSpec automatic hooks: "When starting a new change, memory hooks recall past decisions about the same topic"
     3. Mid-flow learning: "During implementation, the agent saves non-obvious constraints the user shares"
-  - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`
+  - **OpenSpec memory hook coverage matrix**: Include a table showing which OpenSpec skills have which memory integration. Columns: Skill, Recall, Mid-flow User Save, Agent Self-Reflection, Structured Tags. Rows: new, continue, ff, explore, apply, verify, sync-specs, archive. Use checkmarks for coverage, dashes for n/a. This helps users understand that agent insights are captured across the entire OpenSpec lifecycle — not just at archive time.
+  - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`, `wt-memory forget`, `wt-memory context`
   - GUI: mention [M] button for browsing and saving memories
   - Link to `docs/developer-memory.md` for full documentation
   - Mark as **(Experimental)** — note graceful degradation if shodh-memory not installed
@@ -75,7 +76,7 @@ The README MUST contain these sections in this exact order:
 - Categories: Worktree Management, Project Management, Ralph Loop, Team & Sync, Developer Memory, Utilities
 - Internal/hook scripts (wt-common.sh, wt-hook-*) get a brief note, not full table entries
 - Each command: name + one-line description
-- **Developer Memory category must include:** `wt-memory remember`, `wt-memory recall`, `wt-memory list`, `wt-memory status`, `wt-memory-hooks install`, `wt-memory-hooks check`
+- **Developer Memory category must include:** `wt-memory remember`, `wt-memory recall`, `wt-memory list`, `wt-memory status`, `wt-memory forget`, `wt-memory context`, `wt-memory brain`, `wt-memory get`, `wt-memory repair`, `wt-memory-hooks install`, `wt-memory-hooks check`
 
 ### 9. Configuration
 - Config file locations table

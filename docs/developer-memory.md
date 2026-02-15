@@ -156,11 +156,26 @@ wt-memory-hooks install
 | Phase | Hook | What happens automatically | Example |
 |-------|------|---------------------------|---------|
 | `/opsx:new` | Recall | Searches for related past work before creating a proposal | "add auth" → recalls past decisions about auth approaches |
-| `/opsx:continue` | Recall + Mid-flow remember | Recalls relevant experience; saves user corrections during artifact creation | User says "we tried Redux, it was too complex" → saved as Learning |
-| `/opsx:ff` | Recall + Mid-flow remember | Same as continue, but during fast-forward artifact generation | Recalls past patterns before generating all artifacts at once |
-| `/opsx:apply` | Recall + Mid-flow remember + Remember on completion | Recalls implementation patterns/errors; saves user corrections; on completion saves errors encountered and patterns learned | After finishing: "Learning: the menu system requires WindowStaysOnTopHint for all dialogs" |
+| `/opsx:continue` | Recall + Mid-flow + Agent reflect | Recalls relevant experience; saves user corrections; agent saves own insights at session end | User says "we tried Redux, it was too complex" → saved as Learning |
+| `/opsx:ff` | Recall + Mid-flow + Agent reflect | Same as continue, but during fast-forward artifact generation | Agent discovers codebase uses event sourcing → saved as Learning |
+| `/opsx:apply` | Recall + Mid-flow + Agent reflect | Recalls implementation patterns/errors; saves user corrections; on completion saves errors encountered and patterns learned | After finishing: "Learning: the menu system requires WindowStaysOnTopHint for all dialogs" |
+| `/opsx:verify` | Recall + Agent remember | Recalls past issues before verification; saves problems found or quality patterns discovered | "Learning: verification revealed missing error handling in all API endpoints" |
+| `/opsx:sync-specs` | Agent remember | Saves merge decisions when resolving spec conflicts | "Decision: merged overlapping requirements by combining scenarios" |
 | `/opsx:archive` | Extract + Remember | Extracts decisions from design.md and lessons from tasks.md, saves as memories | design.md says "chose marker-based hooks" → saved as Decision |
-| `/opsx:explore` | Recall + Remember | Recalls related knowledge at start of exploration; saves insights discovered during thinking | Exploring "performance" → recalls past profiling results |
+| `/opsx:explore` | Recall + User save + Agent reflect | Recalls related knowledge; saves user insights; agent saves own discoveries at session end | Agent discovers hidden coupling between modules → saved as Learning |
+
+### Coverage matrix
+
+| Skill | Recall | Mid-flow User Save | Agent Self-Reflection | Structured Tags |
+|-------|--------|--------------------|-----------------------|-----------------|
+| new | hybrid | — | — | — |
+| continue | hybrid + tags | source:user | source:agent (session end) | change, phase, source |
+| ff | hybrid + tags | source:user | source:agent (session end) | change, phase, source |
+| explore | hybrid | source:user | source:agent (session end) | change, phase, source |
+| apply | hybrid + tags | source:user | source:agent (Step 7) | change, phase, source |
+| verify | hybrid + tags | — | source:agent | change, phase, source |
+| sync-specs | — | — | source:agent | change, phase, source |
+| archive | — | — | source:agent | change, phase, source |
 
 ### Mid-flow remember
 
@@ -258,31 +273,68 @@ Agents watch for these patterns in conversation:
 
 ### wt-memory
 
+**Core Commands:**
+
 | Command | Description |
 |---------|-------------|
-| `wt-memory health` | Check if shodh-memory Python package is available |
+| `wt-memory health` | Check if shodh-memory is available |
 | `wt-memory remember --type TYPE [--tags t1,t2]` | Save a memory (reads content from stdin) |
-| `wt-memory recall "query" [--limit N]` | Semantic search across project memories (JSON output) |
-| `wt-memory list` | List all memories for current project (JSON output) |
+| `wt-memory recall "query" [--limit N] [--mode MODE] [--tags t1,t2]` | Semantic search (JSON output) |
+| `wt-memory list [--type TYPE] [--limit N]` | List memories with optional filters (JSON output) |
 | `wt-memory status [--json]` | Show config, health, and memory count |
 | `wt-memory projects` | List all projects with memory counts |
+
+**Forget / Cleanup:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory forget <id>` | Delete a single memory by ID |
+| `wt-memory forget --all --confirm` | Delete ALL memories (requires --confirm) |
+| `wt-memory forget --older-than <days>` | Delete memories older than N days |
+| `wt-memory forget --tags <t1,t2>` | Delete memories matching tags |
+| `wt-memory forget --pattern <regex>` | Delete memories matching regex pattern |
+
+**Introspection:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory get <id>` | Get a single memory by ID (JSON output) |
+| `wt-memory context [topic]` | Condensed summary by category |
+| `wt-memory brain` | 3-tier memory visualization |
+
+**Maintenance:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory health --index` | Check index health (JSON output) |
+| `wt-memory repair` | Repair index integrity |
 
 **Global option:** `--project NAME` — override auto-detected project name.
 
 **Valid types:** `Decision`, `Learning`, `Context`
+
+**Recall modes** (`--mode`): `semantic` (default), `temporal`, `hybrid`, `causal`, `associative`
+
+**Tagging convention:** `change:<name>,phase:<skill>,source:<agent|user>,<topic>`
 
 **Examples:**
 
 ```bash
 # Save a decision
 echo "Use pytest-xdist for parallel testing" \
-  | wt-memory remember --type Decision --tags testing,pytest
+  | wt-memory remember --type Decision --tags source:user,testing,pytest
 
-# Search memories
-wt-memory recall "testing strategy" --limit 5
+# Search with enhanced recall
+wt-memory recall "testing strategy" --limit 5 --mode hybrid
 
-# List everything
-wt-memory list | jq '.[].content'
+# Search filtered by change
+wt-memory recall "auth patterns" --tags change:add-auth --mode hybrid
+
+# List only decisions
+wt-memory list --type Decision --limit 10
+
+# Delete old memories
+wt-memory forget --older-than 180
 
 # Check status
 wt-memory status --json

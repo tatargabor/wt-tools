@@ -130,6 +130,17 @@ Updated main specs:
 Main specs are now updated. The change remains active - archive when implementation is complete.
 ```
 
+5. **Save merge decisions to developer memory (automatic)**
+
+   After showing the summary, if `wt-memory health` succeeds:
+   - If merge conflicts were resolved or significant merge choices were made, save each decision:
+     ```bash
+     echo "<spec merge decision and rationale>" | wt-memory remember --type Decision --tags change:<change-name>,phase:sync-specs,source:agent,spec-merge
+     ```
+   - If the merge was straightforward with no conflicts, do NOT save any memory (no noise).
+
+   If health fails, skip silently.
+
 **Guardrails**
 - Read both delta and main specs before making changes
 - Preserve existing content not mentioned in delta

@@ -147,11 +147,24 @@ Per-project cognitive memory powered by [shodh-memory](https://github.com/varun2
 - During implementation, the agent recognizes and saves non-obvious constraints you share ("always use absolute imports here")
 
 **How to use it:**
-- **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory status` to check health
+- **CLI**: `wt-memory remember` to save, `wt-memory recall` to search, `wt-memory forget` to clean up, `wt-memory context` for summaries
 - **GUI**: Browse memories and save notes via the [M] button in the project header
-- **OpenSpec hooks**: Automatic recall/remember across all 6 phases — installed via `wt-memory-hooks install`
+- **OpenSpec hooks**: Automatic recall/remember across all 8 skill phases — agent insights captured across the entire lifecycle
 - **Ambient**: Agents recognize and save knowledge during any conversation, not just OpenSpec workflows
 - **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)
+
+**OpenSpec memory hook coverage:**
+
+| Skill | Recall | User Save | Agent Reflect |
+|-------|--------|-----------|---------------|
+| new | hybrid | — | — |
+| continue | hybrid+tags | mid-flow | session end |
+| ff | hybrid+tags | mid-flow | session end |
+| explore | hybrid | mid-flow | session end |
+| apply | hybrid+tags | mid-flow | Step 7 |
+| verify | hybrid+tags | — | post-verify |
+| sync-specs | — | — | on merge |
+| archive | — | — | on archive |
 
 See [docs/developer-memory.md](docs/developer-memory.md) for the full guide with use cases, OpenSpec integration details, and CLI reference.
 
@@ -248,8 +261,16 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 |---------|-------------|
 | `wt-memory health` | Check if shodh-memory is available |
 | `wt-memory remember --type TYPE` | Save a memory (reads content from stdin) |
-| `wt-memory recall "query"` | Semantic search across project memories |
-| `wt-memory list` | List all memories for current project (JSON) |
+| `wt-memory recall "query" [--mode MODE] [--tags t1,t2]` | Semantic search with recall modes and tag filtering |
+| `wt-memory list [--type TYPE] [--limit N]` | List memories with optional filters (JSON) |
+| `wt-memory forget <id>` | Delete a single memory by ID |
+| `wt-memory forget --all --confirm` | Delete all memories (requires --confirm) |
+| `wt-memory forget --older-than <days>` | Delete memories older than N days |
+| `wt-memory forget --tags <t1,t2>` | Delete memories matching tags |
+| `wt-memory context [topic]` | Condensed summary by category |
+| `wt-memory brain` | 3-tier memory visualization |
+| `wt-memory get <id>` | Get a single memory by ID |
+| `wt-memory repair` | Repair index integrity |
 | `wt-memory status [--json]` | Show memory config, health, and count |
 | `wt-memory projects` | List all projects with memory counts |
 | `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |

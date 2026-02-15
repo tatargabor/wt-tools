@@ -95,7 +95,7 @@ This tells you:
 
 If the user provided a topic or focus area, check for relevant memories:
 - Run `wt-memory health` — if it fails, skip silently and proceed without memory
-- If healthy, run: `wt-memory recall "<user's topic or keywords>" --limit 5`
+- If healthy, run: `wt-memory recall "<user's topic or keywords>" --limit 5 --mode hybrid`
 - If relevant memories are returned, weave them naturally into the conversation early on:
   - "Past experience suggests..." or "We have a note that..."
   - Use memories to inform the exploration direction, not to constrain it
@@ -308,12 +308,37 @@ During exploration, the user may share knowledge that would be valuable in futur
 1. Run `wt-memory health` — if it fails, skip silently
 2. Save with appropriate type and tags:
    ```bash
-   echo "<concise description of the insight>" | wt-memory remember --type <Observation|Decision|Learning> --tags <topic>,<relevant-keywords>
+   echo "<concise description of the insight>" | wt-memory remember --type <Decision|Learning|Context> --tags change:<topic>,phase:explore,source:user,<relevant-keywords>
    ```
 3. Confirm briefly in one line: `[Memory saved: <Type> — <short summary>]`
 4. Continue the conversation without breaking flow
 
 **Threshold**: Save only if a future agent in a different session would benefit from knowing this. When in doubt, don't save.
+
+## Agent Self-Reflection (on session end)
+
+When the exploration session ends (user moves on, starts a change, or the conversation shifts), review the session for your own insights — things you discovered during exploration that a future agent would benefit from knowing.
+
+**What to look for:**
+- Architectural patterns discovered in the codebase
+- Connections between components that aren't obvious
+- Design trade-offs analyzed during the exploration
+- Problems identified or reframed in a non-obvious way
+
+**What NOT to save:**
+- Things already saved by the user-knowledge recognition hook above
+- Session-specific context or exploratory dead-ends
+- General knowledge any developer would know
+
+If `wt-memory health` succeeds and you have insights worth saving:
+- Save each insight:
+  ```bash
+  echo "<insight description>" | wt-memory remember --type <Learning|Decision> --tags change:<topic>,phase:explore,source:agent,<keywords>
+  ```
+- Confirm: `[Agent insights saved: N items]`
+
+If no insights worth saving: `[Agent insights saved: 0 items]`
+If health fails, skip silently.
 
 ## Guardrails
 

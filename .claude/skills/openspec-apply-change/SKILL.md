@@ -59,7 +59,7 @@ Implement tasks from an OpenSpec change.
 4b. **Recall relevant patterns and errors (automatic)**
 
    If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<change-name> implementation patterns errors" --limit 5`
+   - Run: `wt-memory recall "<change-name> implementation patterns errors" --limit 5 --mode hybrid --tags change:<change-name>`
    - Use relevant memories to inform implementation (avoid past errors, reuse working patterns)
 
    If `wt-memory health` fails, skip silently.
@@ -77,7 +77,7 @@ Implement tasks from an OpenSpec change.
 
    **When recognized**:
    1. Run `wt-memory health` — if it fails, skip silently
-   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Observation|Learning> --tags repo,<change-name>,<topic>`
+   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning> --tags change:<change-name>,phase:apply,source:user,<topic>`
    3. Confirm: `[Memory saved: <Type> — <summary>]`
    4. Adjust implementation if needed, then continue
 
@@ -117,15 +117,15 @@ Implement tasks from an OpenSpec change.
    After showing status, if `wt-memory health` succeeds:
    - If errors were encountered during this session, save each:
      ```bash
-     echo "<error description and workaround/fix>" | wt-memory remember --type Observation --tags repo,<change-name>,error
+     echo "<error description and workaround/fix>" | wt-memory remember --type Learning --tags change:<change-name>,phase:apply,source:agent,error
      ```
    - If useful patterns were discovered, save each:
      ```bash
-     echo "<pattern description>" | wt-memory remember --type Learning --tags repo,<change-name>,pattern
+     echo "<pattern description>" | wt-memory remember --type Learning --tags change:<change-name>,phase:apply,source:agent,pattern
      ```
    - If all tasks are complete, save a completion event:
      ```bash
-     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Event --tags repo,<change-name>,implementation
+     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Context --tags change:<change-name>,phase:apply,source:agent,implementation
      ```
    If health fails, skip silently.
 

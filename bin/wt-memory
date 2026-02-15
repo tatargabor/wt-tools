@@ -17,19 +17,43 @@ Usage: wt-memory <command> [options]
 
 CLI helper for Shodh-Memory (local per-project cognitive memory).
 
-Commands:
-  health                          Check if shodh-memory Python package is available
+Core Commands:
+  health                          Check if shodh-memory is available
   remember --type TYPE [--tags t1,t2] < content
                                   Save a memory (reads content from stdin)
-  recall "query" [--limit N]      Semantic search (JSON stdout)
-  list                            List all memories for current project (JSON stdout)
+  recall "query" [--limit N] [--mode MODE] [--tags t1,t2]
+                                  Semantic search (JSON stdout)
+  list [--type TYPE] [--limit N]  List memories (JSON stdout)
   status [--json]                 Show config, health, and memory count
   projects                        List all projects with memory counts
 
+Forget / Cleanup:
+  forget <id>                     Delete a single memory by ID
+  forget --all --confirm          Delete ALL memories (requires --confirm)
+  forget --older-than <days>      Delete memories older than N days
+  forget --tags <t1,t2>           Delete memories matching tags
+  forget --pattern <regex>        Delete memories matching regex pattern
+
+Introspection:
+  get <id>                        Get a single memory by ID (JSON stdout)
+  context [topic]                 Condensed summary by category
+  brain                           3-tier memory visualization
+
+Maintenance:
+  health --index                  Check index health (JSON stdout)
+  repair                          Repair index integrity
+
+Recall modes (--mode):
+  semantic     Meaning-based search (default)
+  temporal     Time-based relevance
+  hybrid       Combined semantic + temporal
+  causal       Cause-effect relationships
+  associative  Related concept discovery
+
 Valid types for --type:
-  Decision    A technical choice or preference (stored as Decision)
-  Learning    A discovered pattern, gotcha, or lesson (stored as Learning)
-  Context     Background info, events, or general notes (stored as Context)
+  Decision    A technical choice or preference
+  Learning    A discovered pattern, gotcha, or lesson
+  Context     Background info, events, or general notes
 
   Legacy aliases (mapped automatically with a warning):
     Observation → Learning
@@ -42,9 +66,8 @@ Environment:
   SHODH_STORAGE   Storage root (default: ~/.local/share/wt-tools/memory)
 
 Graceful degradation:
-  If shodh-memory is not installed, 'remember' exits silently (exit 0),
-  'recall' and 'list' return empty JSON array [], and 'status --json'
-  returns {"available": false, ...}.
+  If shodh-memory is not installed, commands exit silently (exit 0)
+  with empty JSON output.
 EOF
 }
 
@@ -128,12 +151,41 @@ run_with_lock() {
 # No flock needed — does not open the DB, just imports.
 # Stderr suppressed — expected to fail when not installed.
 cmd_health() {
-    if python3 -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
-        echo "ok"
-        return 0
-    else
+    local index_check=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --index) index_check=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! python3 -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
+        if [[ "$index_check" == "true" ]]; then
+            echo "{}"
+        fi
         return 1
     fi
+
+    if [[ "$index_check" == "true" ]]; then
+        local storage_path
+        storage_path=$(get_storage_path)
+        _SHODH_STORAGE="$storage_path" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.index_health()
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'index_health not available in this shodh-memory version'}))
+" || echo "{}"
+    else
+        echo "ok"
+    fi
+    return 0
 }
 
 # Save a memory: reads content from stdin
@@ -211,16 +263,150 @@ m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], 
     return 0
 }
 
+# Forget (delete) memories
+# Usage: wt-memory forget <id>
+#        wt-memory forget --all --confirm
+#        wt-memory forget --older-than <days>
+#        wt-memory forget --tags <t1,t2>
+#        wt-memory forget --pattern <regex>
+cmd_forget() {
+    local memory_id=""
+    local forget_all=false
+    local confirm=false
+    local older_than=""
+    local tags=""
+    local pattern=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all) forget_all=true; shift ;;
+            --confirm) confirm=true; shift ;;
+            --older-than) older_than="$2"; shift 2 ;;
+            --tags) tags="$2"; shift 2 ;;
+            --pattern) pattern="$2"; shift 2 ;;
+            -*)
+                echo "Error: Unknown option '$1'" >&2
+                return 1
+                ;;
+            *)
+                if [[ -z "$memory_id" ]]; then
+                    memory_id="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Health check — silent no-op if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    # forget --all --confirm
+    if [[ "$forget_all" == "true" ]]; then
+        if [[ "$confirm" != "true" ]]; then
+            echo "Error: --all requires --confirm to prevent accidental deletion" >&2
+            return 1
+        fi
+        local rc=0
+        _SHODH_STORAGE="$storage_path" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+count = m.forget_all()
+print(json.dumps({'deleted_count': count}))
+" || rc=$?
+        return 0
+    fi
+
+    # forget --older-than <days>
+    if [[ -n "$older_than" ]]; then
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_DAYS="$older_than" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+count = m.forget_by_age(int(os.environ['_SHODH_DAYS']))
+print(json.dumps({'deleted_count': count}))
+" || echo '{"deleted_count": 0}'
+        return 0
+    fi
+
+    # forget --tags <t1,t2>
+    if [[ -n "$tags" ]]; then
+        local tags_py
+        tags_py=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_TAGS="$tags_py" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+tags = json.loads(os.environ['_SHODH_TAGS'])
+count = m.forget_by_tags(tags)
+print(json.dumps({'deleted_count': count}))
+" || echo '{"deleted_count": 0}'
+        return 0
+    fi
+
+    # forget --pattern <regex>
+    if [[ -n "$pattern" ]]; then
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_PATTERN="$pattern" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+count = m.forget_by_pattern(os.environ['_SHODH_PATTERN'])
+print(json.dumps({'deleted_count': count}))
+" || echo '{"deleted_count": 0}'
+        return 0
+    fi
+
+    # forget <id> — single memory delete
+    if [[ -n "$memory_id" ]]; then
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_ID="$memory_id" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+result = m.forget(os.environ['_SHODH_ID'])
+print(json.dumps({'deleted': bool(result), 'id': os.environ['_SHODH_ID']}))
+" || echo "{\"deleted\": false, \"id\": \"$memory_id\"}"
+        return 0
+    fi
+
+    echo "Error: specify a memory ID, or use --all, --older-than, --tags, or --pattern" >&2
+    return 1
+}
+
 # Semantic search
-# Usage: wt-memory recall "query" --limit 5
+# Usage: wt-memory recall "query" --limit 5 --mode hybrid --tags t1,t2
 cmd_recall() {
     local query=""
     local limit=5
+    local mode=""
+    local tags=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
-            -*) shift ;;
+            --mode) mode="$2"; shift 2 ;;
+            --tags) tags="$2"; shift 2 ;;
+            -*)
+                shift
+                ;;
             *)
                 if [[ -z "$query" ]]; then
                     query="$1"
@@ -244,15 +430,30 @@ cmd_recall() {
     local storage_path
     storage_path=$(get_storage_path)
 
+    # Build tags as Python list
+    local tags_py="[]"
+    if [[ -n "$tags" ]]; then
+        tags_py=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+    fi
+
     _SHODH_STORAGE="$storage_path" \
     _SHODH_QUERY="$query" \
     _SHODH_LIMIT="$limit" \
+    _SHODH_MODE="$mode" \
+    _SHODH_TAGS="$tags_py" \
     run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
-results = m.recall(os.environ['_SHODH_QUERY'], limit=int(os.environ['_SHODH_LIMIT']))
+kwargs = {'limit': int(os.environ['_SHODH_LIMIT'])}
+mode = os.environ.get('_SHODH_MODE', '')
+if mode:
+    kwargs['mode'] = mode
+tags = json.loads(os.environ.get('_SHODH_TAGS', '[]'))
+if tags:
+    kwargs['tags'] = tags
+results = m.recall(os.environ['_SHODH_QUERY'], **kwargs)
 print(json.dumps(results, default=str))
 " || echo "[]"
 
@@ -260,7 +461,19 @@ print(json.dumps(results, default=str))
 }
 
 # List all memories for current project
+# Usage: wt-memory list [--type Decision] [--limit 20]
 cmd_list() {
+    local memory_type=""
+    local limit=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type) memory_type="$2"; shift 2 ;;
+            --limit) limit="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
     # Health check — return empty array if not installed
     if ! cmd_health >/dev/null 2>&1; then
         echo "[]"
@@ -277,14 +490,169 @@ cmd_list() {
     fi
 
     _SHODH_STORAGE="$storage_path" \
+    _SHODH_TYPE="$memory_type" \
+    _SHODH_LIMIT="$limit" \
     run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
-memories = m.list_memories()
+kwargs = {}
+mt = os.environ.get('_SHODH_TYPE', '')
+if mt:
+    kwargs['memory_type'] = mt
+lim = os.environ.get('_SHODH_LIMIT', '')
+if lim:
+    kwargs['limit'] = int(lim)
+memories = m.list_memories(**kwargs)
 print(json.dumps(memories, default=str))
 " || echo "[]"
+
+    return 0
+}
+
+# Context summary by category
+# Usage: wt-memory context [topic]
+cmd_context() {
+    local topic=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -*) shift ;;
+            *)
+                if [[ -z "$topic" ]]; then
+                    topic="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_TOPIC="$topic" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+topic = os.environ.get('_SHODH_TOPIC', '')
+try:
+    if topic:
+        result = m.context_summary(max_items=5, include_decisions=True, include_learnings=True, include_context=True)
+    else:
+        result = m.context_summary(max_items=5, include_decisions=True, include_learnings=True, include_context=True)
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'context_summary not available in this shodh-memory version'}))
+" || echo "{}"
+
+    return 0
+}
+
+# 3-tier memory visualization
+# Usage: wt-memory brain
+cmd_brain() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.brain_state(longterm_limit=100)
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'brain_state not available in this shodh-memory version'}))
+" || echo "{}"
+
+    return 0
+}
+
+# Get single memory by ID
+# Usage: wt-memory get <memory_id>
+cmd_get() {
+    local memory_id=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -*) shift ;;
+            *)
+                if [[ -z "$memory_id" ]]; then
+                    memory_id="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$memory_id" ]]; then
+        echo "Error: memory ID required" >&2
+        return 1
+    fi
+
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_ID="$memory_id" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.get_memory(os.environ['_SHODH_ID'])
+    print(json.dumps(result, default=str))
+except Exception:
+    print('{}')
+" || echo "{}"
+
+    return 0
+}
+
+# Repair index integrity
+# Usage: wt-memory repair
+cmd_repair() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.repair_index()
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'repair_index not available in this shodh-memory version'}))
+" || echo "{}"
 
     return 0
 }
@@ -422,6 +790,11 @@ main() {
         remember) cmd_remember "$@" ;;
         recall)   cmd_recall "$@" ;;
         list)     cmd_list "$@" ;;
+        forget)   cmd_forget "$@" ;;
+        context)  cmd_context "$@" ;;
+        brain)    cmd_brain "$@" ;;
+        get|inspect) cmd_get "$@" ;;
+        repair)   cmd_repair "$@" ;;
         status)   cmd_status "$@" ;;
         projects) cmd_projects "$@" ;;
         -h|--help|help) usage ;;

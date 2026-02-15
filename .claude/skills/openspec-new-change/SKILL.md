@@ -27,7 +27,7 @@ Start a new change using the experimental artifact-driven approach.
 1b. **Check for related past work (automatic)**
 
    If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<user-description-or-change-name>" --limit 3`
+   - Run: `wt-memory recall "<user-description-or-change-name>" --limit 3 --mode hybrid`
    - If relevant memories are found, briefly note: "Note: Related past work found — <one-line summary of most relevant memory>"
    - This helps the user (and you) avoid repeating past mistakes or rediscovering known patterns
 

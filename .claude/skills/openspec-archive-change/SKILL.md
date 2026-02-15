@@ -109,15 +109,15 @@ All artifacts complete. All tasks complete.
    If `wt-memory health` succeeds:
    a. Extract key decisions from design.md → save each as a memory:
       ```bash
-      echo "<decision summary and rationale>" | wt-memory remember --type Decision --tags repo,<change-name>,schema
+      echo "<decision summary and rationale>" | wt-memory remember --type Decision --tags change:<change-name>,phase:archive,source:agent,decision
       ```
    b. Extract lessons learned from tasks.md/design.md (gotchas, surprising outcomes, useful patterns) → save each as:
       ```bash
-      echo "<lesson description>" | wt-memory remember --type Learning --tags repo,<change-name>
+      echo "<lesson description>" | wt-memory remember --type Learning --tags change:<change-name>,phase:archive,source:agent,lesson
       ```
    c. Save a change completion event summarizing the change:
       ```bash
-      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Event --tags repo,<change-name>,archive
+      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Context --tags change:<change-name>,phase:archive,source:agent,completion
       ```
 
    If `wt-memory health` fails, skip this step silently — no error, no warning.

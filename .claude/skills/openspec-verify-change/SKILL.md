@@ -41,6 +41,14 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    This returns the change directory and context files. Read all available artifacts from `contextFiles`.
 
+3b. **Recall relevant past experience (automatic)**
+
+   If `wt-memory health` succeeds:
+   - Run: `wt-memory recall "<change-name> verification issues bugs" --limit 5 --mode hybrid --tags change:<change-name>`
+   - Use relevant memories to inform verification (known issues, past patterns)
+
+   If `wt-memory health` fails, skip silently.
+
 4. **Initialize verification report structure**
 
    Create a report structure with three dimensions:
@@ -142,6 +150,21 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
    - If CRITICAL issues: "X critical issue(s) found. Fix before archiving."
    - If only warnings: "No critical issues. Y warning(s) to consider. Ready for archive (with noted improvements)."
    - If all clear: "All checks passed. Ready for archive."
+
+9. **Save verification insights to developer memory (automatic)**
+
+   After generating the report, if `wt-memory health` succeeds:
+   - If CRITICAL or WARNING issues were found, save each significant finding:
+     ```bash
+     echo "<issue description and root cause>" | wt-memory remember --type Learning --tags change:<change-name>,phase:verify,source:agent,issue
+     ```
+   - If verification passed with noteworthy observations (patterns, quality insights):
+     ```bash
+     echo "<observation about code quality or patterns>" | wt-memory remember --type Learning --tags change:<change-name>,phase:verify,source:agent,pattern
+     ```
+   - Only save insights a future agent would benefit from — don't save routine "all passed" results.
+
+   If health fails, skip silently.
 
 **Verification Heuristics**
 

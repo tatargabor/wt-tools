@@ -19,13 +19,13 @@ Save when the user shares something a **future agent in a different session** wo
 ### How to save
 
 1. Run `wt-memory health` — if it fails, skip silently
-2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags <topic>`
+2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>`
 3. Confirm in one line: `[Memory saved: <Type> — <summary>]`
 4. Continue with current work
 
 ### Recall before major work
 
-Before starting significant work (new feature, debugging session, architecture discussion), consider running `wt-memory recall "<topic>" --limit 5` to check for relevant past experience. Use results silently to inform your approach — don't announce the recall unless directly relevant results are found.
+Before starting significant work (new feature, debugging session, architecture discussion), consider running `wt-memory recall "<topic>" --limit 5 --mode hybrid` to check for relevant past experience. Use results silently to inform your approach — don't announce the recall unless directly relevant results are found.
 
 ### Deduplication
 
