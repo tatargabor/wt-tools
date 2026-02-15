@@ -48,6 +48,9 @@ mkdir -p docs/benchmark results
 # --- CLAUDE.md (baseline, PORT=3000, no memory) ---
 cp "$SCRIPT_DIR/claude-md/baseline.md" ./CLAUDE.md
 
+# --- Project spec (domain context for the agent) ---
+cp "$SCRIPT_DIR/project-spec.md" docs/benchmark/project-spec.md
+
 # --- Extract agent-only sections from change definitions ---
 for f in "$SCRIPT_DIR"/changes/0*.md; do
   sed '/<!-- EVALUATOR NOTES BELOW/,$d' "$f" > docs/benchmark/"$(basename "$f")"

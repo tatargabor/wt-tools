@@ -78,6 +78,8 @@ echo "<insight>" | wt-memory remember --type <Learning|Decision> --tags change:<
 
 You are autonomously building CraftBazaar through 6 sequential changes. Each session starts fresh (no conversation history from previous sessions).
 
+**Project spec**: Read `docs/benchmark/project-spec.md` for the full domain description, tech stack, entities, and project structure. Read this before your first change.
+
 **Your workflow each session:**
 
 1. Check what's already done:
@@ -89,7 +91,7 @@ You are autonomously building CraftBazaar through 6 sequential changes. Each ses
    ```bash
    ls docs/benchmark/
    ```
-   Read the next unfinished change definition file.
+   Read the next unfinished change definition file. If this is the first change, also read `docs/benchmark/project-spec.md`.
 
 3. **Recall past experience** before starting implementation:
    ```bash
