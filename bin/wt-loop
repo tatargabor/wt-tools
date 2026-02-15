@@ -379,13 +379,12 @@ This is iteration $iteration of $max_iter in an autonomous Ralph loop.
 Previous work is visible in the git history and current file state.
 
 # Instructions
-1. Read the current state of the codebase and understand what has been done
-2. Check tasks.md for remaining incomplete items (marked with - [ ])
-3. Work on the highest priority incomplete item
-4. Make atomic commits for each meaningful change
-5. Mark completed tasks as done in tasks.md (change [ ] to [x])
+1. Read CLAUDE.md first — it contains the project workflow and specific instructions
+2. Follow the workflow described in CLAUDE.md exactly
+3. Check what has been done so far (git log, openspec list, file state)
+4. Continue from where the previous iteration left off
+5. Make atomic commits for each meaningful change
 6. If stuck on the same issue, try a different approach
-7. Exit when you've made progress on the current sub-task
 
 # Done Criteria
 $done_text
@@ -394,10 +393,10 @@ $done_text
 $prev_text
 
 # Important
-- Focus on ONE task at a time
-- Make incremental progress
-- Commit your changes
-- Update tasks.md to reflect progress
+- CLAUDE.md is the authoritative source for your workflow — follow it
+- If CLAUDE.md says to use OpenSpec (/opsx:ff, /opsx:apply), use those commands
+- Make incremental progress each iteration
+- Commit your changes before exiting
 EOF
 }
 
@@ -528,13 +527,15 @@ cmd_run() {
         perm_flags=$(get_claude_permission_flags "$perm_mode")
 
         while [[ $retry_count -lt $max_retries ]]; do
+            # - env -u CLAUDECODE: allow claude -p when invoked from a Claude session
+            # - --foreground: keep child in foreground process group (prevents Tl stops)
             if [[ -n "$TIMEOUT_CMD" ]]; then
-                $TIMEOUT_CMD --signal=TERM "$timeout_seconds" \
+                env -u CLAUDECODE $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
                     claude $perm_flags \
                        --verbose \
                        -p "$prompt"
             else
-                claude $perm_flags \
+                env -u CLAUDECODE claude $perm_flags \
                    --verbose \
                    -p "$prompt"
             fi
@@ -875,8 +876,10 @@ cmd_start() {
         fs_flag="--full-screen"
     fi
 
-    # The run command: cd to worktree and run wt-loop run (CWD-based)
-    local run_cmd="cd \"$wt_path\" && \"$SCRIPT_DIR/wt-loop\" run 2>&1 | tee -a \"$log_file\""
+    # The run command: cd to worktree and run wt-loop run
+    # Uses `script` to create a PTY so child processes (claude -p) see a real
+    # terminal, avoiding SIGTTOU/Tl stops. Also provides real-time log streaming.
+    local run_cmd="cd \"$wt_path\" && script -f -q \"$log_file\" -c '\"$SCRIPT_DIR/wt-loop\" run'"
 
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS: Use Terminal.app via osascript
@@ -885,7 +888,7 @@ cmd_start() {
         cat > "$temp_script" << SCRIPT
 #!/bin/bash
 cd "$wt_path"
-"$SCRIPT_DIR/wt-loop" run 2>&1 | tee -a "$log_file"
+script -F -q "$log_file" "$SCRIPT_DIR/wt-loop" run
 SCRIPT
         chmod +x "$temp_script"
         # Launch in Terminal.app with auto-close: exec replaces the shell so

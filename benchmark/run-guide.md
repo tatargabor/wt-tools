@@ -57,30 +57,54 @@ If you prefer manual setup, the scripts are short and readable — each is ~60 l
 
 ## 2. Starting the Runs
 
-### Option A: Parallel execution (recommended)
+### Option A: Interactive Claude sessions (recommended)
 
-Open two terminals:
+Open two terminals, each running Claude Code interactively:
 
 **Terminal 1 (Run A):**
 ```bash
 cd ~/benchmark/run-a/craftbazaar
-wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+claude --dangerously-skip-permissions
 ```
 
 **Terminal 2 (Run B):**
 ```bash
 cd ~/benchmark/run-b/craftbazaar
-wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+claude --dangerously-skip-permissions
 ```
 
-### Option B: Sequential execution
+Then paste this prompt into **each** Claude session:
 
+```
+Read CLAUDE.md, then check openspec list --json and ls docs/benchmark/ to find the next
+incomplete change. Read the project spec (if first change) and the change definition file.
+Then implement it: run /opsx:ff <change-name> to create artifacts, then /opsx:apply <change-name>
+to implement. Follow the Benchmark Task workflow in CLAUDE.md exactly — work through all 6
+changes in order.
+```
+
+The agent will follow CLAUDE.md instructions to work through changes 01-06 sequentially, writing status files and committing after each.
+
+**Note:** You'll need to re-prompt the agent when it finishes a change and exits, or when it hits context limits. Each re-prompt starts a fresh session — the agent picks up from git history and `openspec list`.
+
+### Option B: wt-loop automation
+
+`wt-loop` automates the re-prompting cycle. It can be run from within a Claude session or from a plain terminal:
+
+**From two terminals:**
 ```bash
+# Terminal 1 (Run A)
 cd ~/benchmark/run-a/craftbazaar
 wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
 
-# Wait for Run A to complete, then:
+# Terminal 2 (Run B)
 cd ~/benchmark/run-b/craftbazaar
+wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+```
+
+**From within interactive Claude sessions:**
+```bash
+# Works because wt-loop unsets CLAUDECODE before spawning child claude processes
 wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
 ```
 
@@ -88,13 +112,29 @@ wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --d
 
 | Flag | Value | Purpose |
 |------|-------|---------|
-| `--max 20` | 20 iterations | Enough for 6 changes + retries, bounded to prevent runaway |
+| `--max 100` | 100 iterations | Generous budget for 6 changes + retries |
 | `--stall-threshold 3` | 3 iterations | Stop if no commits for 3 consecutive iterations (agent is stuck) |
 | `--done manual` | manual completion | Agent decides when done (not based on tasks.md) |
 
+### Important: OpenSpec workflow
+
+The wt-loop prompt directs the agent to read CLAUDE.md and follow its workflow. Both CLAUDE.md variants instruct the agent to use `/opsx:ff` and `/opsx:apply` for each change. This is critical for Run B — the memory hooks are embedded in the OpenSpec skill files, so memory only works if the agent uses OpenSpec commands.
+
+### First-run trust
+
+When Claude Code opens a project directory for the first time, it prompts to trust the project settings. Since `wt-loop` runs `claude -p` (non-interactive print mode), it cannot answer this prompt. **Before starting the loop**, open Claude interactively once in each directory to accept the trust prompt:
+
+```bash
+cd ~/benchmark/run-a/craftbazaar && claude --dangerously-skip-permissions
+# Type "hello", wait for response, Ctrl+C to exit
+
+cd ~/benchmark/run-b/craftbazaar && claude --dangerously-skip-permissions
+# Same — accept trust, then exit
+```
+
 ### Monitoring
 
-From a third terminal:
+From a third terminal (or another Claude session):
 ```bash
 # Check status
 cd ~/benchmark/run-a/craftbazaar && wt-loop status
