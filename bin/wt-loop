@@ -370,6 +370,19 @@ build_prompt() {
         prev_text="This is the first iteration."
     fi
 
+    # Detect OpenSpec project
+    local openspec_instructions=""
+    if [[ -d "$wt_path/openspec" ]]; then
+        openspec_instructions="
+# OpenSpec Workflow (MANDATORY)
+This project uses OpenSpec. You MUST use OpenSpec commands for ALL changes:
+1. Run: openspec list --json  — to see change status
+2. For each incomplete change, run /opsx:ff <change-name> to create artifacts
+3. Then run /opsx:apply <change-name> to implement the tasks
+4. Do NOT write code directly — always go through /opsx:ff then /opsx:apply
+"
+    fi
+
     cat <<EOF
 # Task
 $task
@@ -385,7 +398,7 @@ Previous work is visible in the git history and current file state.
 4. Continue from where the previous iteration left off
 5. Make atomic commits for each meaningful change
 6. If stuck on the same issue, try a different approach
-
+$openspec_instructions
 # Done Criteria
 $done_text
 
@@ -394,7 +407,6 @@ $prev_text
 
 # Important
 - CLAUDE.md is the authoritative source for your workflow — follow it
-- If CLAUDE.md says to use OpenSpec (/opsx:ff, /opsx:apply), use those commands
 - Make incremental progress each iteration
 - Commit your changes before exiting
 EOF
@@ -527,17 +539,17 @@ cmd_run() {
         perm_flags=$(get_claude_permission_flags "$perm_mode")
 
         while [[ $retry_count -lt $max_retries ]]; do
-            # - env -u CLAUDECODE: allow claude -p when invoked from a Claude session
+            # Pipe prompt via stdin to run in interactive mode (not -p print mode).
+            # Interactive mode enables skills (/opsx:ff, /opsx:apply) and hooks.
+            # - env -u CLAUDECODE: allow claude when invoked from a Claude session
             # - --foreground: keep child in foreground process group (prevents Tl stops)
             if [[ -n "$TIMEOUT_CMD" ]]; then
-                env -u CLAUDECODE $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
+                echo "$prompt" | env -u CLAUDECODE $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
                     claude $perm_flags \
-                       --verbose \
-                       -p "$prompt"
+                       --verbose
             else
-                env -u CLAUDECODE claude $perm_flags \
-                   --verbose \
-                   -p "$prompt"
+                echo "$prompt" | env -u CLAUDECODE claude $perm_flags \
+                   --verbose
             fi
             claude_exit_code=$?
 
