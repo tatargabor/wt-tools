@@ -193,6 +193,19 @@ The agent recognizes it as valuable, saves it with `wt-memory remember`, and con
 
 Then continues with the current work. No interruption, no extra steps.
 
+### Stop hook memory reminder
+
+The memory instructions in SKILL.md are "soft hooks" — prompt-level instructions that the agent can skip. To reinforce compliance, the Claude Code Stop hook (`wt-hook-stop`) outputs a reminder when the active skill has memory steps.
+
+**How it works:**
+1. When a skill starts, `wt-skill-start` checks if the skill's SKILL.md contains `wt-memory`
+2. If yes, it writes a `.wt-tools/agents/<pid>.memory` marker file
+3. On every Stop event (after each agent response), `wt-hook-stop` checks for the marker
+4. If found, it outputs: `[MEMORY REMINDER] Active skill has wt-memory hooks. Run your recall/remember steps before finishing.`
+5. The agent sees this as a system message and is prompted to run its recall/remember steps
+
+This is automatic — no configuration needed. The reminder fires for any skill with `wt-memory` in its SKILL.md.
+
 ### Hooks are idempotent
 
 Running `wt-memory-hooks install` again replaces existing hooks (useful after `wt-openspec update` which overwrites SKILL.md files). The GUI can also reinstall hooks automatically after an OpenSpec update.

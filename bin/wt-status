@@ -559,6 +559,7 @@ cleanup_stale_agents() {
         if [[ "$file_pid" =~ ^[0-9]+$ ]]; then
             if ! kill -0 "$file_pid" 2>/dev/null; then
                 rm -f "$skill_file"
+                rm -f "$agents_dir/${file_pid}.memory"
             fi
         fi
     done

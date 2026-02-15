@@ -40,9 +40,41 @@ find_claude_pid() {
 CLAUDE_PID=$(find_claude_pid)
 TIMESTAMP=$(date +%s)
 
+# Map skill invocation name to SKILL.md directory name
+# opsx:apply → openspec-apply-change, opsx:explore → openspec-explore, etc.
+# wt:* → wt (single skill directory for all wt subcommands)
+map_skill_to_dir() {
+    local name="$1"
+    case "$name" in
+        opsx:new)       echo "openspec-new-change" ;;
+        opsx:continue)  echo "openspec-continue-change" ;;
+        opsx:ff)        echo "openspec-ff-change" ;;
+        opsx:apply)     echo "openspec-apply-change" ;;
+        opsx:verify)    echo "openspec-verify-change" ;;
+        opsx:archive)   echo "openspec-archive-change" ;;
+        opsx:bulk-archive) echo "openspec-bulk-archive-change" ;;
+        opsx:sync)      echo "openspec-sync-specs" ;;
+        opsx:explore)   echo "openspec-explore" ;;
+        opsx:onboard)   echo "openspec-onboard" ;;
+        wt:*)           echo "wt" ;;
+        *)              echo "$name" ;;
+    esac
+}
+
 # Write per-PID skill file only if we found the actual claude PID
 # Format: skill_name|timestamp|freshness (fresh = just invoked, last = subsequent prompts)
 if [[ -n "$CLAUDE_PID" ]]; then
     mkdir -p .wt-tools/agents
+
+    # Remove old .memory marker before writing new skill
+    rm -f ".wt-tools/agents/${CLAUDE_PID}.memory"
+
     echo "${SKILL_NAME}|${TIMESTAMP}|fresh" > ".wt-tools/agents/${CLAUDE_PID}.skill"
+
+    # Check if the new skill has wt-memory hooks in its SKILL.md
+    local_skill_dir=$(map_skill_to_dir "$SKILL_NAME")
+    skill_md=".claude/skills/${local_skill_dir}/SKILL.md"
+    if [[ -f "$skill_md" ]] && grep -q "wt-memory" "$skill_md" 2>/dev/null; then
+        echo "$SKILL_NAME" > ".wt-tools/agents/${CLAUDE_PID}.memory"
+    fi
 fi

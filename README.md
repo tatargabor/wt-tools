@@ -293,7 +293,7 @@ These are called by other tools or by Claude Code hooks — you don't invoke the
 
 - `wt-common.sh` — shared shell functions
 - `wt-hook-skill` — Claude Code UserPromptSubmit hook (skill tracking)
-- `wt-hook-stop` — Claude Code Stop hook (timestamp refresh)
+- `wt-hook-stop` — Claude Code Stop hook (timestamp refresh + memory reminder)
 - `wt-skill-start` — register active skill for status display
 - `wt-control-gui` — GUI launcher (called by `wt-control`)
 - `wt-completions.bash` / `wt-completions.zsh` — shell completions
