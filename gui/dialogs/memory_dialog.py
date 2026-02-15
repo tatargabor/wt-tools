@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QComboBox, QScrollArea, QWidget, QFrame
 )
 from PySide6.QtCore import Qt
@@ -278,7 +278,7 @@ class MemoryBrowseDialog(QDialog):
 
         self.feedback_label.setText(f"Searching: {query}...")
         self.feedback_label.setStyleSheet("color: #3b82f6; font-size: 11px; padding: 0 4px;")
-        QApplication.processEvents()
+        self.feedback_label.repaint()
 
         output = _run_wt_memory("--project", self.project, "recall", query, "--limit", "20")
         try:
@@ -323,7 +323,6 @@ class MemoryBrowseDialog(QDialog):
             if w:
                 w.setParent(None)
                 w.deleteLater()
-        QApplication.processEvents()
 
     def _create_memory_card(self, mem: dict, type_override: str = None) -> QFrame:
         """Create a card widget for a single memory."""
