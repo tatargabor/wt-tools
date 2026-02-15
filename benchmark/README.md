@@ -21,12 +21,25 @@ The project is designed with 6 sequential changes where early decisions cascade 
 | `diagnostic-framework.md` | Memory gap analysis methodology |
 | `templates/` | Annotation, metrics, and report templates |
 | `collect-results.md` | Post-run results collection guide |
+| `init-baseline.sh` | Bootstrap script for Run A (no memory) |
+| `init-with-memory.sh` | Bootstrap script for Run B (with memory) |
 
 ## Quick Start
 
-1. Read `run-guide.md` for prerequisites and full setup
-2. Bootstrap two repos (Run A: baseline, Run B: with-memory)
-3. Start `wt-loop` in each repo
-4. After both complete, collect results and generate comparison report
+```bash
+# 1. Bootstrap both runs
+./benchmark/init-baseline.sh      # → ~/benchmark/run-a/craftbazaar
+./benchmark/init-with-memory.sh   # → ~/benchmark/run-b/craftbazaar
 
-See `run-guide.md` for detailed, copy-pasteable commands.
+# 2. Start runs (two terminals)
+cd ~/benchmark/run-a/craftbazaar
+wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+
+cd ~/benchmark/run-b/craftbazaar
+wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+
+# 3. After both complete, collect results
+# See collect-results.md for agent-assisted evaluation
+```
+
+See `run-guide.md` for full details, prerequisites, and monitoring.
