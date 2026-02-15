@@ -134,17 +134,32 @@ run_shodh_python() {
     python3 "$@" 2>>"$log_file"
 }
 
-# Run a command under a per-project flock to prevent concurrent RocksDB access.
-# Uses fd-based flock so it works with bash functions (not just external commands).
+# Run a command under a per-project lock to prevent concurrent RocksDB access.
+# Uses mkdir-based lock (portable across Linux and macOS — no flock dependency).
 # Usage: run_with_lock <command> [args...]
 run_with_lock() {
     local project
     project=$(resolve_project)
-    local lock_file="/tmp/wt-memory-${project}.lock"
-    (
-        flock --timeout 10 9 || { echo "wt-memory: lock timeout after 10s" >&2; return 1; }
-        "$@"
-    ) 9>"$lock_file"
+    local lock_dir="/tmp/wt-memory-${project}.lock"
+    local deadline=$((SECONDS + 10))
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        if (( SECONDS >= deadline )); then
+            echo "wt-memory: lock timeout after 10s" >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+
+    # Ensure lock is removed on exit (including signals)
+    trap 'rmdir "$lock_dir" 2>/dev/null' EXIT
+
+    "$@"
+    local rc=$?
+
+    rmdir "$lock_dir" 2>/dev/null
+    trap - EXIT
+    return $rc
 }
 
 # Check if shodh-memory Python package is importable
