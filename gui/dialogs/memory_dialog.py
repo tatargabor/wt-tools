@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QComboBox, QScrollArea, QWidget, QFrame
 )
 from PySide6.QtCore import Qt
@@ -99,6 +99,11 @@ class MemoryBrowseDialog(QDialog):
 
         layout.addLayout(top_layout)
 
+        # Feedback line below search bar
+        self.feedback_label = QLabel("")
+        self.feedback_label.setStyleSheet("color: #9ca3af; font-size: 11px; padding: 0 4px;")
+        layout.addWidget(self.feedback_label)
+
         # Scrollable content area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -142,6 +147,7 @@ class MemoryBrowseDialog(QDialog):
         self._mode = self.MODE_SUMMARY
         self._update_toggle_button()
         self._clear_content()
+        self.feedback_label.setText("")
 
         output = _run_wt_memory("--project", self.project, "context")
         try:
@@ -198,6 +204,7 @@ class MemoryBrowseDialog(QDialog):
         self._mode = self.MODE_LIST
         self._update_toggle_button()
         self._clear_content()
+        self.feedback_label.setText("")
 
         # Fetch all if not cached
         if not self._cached_memories:
@@ -269,6 +276,10 @@ class MemoryBrowseDialog(QDialog):
         self._update_toggle_button()
         self._clear_content()
 
+        self.feedback_label.setText(f"Searching: {query}...")
+        self.feedback_label.setStyleSheet("color: #3b82f6; font-size: 11px; padding: 0 4px;")
+        QApplication.processEvents()
+
         output = _run_wt_memory("--project", self.project, "recall", query, "--limit", "20")
         try:
             results = json.loads(output) if output else []
@@ -280,6 +291,8 @@ class MemoryBrowseDialog(QDialog):
             empty_label.setStyleSheet("color: #6b7280; padding: 20px;")
             empty_label.setAlignment(Qt.AlignCenter)
             self.content_layout.addWidget(empty_label)
+            self.feedback_label.setText(f"No results for: {query}")
+            self.feedback_label.setStyleSheet("color: #f59e0b; font-size: 11px; padding: 0 4px;")
             self.status_label.setText("0 results")
             return
 
@@ -287,6 +300,8 @@ class MemoryBrowseDialog(QDialog):
             card = self._create_memory_card(mem)
             self.content_layout.addWidget(card)
 
+        self.feedback_label.setText(f"{len(results)} results for: {query}")
+        self.feedback_label.setStyleSheet("color: #22c55e; font-size: 11px; padding: 0 4px;")
         self.status_label.setText(f"{len(results)} results")
 
     def _on_clear(self):
@@ -304,8 +319,11 @@ class MemoryBrowseDialog(QDialog):
         """Remove all widgets from the content area."""
         while self.content_layout.count():
             child = self.content_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            w = child.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        QApplication.processEvents()
 
     def _create_memory_card(self, mem: dict, type_override: str = None) -> QFrame:
         """Create a card widget for a single memory."""
