@@ -82,6 +82,11 @@ class MemoryBrowseDialog(QDialog):
         self.search_input.returnPressed.connect(self._on_search)
         top_layout.addWidget(self.search_input)
 
+        search_btn = QPushButton("Search")
+        search_btn.setFixedWidth(60)
+        search_btn.clicked.connect(self._on_search)
+        top_layout.addWidget(search_btn)
+
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedWidth(60)
         clear_btn.clicked.connect(self._on_clear)
