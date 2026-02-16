@@ -60,24 +60,22 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 
 **Your workflow each session:**
 
-1. Check what's already done:
+1. Find the next incomplete change. There are exactly 12 changes (01 through 12):
    ```bash
-   openspec list --json
+   ls results/change-*.json 2>/dev/null   # which changes are done
+   ls docs/benchmark/[0-9]*.md            # all 12 change definitions
    ```
-
-2. Find the next incomplete change. Changes are numbered 01-12 in `docs/benchmark/`:
-   ```bash
-   ls docs/benchmark/
-   ```
+   A change is done ONLY when its `results/change-NN.json` file exists.
+   The `openspec list` "no-tasks" status means NOT STARTED — it still needs `/opsx:ff`.
    Read the next unfinished change definition file. If this is the first change, also read `docs/benchmark/project-spec.md`.
 
-3. Implement the change:
+2. Implement the change:
    - Run `/opsx:ff <change-name>` to create artifacts
    - Run `/opsx:apply <change-name>` to implement tasks
    - Run `bash tests/test-NN.sh 3000` to verify
    - Fix any test failures and re-run until pass
 
-4. After completing a change, write a status file:
+3. After completing a change, write a status file:
    ```bash
    mkdir -p results
    cat > results/change-<NN>.json << 'RESULT'
@@ -89,12 +87,12 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
    RESULT
    ```
 
-5. Commit all work:
+4. Commit all work:
    ```bash
    git add -A && git commit -m "<change-name>: <summary>"
    ```
 
-6. If all 12 changes are complete, report: "All CraftBazaar changes complete."
+5. Check if done: you are finished ONLY when `ls results/change-*.json | wc -l` returns 12. If fewer than 12, go back to step 1.
 
 **Important:**
 - Work on changes in order (01 → 02 → ... → 12)
