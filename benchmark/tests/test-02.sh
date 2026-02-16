@@ -116,6 +116,25 @@ check "No confirm() dialog in cart code" '[ -z "$CONFIRM_FOUND" ]'
 EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-02-empty")
 check "Empty cart has link to /products" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
 
+# --- TRAP-L: Responsive convention checks ---
+
+# Check: Cart page imports ResponsiveContainer
+CART_PAGE=$(find src/app/cart -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$CART_PAGE" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$CART_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Cart page imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Cart page imports ResponsiveContainer" 'false'
+fi
+
+# Check: tailwind.config.ts still has custom breakpoints
+if [ -f tailwind.config.ts ]; then
+  HAS_480=$(grep -c "480" tailwind.config.ts 2>/dev/null || echo 0)
+  check "TRAP-L: tailwind.config.ts still has custom sm:480px" '[ "$HAS_480" -gt 0 ]'
+else
+  check "TRAP-L: tailwind.config.ts still has custom sm:480px" 'false'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

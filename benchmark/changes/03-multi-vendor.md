@@ -103,6 +103,13 @@ C01 establishes the `{ data, total, page, limit }` envelope format. C03 adds new
 
 **Memory prediction**: HIGH VALUE recall. Memory-enabled agent recalls "all list endpoints use { data, total, page, limit }" from C01 and applies it naturally. Without memory, the agent may use different response shapes per endpoint.
 
+**T3.6: Pagination UI divergence (TRAP-M drift point)**
+C03 adds new list pages: `/vendors` and `/orders`. Each needs pagination UI, but the change def doesn't specify what it should look like. The agent will build SOME pagination controls — likely different from what they built for `/products` in C01 (different context, no explicit convention).
+
+**Evaluator action**: Document what pagination UI the agent built on `/vendors` and `/orders`. Compare with C01's `/products` pagination. Note: same component reused vs different ad-hoc implementations. This divergence is measured at C12 Bug 10 (unification).
+
+**Memory prediction**: Medium value. Memory-enabled agent might recall "in C01 I built Prev/Next buttons" and use the same pattern. Without memory, the agent builds whatever feels natural for the new context.
+
 ### Scoring Focus
 
 - **Critical**: What order architecture was chosen? (Flat vs nested — this determines C4-C6 difficulty)
@@ -121,4 +128,5 @@ C01 establishes the `{ data, total, page, limit }` envelope format. C03 adds new
 - **Recall**: SQLite WAL mode (from C2, if migration triggers concurrent access)
 - **Recall**: Error codes convention in src/lib/errors.ts (from C2, TRAP-J)
 - **Recall**: Pagination format { data, total, page, limit } (from C01, TRAP-I)
+- **Save**: Pagination UI approach for /vendors and /orders (code-map detail for TRAP-M)
 - **Recall**: Soft delete — vendor product queries should filter deletedAt (from C01, TRAP-K)

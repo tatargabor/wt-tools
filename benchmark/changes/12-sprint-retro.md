@@ -26,6 +26,12 @@ The sprint retrospective identified 5 bugs across the codebase. Fix all of them.
 
 9. **Pagination missing on some list endpoints**: Some list endpoints implemented after C01 return raw arrays instead of the `{ data, total, page, limit }` paginated format. Audit ALL list endpoints and ensure consistent pagination with `?page=&limit=` query params.
 
+10. **Responsive layout inconsistency**: Some pages use `<ResponsiveContainer>` (established in C01) and the project's custom Tailwind breakpoints (`sm:480px`), but others may use standard Tailwind breakpoints or no responsive wrapper. Audit ALL UI pages under `src/app/` and ensure they all use `<ResponsiveContainer>` from `src/components/ResponsiveContainer.tsx`. Verify `tailwind.config.ts` has custom breakpoints (`sm: '480px'`, `md: '768px'`, `lg: '1024px'`). No `xl:` or `2xl:` Tailwind classes should exist in the codebase.
+
+11. **Pagination UI inconsistency**: Different pages use different pagination controls — some have Prev/Next buttons, some have page numbers, some have Load More, some have nothing. Create a shared `<Pagination>` component at `src/components/Pagination.tsx` that accepts `page`, `totalPages`, and `onPageChange` props and renders consistent prev/next + page number controls. Replace all ad-hoc pagination UI across the app with this component.
+
+12. **Inconsistent user feedback**: The cart page uses toast notifications (from C10 redesign), but other pages use `window.alert()`, inline messages, or no feedback at all. Create a shared toast/notification system at `src/components/Toast.tsx` (or extend the existing cart toast if one exists). Replace ALL `window.alert()` and `window.confirm()` calls in the app with toast notifications. No `window.alert()` or `window.confirm()` calls should remain in the source code.
+
 ### Acceptance Criteria
 
 - [ ] All list API endpoints return `{ data: [...], total: N, page: N, limit: N }` format with query params
@@ -39,6 +45,12 @@ The sprint retrospective identified 5 bugs across the codebase. Fix all of them.
 - [ ] All list endpoints have consistent `{ data, total, page, limit }` pagination
 - [ ] `npx prisma migrate dev` runs without errors
 - [ ] `npx prisma db seed` produces consistent data
+- [ ] All UI pages use `<ResponsiveContainer>` and custom Tailwind breakpoints
+- [ ] No `xl:` or `2xl:` Tailwind classes in src/
+- [ ] `src/components/Pagination.tsx` exists and is used on all list pages
+- [ ] No ad-hoc pagination markup outside the Pagination component
+- [ ] `src/components/Toast.tsx` exists as a shared notification system
+- [ ] No `window.alert()` or `window.confirm()` calls remain in src/
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -96,11 +108,30 @@ Bug 9 requires auditing ALL list endpoints for consistent `{ data, total, page, 
 
 **Memory prediction**: HIGH VALUE recall. Memory-enabled agent knows the pagination convention and which endpoints they've built. Without memory, requires full codebase grep.
 
+**T12.10: Responsive layout audit (TRAP-L payoff)**
+Bug 10 requires auditing ALL pages for `ResponsiveContainer` usage and custom breakpoints. The agent must check every page under `src/app/` and ensure the wrapper is imported. The custom `sm:480px` breakpoint must be intact in `tailwind.config.ts`.
+
+**Memory prediction**: HIGH VALUE recall. Memory-enabled agent knows which pages they built and where ResponsiveContainer is used. Without memory, must search every page file.
+
+**T12.11: Pagination UI unification (TRAP-M payoff)**
+Bug 11 requires creating a shared `<Pagination>` component and replacing all ad-hoc pagination UI. This is the IMPLEMENTATION DRIFT trap payoff — the agent must find all existing pagination implementations (which may be different on each page) and replace them with a shared component.
+
+**Memory prediction**: HIGHEST VALUE for code-map recall. Memory-enabled agent knows "C01 /products has Prev/Next buttons, C03 /vendors has page numbers, C11 /dashboard has explicit pagination." Without memory, the agent must search each page to discover what pagination UI exists and how it's implemented. The iteration delta between runs is expected to be significant.
+
+**Evaluator action**: Track iterations spent on Bug 11 separately. Compare: (a) how quickly the agent identified all pages with pagination, (b) how many pages were correctly migrated, (c) whether the shared component is properly parameterized.
+
+**T12.12: Notification unification (TRAP-N payoff)**
+Bug 12 requires creating a shared toast system and replacing all `window.alert()`/`window.confirm()` calls. This is the IMPLEMENTATION DRIFT trap payoff — the agent must find all feedback patterns across the app (which vary by page) and standardize them.
+
+**Memory prediction**: HIGHEST VALUE for code-map recall. Memory-enabled agent knows "C02 used alert() for cart, C05 used inline for checkout errors, C06 used alert() for status changes, C10 introduced toast for cart." Without memory, the agent must grep for `window.alert` and search each page for feedback patterns.
+
+**Evaluator action**: Track iterations spent on Bug 12 separately. Compare: (a) how quickly the agent found all alert/confirm calls, (b) whether the toast system extends C10's cart toast or creates a new one, (c) whether all feedback points were migrated.
+
 ### Scoring Focus
 
-This is the HARDEST memory test in the benchmark. Now with 9 bugs (5 original + 4 convention audits).
+This is the HARDEST memory test in the benchmark. Now with 12 bugs (5 original + 4 convention audits + 3 new: responsive, pagination UI, toast).
 
-- **Expected time difference**: Memory agent should fix all 9 bugs in ~1-2 iterations (knows all locations and conventions). No-memory agent may need 3-4 iterations searching for each convention's origin and all violation sites.
+- **Expected time difference**: Memory agent should fix all 12 bugs in ~2-3 iterations (knows all locations, conventions, and implementation details). No-memory agent may need 4-6 iterations searching for each convention's origin, implementation patterns, and all violation sites.
 - How many list endpoints were found and standardized?
 - Was the largest-remainder algorithm implemented correctly?
 - Was the reservation error handled with a 400 and proper error code?
@@ -124,3 +155,7 @@ This is the HARDEST memory test in the benchmark. Now with 9 bugs (5 original + 
 - **Recall**: Code maps from C01-C11 (all file locations)
 - **Save**: "All list endpoints use { data, total, page, limit }" standard
 - **Save**: "Largest-remainder method for integer splitting" pattern
+- **Recall**: ResponsiveContainer convention from C01, usage across pages (TRAP-L)
+- **Recall**: Pagination UI implementations on each page — C01, C03, C11 (TRAP-M — HIGHEST VALUE)
+- **Recall**: Notification/feedback patterns per page — C02, C05, C06, C10 (TRAP-N — HIGHEST VALUE)
+- **Recall**: Whether C10 toast is reusable or cart-specific (TRAP-N)

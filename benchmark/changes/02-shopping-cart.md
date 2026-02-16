@@ -43,7 +43,9 @@ Add a shopping cart system with variant-level stock tracking. Buyers can add spe
    - Return appropriate error if insufficient stock
    - Use database transactions to prevent overselling
 
-8. **Error code constants**: Create `src/lib/errors.ts` with named error code constants. All cart API error responses must include a `code` field alongside the error message: `{ "error": "<message>", "code": "<ERROR_CODE>" }`. Define at minimum: `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, `VARIANT_NOT_FOUND`, `INVALID_QUANTITY`, `CART_EMPTY`. Import and use these constants in all cart route handlers — never use raw strings for error codes.
+8. **Responsive layout**: Wrap the cart page in `<ResponsiveContainer>` (from `src/components/ResponsiveContainer.tsx`). Use the project's custom Tailwind breakpoints (`sm:`, `md:`, `lg:` — no `xl:` or `2xl:`).
+
+9. **Error code constants**: Create `src/lib/errors.ts` with named error code constants. All cart API error responses must include a `code` field alongside the error message: `{ "error": "<message>", "code": "<ERROR_CODE>" }`. Define at minimum: `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, `VARIANT_NOT_FOUND`, `INVALID_QUANTITY`, `CART_EMPTY`. Import and use these constants in all cart route handlers — never use raw strings for error codes.
 
 ### Acceptance Criteria
 
@@ -105,6 +107,18 @@ These checks create a "fix on first encounter" scenario. The agent fixes the UI,
 
 **Memory prediction**: HIGHEST VALUE for UI regression prevention. When C04 adds coupon UI to the cart, or C07 adds reservation display, the memory-enabled agent remembers "cart must have +/- controls, no confirm(), link to /products when empty." Without memory, the agent may rebuild the cart component with default patterns, failing the regression checks.
 
+**T2.7: Responsive convention recall (TRAP-L recall test)**
+C02 requires using `<ResponsiveContainer>` on the cart page. The agent should recall this convention from C01. If the agent doesn't recall the custom `sm:480px` breakpoint or the ResponsiveContainer component, the cart page may use standard Tailwind breakpoints or no responsive wrapper.
+
+**Memory prediction**: Medium-high value recall. This is only 1 change after C01, so the agent likely remembers. The real test comes in C05/C06 (further away).
+
+**T2.8: Notification/feedback pattern choice (TRAP-N drift point)**
+The cart page needs some form of user feedback when items are removed (requirement 6 says "remove item button" but doesn't specify confirmation or notification pattern). The agent will choose a pattern freely — typically `window.alert()`, `window.confirm()`, inline text, or nothing. This initial choice becomes the baseline for comparing with C05 and C06 feedback patterns.
+
+**Evaluator action**: Document exactly what feedback pattern the agent uses when a cart item is removed. Options: `window.alert()`, `window.confirm()`, inline message, toast, console.log, page refresh, nothing. This is compared with C05/C06 to measure notification drift.
+
+**Memory prediction**: Low direct value, but HIGH indirect value. The specific feedback pattern used here gets replaced in C10 (toast requirement). Memory of "C02 used alert() for removal" helps at C12 when the agent must audit all feedback patterns.
+
 **T2.6: Error code constants file (TRAP-J first occurrence)**
 The change def requires creating `src/lib/errors.ts` with named error constants and using them in all cart API responses. This establishes a convention: all error responses must include a `code` field, and codes must come from the shared constants file — not inline strings. When C03 adds vendor/order errors, C05 adds checkout errors, and C07 modifies stock logic, the agent must extend and import from this same file. C12 sprint retro checks if ALL endpoints use codes from errors.ts consistently.
 
@@ -129,4 +143,7 @@ The change def requires creating `src/lib/errors.ts` with named error constants 
 - **Save**: Any C1 refactoring decision (if variant model was wrong)
 - **Recall**: C1 variant model decision (if saved)
 - **Recall**: Prisma generate requirement (if saved in C1)
+- **Save**: Cart item removal feedback pattern (code-map detail for TRAP-N)
+- **Recall**: ResponsiveContainer convention from C01 (TRAP-L)
+- **Recall**: Custom sm:480px breakpoint from C01 (TRAP-L)
 - **Recall**: formatPrice() utility from C01 (if cart displays prices)

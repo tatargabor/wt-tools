@@ -66,6 +66,18 @@ C01 established the `{ data, total, page, limit }` pagination format. The vendor
 
 **Memory prediction**: HIGH VALUE recall for TRAP-I. Memory-enabled agent recalls "all list endpoints use { data, total, page, limit } with ?page=&limit= query params" from C01 and applies it. Without memory, may implement ad-hoc pagination.
 
+**T11.4: Responsive convention preservation (TRAP-L preservation test)**
+C11 redesigns the vendor dashboard but does NOT re-state the responsive convention. The agent must PRESERVE the `<ResponsiveContainer>` wrapper during the redesign. If the agent rewrites the dashboard from scratch (which is likely given the tab→flat list transformation), they may forget the responsive wrapper.
+
+**Memory prediction**: HIGH VALUE preservation test. Memory-enabled agent recalls "dashboard uses ResponsiveContainer" from C06. Without memory, the agent is rebuilding the entire page layout and may omit the responsive wrapper.
+
+**T11.5: Pagination UI specification and reuse opportunity (TRAP-M key moment)**
+C11 explicitly requires "10 items per page with pagination controls: Previous/Next buttons, Page number display." This is the first change with a SPECIFIC pagination UI requirement. The critical observation: did the agent create a reusable `<Pagination>` component or build ad-hoc pagination inline?
+
+**Evaluator action**: Document whether the pagination implementation is reusable or ad-hoc. Compare the pagination UI with C01's `/products` and C03's `/vendors`/`/orders`. Count how many DIFFERENT pagination implementations exist. This divergence is the setup for C12 Bug 10.
+
+**Memory prediction**: HIGH VALUE for code-map. Memory-enabled agent might recall "in C01 I built Prev/Next buttons, in C03 I built page numbers" and consider extracting a shared component. Without memory, the agent builds another ad-hoc implementation.
+
 ### Scoring Focus
 
 - Did the agent REMOVE tabs or try to enhance them? (Critical counter-pattern test)
@@ -80,3 +92,6 @@ C01 established the `{ data, total, page, limit }` pagination format. The vendor
 - **Recall**: Order/SubOrder data model from C03 — what buyer info is available
 - **Save**: "Flat list with badges, no tabs" dashboard design decision
 - **Save**: Pagination approach chosen
+- **Save**: Pagination UI reusability (shared component vs ad-hoc — code-map for TRAP-M)
+- **Recall**: ResponsiveContainer convention — preserve during redesign (TRAP-L)
+- **Recall**: Prior pagination implementations from C01, C03 (TRAP-M)

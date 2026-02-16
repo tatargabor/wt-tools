@@ -43,7 +43,9 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
    - Display tax as a separate line item
    - Tax applies to the full order, not per-vendor
 
-6. **Checkout UI**:
+6. **Responsive layout**: Wrap the checkout page and order confirmation page in `<ResponsiveContainer>` (from `src/components/ResponsiveContainer.tsx`). Use the project's custom Tailwind breakpoints (`sm:`, `md:`, `lg:` — no `xl:` or `2xl:`).
+
+7. **Checkout UI**:
    - Checkout page at `/checkout` with:
      - Order summary (items, quantities, prices)
      - Discount display (if coupon applied)
@@ -53,7 +55,7 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
      - Pay button
    - Order confirmation page after successful payment
 
-7. **Error handling**:
+8. **Error handling**:
    - Use structured error format: `{ "error": "<message>", "code": "<CODE>", "details": {...} }` — e.g., `{ "error": "Insufficient stock", "code": "CHECKOUT_STOCK_INSUFFICIENT", "details": { "items": [...] } }`
    - Add new error code constants to `src/lib/errors.ts`: `PAYMENT_FAILED`, `CHECKOUT_STOCK_INSUFFICIENT`, `CHECKOUT_CART_EMPTY`, `STRIPE_ERROR`
    - Payment failure → show error, don't create order
@@ -101,6 +103,18 @@ The checkout flow does multiple writes: update stock, create order, create sub-o
 
 **Memory prediction**: HIGHEST VALUE recall opportunity for environment knowledge. If C2's "enable WAL mode for SQLite" was saved, the agent recalls it and either verifies it's already set or adds it. Without memory, the agent may debug the same SQLITE_BUSY error from scratch — potentially the clearest demonstration of memory value.
 
+**T5.4: Responsive convention recall (TRAP-L recall test — 4 changes after C01)**
+C05 requires using `<ResponsiveContainer>` on checkout pages. This is 4 changes after C01 established the convention. The custom `sm:480px` breakpoint is the key test — if the agent uses default Tailwind breakpoints, the config will be wrong.
+
+**Memory prediction**: HIGH VALUE recall. This is the first "distance test" for TRAP-L — 4 changes since C01. Memory-enabled agent recalls the convention. Without memory, the agent may forget the custom breakpoints and use standard Tailwind.
+
+**T5.5: Checkout error/success feedback pattern (TRAP-N drift point)**
+Checkout has two feedback scenarios: payment success (redirect to confirmation) and payment failure (show error). The change def specifies "graceful error display" but doesn't mandate a specific pattern (toast, inline, alert, etc.). The agent will choose whatever feels natural — which may differ from what they used in C02 (cart removal feedback).
+
+**Evaluator action**: Document the checkout error feedback pattern. Compare with C02's cart removal pattern. Common patterns: inline error div, `window.alert()`, redirect to error page, toast notification. Note divergence for TRAP-N.
+
+**Memory prediction**: Medium value. Memory-enabled agent might recall "in C02 I used alert() for feedback" and consider consistency. Without memory, each page uses whatever the agent's default is for that context.
+
 ### Scoring Focus
 
 - Did the agent set up .env.local correctly? (Common Next.js gotcha)
@@ -120,3 +134,6 @@ The checkout flow does multiple writes: update stock, create order, create sub-o
 - **Save**: Stripe .env.local setup for Next.js
 - **Save**: Payout calculation formula with discount interaction
 - **Save**: Checkout transactional pattern
+- **Save**: Checkout error feedback pattern (code-map detail for TRAP-N)
+- **Recall**: ResponsiveContainer convention from C01 (TRAP-L)
+- **Recall**: Custom sm:480px breakpoint from C01 (TRAP-L)

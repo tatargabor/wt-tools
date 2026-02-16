@@ -51,6 +51,18 @@ The agent might render "Your cart is empty. Browse products." as plain text with
 
 **Memory prediction**: Low value but easy to miss on first try.
 
+**T10.4: Responsive convention preservation (TRAP-L preservation test)**
+C10 redesigns the cart page but does NOT re-state the responsive convention. The agent must PRESERVE the `<ResponsiveContainer>` wrapper and custom breakpoints during the redesign. If the agent rebuilds the cart page from scratch, they may forget to import `ResponsiveContainer`.
+
+**Memory prediction**: HIGH VALUE preservation test. Memory-enabled agent recalls "cart page uses ResponsiveContainer" from C02. Without memory, the agent may rebuild the page without the responsive wrapper — especially since C10's requirements focus on UX patterns (inline editing, toast, real-time totals), not layout.
+
+**T10.5: Toast introduction and reuse opportunity (TRAP-N key moment)**
+C10 explicitly requires "toast notification on removal with undo option." This is the first time the benchmark specifies a toast pattern. The critical observation: did the agent build a REUSABLE toast component (e.g., `src/components/Toast.tsx`) or an ad-hoc cart-specific toast? A reusable component would make C12 Bug 11 trivial; an ad-hoc solution means C12 must still create the shared component.
+
+**Evaluator action**: Document whether the toast implementation is reusable or cart-specific. Check: is there a standalone Toast component at `src/components/Toast.tsx` (or similar), or is the toast logic embedded in the cart page? Also note whether the agent retroactively updates C05 checkout errors or C06 status feedback to use the new toast.
+
+**Memory prediction**: HIGH VALUE for code-map. Memory-enabled agent saves "toast system implemented at [path]" which helps C12 know whether to extend or create from scratch. Also, memory of "C02 used alert, C05 used inline, C06 used alert" would prompt the agent to consider unifying — but this is unlikely without explicit instruction.
+
 ### Scoring Focus
 
 - Did the agent add an "Update cart" button? (Common trap)
@@ -65,3 +77,5 @@ The agent might render "Your cart is empty. Browse products." as plain text with
 - **Save**: "No Update button — real-time totals" design decision
 - **Save**: "No confirm() — toast with undo" design decision
 - **Save**: "Empty cart must have link to /products" requirement
+- **Save**: Toast implementation location and reusability (code-map for TRAP-N)
+- **Recall**: ResponsiveContainer convention — preserve during redesign (TRAP-L)

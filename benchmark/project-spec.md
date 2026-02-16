@@ -11,7 +11,7 @@ CraftBazaar is an online marketplace where independent artisans sell handmade go
 - **Database**: SQLite (file-based, zero external dependencies)
 - **Payment**: Stripe (test mode)
 - **Language**: TypeScript
-- **Styling**: Tailwind CSS
+- **Styling**: Tailwind CSS (custom breakpoints: `sm:480px`, `md:768px`, `lg:1024px`)
 
 ## Core Entities
 
@@ -61,7 +61,7 @@ craftbazaar/
 │   │   ├── orders/           # Buyer order tracking
 │   │   └── vendor/           # Vendor dashboard
 │   ├── lib/                  # Shared utilities, DB client
-│   └── components/           # Reusable UI components
+│   └── components/           # Reusable UI components (ResponsiveContainer, Pagination, Toast)
 ├── public/                   # Static assets
 ├── docs/
 │   └── benchmark/            # Change definitions (agent input)

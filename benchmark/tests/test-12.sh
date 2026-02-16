@@ -216,6 +216,54 @@ if [ -n "$VENDOR_DASH_ID" ]; then
   check "REGRESSION: Vendor dashboard has badges" 'echo "$DASH_HTML" | grep -qi "badge"'
 fi
 
+# --- Bug 10: TRAP-L — Responsive convention (all pages use ResponsiveContainer) ---
+if [ -f tailwind.config.ts ]; then
+  HAS_480=$(grep -c "480" tailwind.config.ts 2>/dev/null || echo 0)
+  check "TRAP-L: tailwind.config.ts has custom sm:480px" '[ "$HAS_480" -gt 0 ]'
+else
+  check "TRAP-L: tailwind.config.ts has custom sm:480px" 'false'
+fi
+
+check "TRAP-L: ResponsiveContainer.tsx exists" '[ -f src/components/ResponsiveContainer.tsx ]'
+
+# Check all main pages for ResponsiveContainer import
+for PAGE_DIR in products cart checkout vendor orders; do
+  PAGE_FILE=$(find "src/app/$PAGE_DIR" -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+  if [ -n "$PAGE_FILE" ]; then
+    HAS_RC=$(grep -c "ResponsiveContainer" "$PAGE_FILE" 2>/dev/null || echo 0)
+    check "TRAP-L: /$PAGE_DIR page uses ResponsiveContainer" '[ "$HAS_RC" -gt 0 ]'
+  fi
+done
+
+XL_COUNT=$(grep -r "xl:" src/ --include="*.tsx" --include="*.jsx" --include="*.ts" 2>/dev/null | grep -v node_modules | grep -cE "\bxl:" || echo 0)
+check "TRAP-L: No xl:/2xl: Tailwind classes in src/" '[ "$XL_COUNT" -eq 0 ]'
+
+# --- Bug 11: TRAP-M — Shared Pagination component ---
+check "TRAP-M: src/components/Pagination.tsx exists" '[ -f src/components/Pagination.tsx ]'
+
+# Check list pages import the shared Pagination component
+PAGINATION_IMPORTS=0
+for PAGE_DIR in products vendors orders vendor; do
+  PAGE_FILES=$(find "src/app/$PAGE_DIR" -name "page.tsx" -o -name "page.jsx" 2>/dev/null)
+  for PF in $PAGE_FILES; do
+    if grep -q "Pagination" "$PF" 2>/dev/null; then
+      ((PAGINATION_IMPORTS++))
+    fi
+  done
+done
+check "TRAP-M: At least 3 pages import Pagination component" '[ "$PAGINATION_IMPORTS" -ge 3 ]'
+
+# --- Bug 12: TRAP-N — Shared Toast/notification system ---
+check "TRAP-N: src/components/Toast.tsx exists" '[ -f src/components/Toast.tsx ]'
+
+# No window.alert() calls in src/
+ALERT_COUNT=$(grep -r "window\.alert\b\|window\.confirm\b" src/ --include="*.tsx" --include="*.jsx" --include="*.ts" --include="*.js" 2>/dev/null | grep -v node_modules | wc -l)
+check "TRAP-N: No window.alert() or window.confirm() in src/" '[ "$ALERT_COUNT" -eq 0 ]'
+
+# Check at least 3 files import Toast
+TOAST_IMPORTS=$(grep -rl "Toast" src/ --include="*.tsx" --include="*.jsx" 2>/dev/null | grep -v node_modules | grep -v "Toast.tsx" | wc -l)
+check "TRAP-N: At least 3 files import Toast component" '[ "$TOAST_IMPORTS" -ge 3 ]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

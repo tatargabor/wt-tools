@@ -101,6 +101,20 @@ else:
 " 2>/dev/null)
 check "Status badges with 'badge' CSS class present" '[ "$HAS_BADGES" = "yes" ]'
 
+# --- TRAP-L: Responsive convention preservation checks ---
+
+DASHBOARD_SRC=$(find src/app/vendor -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$DASHBOARD_SRC" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$DASHBOARD_SRC" 2>/dev/null || echo 0)
+  check "TRAP-L: Redesigned dashboard still imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Redesigned dashboard still imports ResponsiveContainer" 'false'
+fi
+
+# Check no xl: or 2xl: classes introduced
+XL_COUNT=$(grep -r "xl:" src/ --include="*.tsx" --include="*.jsx" --include="*.ts" 2>/dev/null | grep -v node_modules | grep -cE "\bxl:" || echo 0)
+check "TRAP-L: No xl: or 2xl: Tailwind classes in src/" '[ "$XL_COUNT" -eq 0 ]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

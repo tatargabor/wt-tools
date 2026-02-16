@@ -78,6 +78,16 @@ CONFIRM_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/check
 # 404 = endpoint doesn't exist, 500 = server error — both bad
 check "POST /api/checkout/confirm endpoint exists" '[ "$CONFIRM_STATUS" != "404" ]'
 
+# --- TRAP-L: Responsive convention checks ---
+
+CHECKOUT_PAGE=$(find src/app/checkout -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$CHECKOUT_PAGE" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$CHECKOUT_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Checkout page imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Checkout page imports ResponsiveContainer" 'false'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

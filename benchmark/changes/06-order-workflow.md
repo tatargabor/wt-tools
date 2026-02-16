@@ -54,7 +54,9 @@ Add a per-vendor order status workflow with a state machine. Each sub-order prog
      - Per-vendor sub-order status with timeline
      - Status history for each sub-order
 
-7. **Real-time status updates** (optional enhancement):
+7. **Responsive layout**: Wrap the vendor dashboard and order tracking pages in `<ResponsiveContainer>` (from `src/components/ResponsiveContainer.tsx`). Use responsive grid: single column on mobile, multi-column on `lg:`. Use the project's custom Tailwind breakpoints (`sm:`, `md:`, `lg:` — no `xl:` or `2xl:`).
+
+8. **Real-time status updates** (optional enhancement):
    - Use Server-Sent Events (SSE) to push status changes to the buyer's order page
    - `GET /api/orders/[id]/events` — SSE endpoint
    - Falls back to polling if SSE is not implemented
@@ -109,6 +111,18 @@ This is an optional enhancement, so the agent may skip it. If attempted, it's a 
 
 **Memory prediction**: Medium-value save if attempted. "Next.js App Router SSE uses ReadableStream in route handlers" is useful if the project grows.
 
+**T6.4: Responsive convention recall (TRAP-L recall test — 5 changes after C01)**
+C06 requires `<ResponsiveContainer>` on both the vendor dashboard and order tracking pages. This is 5 changes after C01 — the longest distance yet. The agent must recall custom breakpoints (`sm:480px`) and use responsive grid (single column mobile, multi-column desktop).
+
+**Memory prediction**: HIGH VALUE recall. Memory-enabled agent recalls "sm is 480px, use ResponsiveContainer." Without memory, the agent may use standard breakpoints or no responsive wrapper on the dashboard.
+
+**T6.5: Status change feedback pattern (TRAP-N drift point)**
+When a vendor clicks "Confirm" or "Ship" on a sub-order, the UI must show some feedback. The change def says "status update buttons" but doesn't specify what happens after clicking. The agent will choose a pattern: `window.alert("Order confirmed")`, inline status change with visual feedback, page refresh, toast, or nothing visible.
+
+**Evaluator action**: Document the feedback pattern used for vendor status changes. Compare with C02 (cart removal) and C05 (checkout error). Count how many different patterns exist so far. This divergence feeds into TRAP-N.
+
+**Memory prediction**: Low direct value but HIGH at C12. Memory-enabled agent's code map knows "C02 used alert, C05 used inline error, C06 used page refresh" — making the C12 Toast unification straightforward. Without memory, the agent must search each page to discover the pattern.
+
 ### Scoring Focus
 
 - **Critical**: How much rework was needed based on C3's order architecture? (This is the key metric)
@@ -125,3 +139,6 @@ This is an optional enhancement, so the agent may skip it. If attempted, it's a 
 - **Save**: State machine implementation pattern (whitelist approach)
 - **Save**: Parent status derivation logic
 - **Save**: SSE pattern for Next.js App Router (if implemented)
+- **Save**: Status change feedback pattern (code-map detail for TRAP-N)
+- **Recall**: ResponsiveContainer convention from C01 (TRAP-L)
+- **Recall**: Custom sm:480px breakpoint from C01 (TRAP-L)

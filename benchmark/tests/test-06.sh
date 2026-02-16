@@ -84,6 +84,24 @@ else
   check "GET /api/orders/[id] shows derived status" 'false'
 fi
 
+# --- TRAP-L: Responsive convention checks ---
+
+DASHBOARD_PAGE=$(find src/app/vendor -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$DASHBOARD_PAGE" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$DASHBOARD_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Vendor dashboard imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Vendor dashboard imports ResponsiveContainer" 'false'
+fi
+
+ORDERS_PAGE=$(find src/app/orders -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$ORDERS_PAGE" ]; then
+  HAS_CONTAINER2=$(grep -c "ResponsiveContainer" "$ORDERS_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Orders page imports ResponsiveContainer" '[ "$HAS_CONTAINER2" -gt 0 ]'
+else
+  check "TRAP-L: Orders page imports ResponsiveContainer" 'false'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

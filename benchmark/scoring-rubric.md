@@ -105,21 +105,24 @@ Changes 10-11 correct design decisions. Additional scoring:
 
 ## Sprint Retro Scoring (C12)
 
-Change 12 has 5 cross-cutting bugs. Score each individually:
+Change 12 has 12 cross-cutting bugs. Score each individually:
 
-| Bug | What to check | Memory value |
-|-----|--------------|--------------|
-| 1. API format | All list endpoints use `{data, total, page, limit}` | Knows all endpoints |
-| 2. Payout rounding | Largest-remainder method, sum == payment | Knows payout code location |
-| 3. Expired reservation | Returns 400 with RESERVATION_EXPIRED code | Knows checkout validation |
-| 4. Missing index | `@@index([vendorId])` on SubOrder | Knows schema location |
-| 5. Seed data | All money values in cents | Knows seed script |
-| 6. formatPrice | All price displays use formatPrice() | Knows utility location (TRAP-H) |
-| 7. Error codes | All errors use constants from errors.ts | Knows convention (TRAP-J) |
-| 8. Soft delete | All product queries filter deletedAt | Knows pattern (TRAP-K) |
-| 9. Pagination | All list endpoints use consistent format | Knows convention (TRAP-I) |
+| Bug | What to check | Memory value | Trap type |
+|-----|--------------|--------------|-----------|
+| 1. API format | All list endpoints use `{data, total, page, limit}` | Knows all endpoints | Convention |
+| 2. Payout rounding | Largest-remainder method, sum == payment | Knows payout code location | Algorithm |
+| 3. Expired reservation | Returns 400 with RESERVATION_EXPIRED code | Knows checkout validation | Location |
+| 4. Missing index | `@@index([vendorId])` on SubOrder | Knows schema location | Location |
+| 5. Seed data | All money values in cents | Knows seed script | Location |
+| 6. formatPrice | All price displays use formatPrice() | Knows utility location (TRAP-H) | Convention |
+| 7. Error codes | All errors use constants from errors.ts | Knows convention (TRAP-J) | Convention |
+| 8. Soft delete | All product queries filter deletedAt | Knows pattern (TRAP-K) | Convention |
+| 9. Pagination API | All list endpoints use consistent format | Knows convention (TRAP-I) | Convention |
+| 10. Responsive layout | All pages use ResponsiveContainer, sm:480px | Knows convention (TRAP-L) | Convention |
+| 11. Pagination UI | Shared `<Pagination>` component, no ad-hoc UI | Knows each page's UI (TRAP-M) | **Drift** |
+| 12. Toast/notifications | Shared `<Toast>`, no alert()/confirm() | Knows each page's pattern (TRAP-N) | **Drift** |
 
-**Expected iteration difference**: Memory agent should fix all 9 in ~1-2 iterations. Baseline may need 3-4 iterations searching for each convention's origin and all violation sites.
+**Expected iteration difference**: Memory agent should fix all 12 in ~2-3 iterations (knows all locations, conventions, AND implementation details). Baseline may need 4-6 iterations. Bugs 11-12 (drift traps) are expected to show the LARGEST iteration delta — the memory agent knows HOW each page implemented its own version.
 
 ## Active Trap Scoring (V3)
 
@@ -199,6 +202,38 @@ V3 embeds active traps in C01-C06 that create measurable memory advantages:
 | C08 migration | Did image migration handle soft-deleted products? |
 | C12 audit | How many queries needed `deletedAt IS NULL` filter? |
 
+### TRAP-L: Responsive convention (C01 → C02/C05/C06 → C10/C11 → C12)
+| Metric | Description |
+|--------|-------------|
+| C01 creation | Did agent set up custom `sm:480px` breakpoints and `ResponsiveContainer`? |
+| C02/C05/C06 recall | Did new pages use `ResponsiveContainer` without being reminded? |
+| C10/C11 preservation | Did redesigned pages maintain the responsive convention? |
+| C12 audit scope | How many pages needed ResponsiveContainer? How many iterations? |
+| Intermediate test failures | Count of TRAP-L check failures in test-01 through test-11 |
+
+### TRAP-M: Pagination UI drift (C01 → C03 → C11 → C12) — IMPLEMENTATION DRIFT
+| Metric | Description |
+|--------|-------------|
+| C01 initial UI | What pagination UI pattern did the agent build on /products? |
+| C03 divergence | Did /vendors and /orders use the same or different pagination pattern? |
+| C11 reusability | Did agent create a reusable `<Pagination>` component or ad-hoc code? |
+| Divergence count | How many DIFFERENT pagination implementations exist pre-C12? |
+| C12 Bug 11 iterations | How many iterations to create shared Pagination and replace all instances? |
+| C12 Bug 11 completeness | Were ALL list pages migrated to the shared component? |
+
+### TRAP-N: Notification/feedback drift (C02 → C05 → C06 → C10 → C12) — IMPLEMENTATION DRIFT
+| Metric | Description |
+|--------|-------------|
+| C02 initial pattern | What feedback did the agent use for cart removal? (alert/inline/nothing) |
+| C05 error feedback | What pattern for checkout errors? Same or different from C02? |
+| C06 status feedback | What pattern for vendor status changes? Same or different? |
+| C10 toast reuse | Did agent build a reusable toast or cart-specific? |
+| Divergence count | How many DIFFERENT feedback patterns exist pre-C12? |
+| C12 Bug 12 iterations | How many iterations to create shared Toast and replace all instances? |
+| C12 Bug 12 completeness | Were ALL alert()/confirm() calls removed? |
+
+**Implementation drift vs convention traps**: Convention traps (H-L) test rule compliance. Drift traps (M-N) test whether the agent remembers its OWN implementation choices across pages. Memory value for drift traps comes from code-map memories, not convention memories.
+
 ## Run B Memory Metrics (additional)
 
 For Run B (with memory) only, also track:
@@ -239,7 +274,7 @@ After scoring all 12 changes, calculate:
 | Total time | Sum across all changes |
 | Revision change score | C07+C08+C09 aggregate |
 | Feedback change score | C10+C11 aggregate |
-| Sprint retro score | C12 bugs fixed on first try (out of 9) |
+| Sprint retro score | C12 bugs fixed on first try (out of 12) |
 | Memory efficiency (Run B) | Useful recalls / total recalls |
 | Save rate (Run B) | Memories saved / changes completed |
 

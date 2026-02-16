@@ -32,6 +32,8 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 
 8. **Error format**: All API error responses must use the format `{ "error": "<message>" }` with appropriate HTTP status codes (400, 404, 500). Keep it simple — just the error message string.
 
+9. **Responsive layout**: Configure Tailwind with custom breakpoints in `tailwind.config.ts`: `sm: '480px'`, `md: '768px'`, `lg: '1024px'`. Create a shared `<ResponsiveContainer>` component at `src/components/ResponsiveContainer.tsx` that provides consistent page-level layout: `mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl`. All pages must use this component as their outermost content wrapper. Use mobile-first styling: base styles target mobile, `sm:` for tablet, `lg:` for desktop. Do not use `xl:` or `2xl:` breakpoints — `lg` is the maximum.
+
 ### Acceptance Criteria
 
 - [ ] Prisma schema defines Product and Variant models with proper relations
@@ -44,6 +46,9 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 - [ ] `GET /api/products` returns `{ data, total, page, limit }` with pagination query params
 - [ ] `formatPrice()` utility exists at `src/lib/formatPrice.ts` and is used for all price display
 - [ ] Product model has `deletedAt DateTime?` field; DELETE endpoint soft-deletes; listings filter `deletedAt IS NULL`
+- [ ] `tailwind.config.ts` has custom breakpoints: `sm: '480px'`, `md: '768px'`, `lg: '1024px'`
+- [ ] `src/components/ResponsiveContainer.tsx` exists and is used on all pages
+- [ ] No `xl:` or `2xl:` Tailwind classes in the codebase
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -84,6 +89,18 @@ The change def requires `deletedAt DateTime?` on Product and soft-delete behavio
 
 **Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "Products use soft delete — always filter deletedAt IS NULL in queries." When C04 adds product-related queries or C08 migrates images, the agent applies the filter. Without memory, the agent may query without the filter, silently including deleted products.
 
+**T1.7: Responsive convention establishment (TRAP-L first occurrence)**
+The change def requires custom Tailwind breakpoints (`sm: '480px'` — non-standard, Tailwind defaults to 640px) and a shared `<ResponsiveContainer>` component. This establishes a responsive design convention that all future UI pages must follow. The custom `sm:480px` is the key trap: if an agent forgets this in later changes, they'll use Tailwind's default `sm:640px`, creating a measurable divergence.
+
+**Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "Tailwind sm breakpoint is 480px (not default 640px), use ResponsiveContainer for page layout." When C02/C05/C06 add new pages, the agent uses the correct breakpoint. Without memory, the agent may use standard Tailwind breakpoints.
+
+**T1.8: Pagination UI implementation choice (TRAP-M drift point)**
+The change def requires paginated API but says nothing about what the pagination UI should look like. The agent will build SOME pagination controls (Prev/Next buttons, page numbers, Load More, or nothing). This initial choice becomes the baseline for comparing divergence in C03, C06, and C11.
+
+**Evaluator action**: Document exactly what pagination UI pattern the agent built on `/products`. Note: reusable component vs inline markup. This is compared with later pages to measure implementation drift.
+
+**Memory prediction**: Medium value as a code-map save. If the agent saves "products page uses Prev/Next buttons at bottom," future changes can maintain consistency. Without memory, each new page builds its own pagination UI independently.
+
 ### Scoring Focus
 
 - Did the agent use a separate Variant table or JSON? (Critical for later changes)
@@ -101,4 +118,6 @@ The change def requires `deletedAt DateTime?` on Product and soft-delete behavio
 - **Save**: API pagination convention { data, total, page, limit } (HIGH VALUE — reused in C03, C05, C11, C12)
 - **Save**: formatPrice() utility at src/lib/formatPrice.ts (HIGH VALUE — reused in C04, C05, C09)
 - **Save**: Soft delete pattern — Products filter deletedAt IS NULL (HIGH VALUE — reused in C04, C08, C12)
+- **Save**: Responsive convention — custom sm:480px, ResponsiveContainer component (HIGH VALUE — reused in C02, C05, C06, C10, C11, C12)
+- **Save**: Pagination UI approach (code-map detail — what UI was built for /products)
 - **Recall**: None (first change, no prior context)

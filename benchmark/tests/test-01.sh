@@ -100,6 +100,32 @@ except:
 " 2>/dev/null)
 check "Seed data has at least 3 products" '[ "$PRODUCT_COUNT" -ge 3 ]'
 
+# --- TRAP-L: Responsive convention checks ---
+
+# Test: tailwind.config.ts has custom sm:480px breakpoint
+if [ -f tailwind.config.ts ]; then
+  HAS_480=$(grep -c "480" tailwind.config.ts 2>/dev/null || echo 0)
+  check "TRAP-L: tailwind.config.ts has custom sm:480px breakpoint" '[ "$HAS_480" -gt 0 ]'
+else
+  check "TRAP-L: tailwind.config.ts has custom sm:480px breakpoint" 'false'
+fi
+
+# Test: ResponsiveContainer component exists
+check "TRAP-L: ResponsiveContainer.tsx exists" '[ -f src/components/ResponsiveContainer.tsx ]'
+
+# Test: Products page imports ResponsiveContainer
+PRODUCTS_PAGE=$(find src/app/products -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$PRODUCTS_PAGE" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$PRODUCTS_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Products page imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Products page imports ResponsiveContainer" 'false'
+fi
+
+# Test: No xl: or 2xl: classes in src/
+XL_COUNT=$(grep -r "xl:" src/ --include="*.tsx" --include="*.jsx" --include="*.ts" 2>/dev/null | grep -v node_modules | grep -cE "\bxl:" || echo 0)
+check "TRAP-L: No xl: or 2xl: Tailwind classes in src/" '[ "$XL_COUNT" -eq 0 ]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

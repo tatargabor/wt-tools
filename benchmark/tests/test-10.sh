@@ -82,6 +82,23 @@ else:
 " 2>/dev/null)
 check "Empty cart has link to /products" '[ "$HAS_PRODUCTS_LINK" = "yes" ]'
 
+# --- TRAP-L: Responsive convention preservation checks ---
+
+CART_PAGE=$(find src/app/cart -name "page.tsx" -o -name "page.jsx" 2>/dev/null | head -1)
+if [ -n "$CART_PAGE" ]; then
+  HAS_CONTAINER=$(grep -c "ResponsiveContainer" "$CART_PAGE" 2>/dev/null || echo 0)
+  check "TRAP-L: Redesigned cart page still imports ResponsiveContainer" '[ "$HAS_CONTAINER" -gt 0 ]'
+else
+  check "TRAP-L: Redesigned cart page still imports ResponsiveContainer" 'false'
+fi
+
+if [ -f tailwind.config.ts ]; then
+  HAS_480=$(grep -c "480" tailwind.config.ts 2>/dev/null || echo 0)
+  check "TRAP-L: tailwind.config.ts still has custom sm:480px" '[ "$HAS_480" -gt 0 ]'
+else
+  check "TRAP-L: tailwind.config.ts still has custom sm:480px" 'false'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 
