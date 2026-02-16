@@ -210,6 +210,41 @@ This is automatic — no configuration needed. The reminder fires for any skill 
 
 Running `wt-memory-hooks install` again replaces existing hooks (useful after `wt-openspec update` which overwrites SKILL.md files). The GUI can also reinstall hooks automatically after an OpenSpec update.
 
+### Automatic memory hooks
+
+Two Claude Code hooks run automatically via `.claude/settings.json` — no agent discipline required:
+
+**`wt-hook-memory-save`** (Stop event, timeout 30s)
+
+Fires after every agent response. Detects new git commits, extracts **Choice** lines from `design.md`, and saves ONE concise Decision memory per change (~300 chars max). Idempotent — won't re-save for the same change.
+
+How it works:
+1. Compares HEAD against `.wt-tools/.last-memory-commit` marker
+2. For each new commit, extracts change name from message format `change-name: description`
+3. Reads `openspec/changes/<change-name>/design.md`, extracts `**Choice**:` lines
+4. Saves a single Decision memory tagged `change:<name>,phase:apply,source:hook,decisions`
+5. Marks the change in `.wt-tools/.saved-designs` to prevent duplicates
+
+**`wt-hook-memory-recall`** (UserPromptSubmit event, timeout 15s)
+
+Fires before every agent response. Recalls past decisions as actionable context.
+
+How it works:
+1. Extracts completed change names from git log (commit message format `change-name: description`)
+2. Queries `wt-memory recall` with those change names (up to 8 results, hybrid mode)
+3. Outputs a deduplicated bulleted list under `=== PROJECT MEMORY ===` header
+4. Falls back to prompt-based recall if no openspec directory or no committed changes
+
+Both hooks self-degrade gracefully — they exit 0 immediately if `wt-memory` is not installed. Deployed by default via `wt-deploy-hooks`. Use `wt-deploy-hooks --no-memory` to skip them (e.g., for benchmark baselines).
+
+**How the three memory layers work together:**
+
+| Layer | Mechanism | What it captures |
+|-------|-----------|-----------------|
+| Automatic hooks | `wt-hook-memory-save/recall` in settings.json | Design choices (save) + prior decisions (recall) |
+| Skill hooks | `wt-memory` steps in SKILL.md | Mid-flow learnings, user knowledge, self-reflection |
+| Stop reminder | `.memory` marker + `wt-hook-stop` | Reminds agent to run skill-level memory steps |
+
 ---
 
 ## GUI
@@ -436,35 +471,40 @@ You can install shodh-memory at any time — existing commands and hooks will st
 ### Layer diagram
 
 ```
-┌───────────────────────────────────────────────────┐
-│                  Agent Session                     │
-│                                                    │
-│  ┌────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │ CLAUDE.md  │  │  OpenSpec   │  │ /wt:memory │ │
-│  │ (ambient)  │  │  hooks (6   │  │ (manual    │ │
-│  │            │  │  phases)    │  │  slash cmd) │ │
-│  └─────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
-│        │                │               │         │
-│        └────────┬───────┴───────┬───────┘         │
-│                 ▼               ▼                  │
-│          ┌────────────┐  ┌──────────────┐         │
-│          │ wt-memory  │  │wt-memory     │         │
-│          │ (CLI)      │  │ -hooks (CLI) │         │
-│          └─────┬──────┘  └──────────────┘         │
-│                │                                   │
-│          ┌─────▼──────────────────┐               │
-│          │   shodh-memory         │               │
-│          │   (Python library)     │               │
-│          └─────┬──────────────────┘               │
-│                │                                   │
-│          ┌─────▼──────────────────┐               │
-│          │   RocksDB              │               │
-│          │   Per-project storage  │               │
-│          │   ~/.local/share/      │               │
-│          │   wt-tools/memory/     │               │
-│          │   <project-name>/      │               │
-│          └────────────────────────┘               │
-└───────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                      Agent Session                          │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐ │
+│  │  Auto hooks   │  │  CLAUDE.md   │  │  OpenSpec skill   │ │
+│  │ (settings.json│  │  (ambient    │  │  hooks (6 phases) │ │
+│  │  Save+Recall) │  │   memory)    │  │  + /wt:memory     │ │
+│  └──────┬───────┘  └──────┬───────┘  └────────┬──────────┘ │
+│         │                  │                    │            │
+│         │     ┌────────────┴────────────┐      │            │
+│         │     │  Stop hook reminder     │      │            │
+│         │     │  (.memory marker file)  │      │            │
+│         │     └────────────┬────────────┘      │            │
+│         │                  │                    │            │
+│         └──────────┬───────┴────────┬───────────┘           │
+│                    ▼                ▼                        │
+│             ┌────────────┐  ┌──────────────┐               │
+│             │ wt-memory  │  │ wt-memory    │               │
+│             │ (CLI)      │  │ -hooks (CLI) │               │
+│             └─────┬──────┘  └──────────────┘               │
+│                   │                                         │
+│             ┌─────▼──────────────────┐                     │
+│             │   shodh-memory         │                     │
+│             │   (Python library)     │                     │
+│             └─────┬──────────────────┘                     │
+│                   │                                         │
+│             ┌─────▼──────────────────┐                     │
+│             │   RocksDB              │                     │
+│             │   Per-project storage  │                     │
+│             │   ~/.local/share/      │                     │
+│             │   wt-tools/memory/     │                     │
+│             │   <project-name>/      │                     │
+│             └────────────────────────┘                     │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ### Key design choices

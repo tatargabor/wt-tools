@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # wt-deploy-hooks - Deploy Claude Code hooks to a target directory
 #
-# Usage: wt-deploy-hooks [--quiet] <target-dir>
+# Usage: wt-deploy-hooks [--quiet] [--no-memory] <target-dir>
 #
 # Deploys UserPromptSubmit and Stop hooks to <target-dir>/.claude/settings.json.
-# Idempotent: skips if both hooks are already present.
+# By default includes memory hooks (wt-hook-memory-recall, wt-hook-memory-save).
+# Use --no-memory to deploy only base hooks (for benchmark baseline).
+# Idempotent: skips if all hooks are already present.
+# Upgrades existing configs: adds memory hooks if missing.
 # Creates backup before modifying existing settings.
 
 set -e
 
 QUIET=false
+NO_MEMORY=false
 TARGET_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --quiet|-q)
             QUIET=true
+            shift
+            ;;
+        --no-memory)
+            NO_MEMORY=true
             shift
             ;;
         *)
@@ -26,7 +34,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$TARGET_DIR" ]]; then
-    echo "Usage: wt-deploy-hooks [--quiet] <target-dir>" >&2
+    echo "Usage: wt-deploy-hooks [--quiet] [--no-memory] <target-dir>" >&2
     exit 1
 fi
 
@@ -42,8 +50,51 @@ settings_file="$TARGET_DIR/.claude/settings.json"
 
 mkdir -p "$TARGET_DIR/.claude"
 
-# The hook config we want to ensure exists
+# Full hook config (with memory hooks)
 hook_json=$(cat << 'HOOKJSON'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-skill",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "wt-hook-memory-recall",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-stop",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "wt-hook-memory-save",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+HOOKJSON
+)
+
+# Base-only hook config (no memory hooks)
+hook_json_no_memory=$(cat << 'HOOKJSON'
 {
   "hooks": {
     "UserPromptSubmit": [
@@ -75,20 +126,57 @@ hook_json=$(cat << 'HOOKJSON'
 HOOKJSON
 )
 
+# Select which config to deploy
+if $NO_MEMORY; then
+    deploy_json="$hook_json_no_memory"
+else
+    deploy_json="$hook_json"
+fi
+
 if [[ -f "$settings_file" ]]; then
-    # Check if both hooks already configured
-    if jq -e '.hooks.Stop' "$settings_file" &>/dev/null && jq -e '.hooks.UserPromptSubmit' "$settings_file" &>/dev/null; then
-        return 0 2>/dev/null || exit 0
+    # Check if all required hooks are already configured
+    has_base=false
+    has_memory=false
+
+    if jq -e '.hooks.Stop[0].hooks[] | select(.command == "wt-hook-stop")' "$settings_file" &>/dev/null \
+        && jq -e '.hooks.UserPromptSubmit[0].hooks[] | select(.command == "wt-hook-skill")' "$settings_file" &>/dev/null; then
+        has_base=true
     fi
+
+    if jq -e '.hooks.Stop[0].hooks[] | select(.command == "wt-hook-memory-save")' "$settings_file" &>/dev/null \
+        && jq -e '.hooks.UserPromptSubmit[0].hooks[] | select(.command == "wt-hook-memory-recall")' "$settings_file" &>/dev/null; then
+        has_memory=true
+    fi
+
+    # Already complete?
+    if $has_base; then
+        if $NO_MEMORY || $has_memory; then
+            return 0 2>/dev/null || exit 0
+        fi
+    fi
+
     # Remove stale PreToolUse/Skill hook if present (replaced by UserPromptSubmit)
     if jq -e '.hooks.PreToolUse' "$settings_file" &>/dev/null; then
         jq 'del(.hooks.PreToolUse)' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
     fi
-    # Backup and merge
+
+    # Backup before modification
     cp "$settings_file" "$settings_file.bak"
-    jq --argjson hooks "$(echo "$hook_json" | jq '.hooks')" '. * {"hooks": (.hooks // {} | . * $hooks)}' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
-    _success "Updated: $settings_file (added hooks)"
+
+    if $has_base && ! $has_memory && ! $NO_MEMORY; then
+        # Upgrade path: base hooks exist, add memory hooks to existing arrays
+        jq '.hooks.UserPromptSubmit[0].hooks += [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]
+          | .hooks.Stop[0].hooks += [{"type": "command", "command": "wt-hook-memory-save", "timeout": 30}]' \
+            "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Updated: $settings_file (added memory hooks)"
+    else
+        # Fresh merge: deploy full config
+        jq --argjson hooks "$(echo "$deploy_json" | jq '.hooks')" \
+            '. * {"hooks": (.hooks // {} | . * $hooks)}' \
+            "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Updated: $settings_file (added hooks)"
+    fi
 else
-    echo "$hook_json" | jq '.' > "$settings_file"
+    echo "$deploy_json" | jq '.' > "$settings_file"
     _success "Created: $settings_file (hooks)"
 fi

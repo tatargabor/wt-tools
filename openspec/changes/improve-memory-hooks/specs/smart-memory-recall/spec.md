@@ -1,19 +1,20 @@
 ## ADDED Requirements
 
-### Requirement: OpenSpec-aware query building
-The recall hook detects pending/incomplete OpenSpec changes and builds recall queries from completed change names rather than from the raw prompt text.
+### Requirement: Change-aware query building
+The recall hook detects completed changes from git commit history (parsing `change-name: description` format) and builds recall queries from those change names rather than from the raw prompt text.
 
-#### Scenario: 4 of 6 changes completed
-- **WHEN** openspec list shows product-catalog, shopping-cart, multi-vendor, discounts as completed and checkout, order-workflow as pending
-- **THEN** the recall query searches for memories tagged with the completed change names
+#### Scenario: 4 of 6 changes committed
+- **WHEN** git log contains commits with messages like `product-catalog: ...`, `shopping-cart: ...`, `multi-vendor: ...`, `discounts: ...`
+- **AND** no commits exist for `checkout` or `order-workflow`
+- **THEN** the recall query SHALL search for memories matching the completed change names extracted from commit messages
 
 #### Scenario: No openspec directory
 - **WHEN** the project has no `openspec/` directory
-- **THEN** the hook falls back to prompt-based recall (current behavior)
+- **THEN** the hook falls back to prompt-based recall (first 200 chars of prompt text)
 
-#### Scenario: All changes completed
-- **WHEN** all OpenSpec changes are completed
-- **THEN** no recall is performed (nothing pending to inform)
+#### Scenario: No committed changes found
+- **WHEN** git log contains no commits matching the `change-name: description` format
+- **THEN** the hook falls back to prompt-based recall
 
 ### Requirement: Actionable output format
 The recall output is formatted as a concise bulleted list with an instruction header, not raw memory JSON.
@@ -35,8 +36,8 @@ The recall output is formatted as a concise bulleted list with an instruction he
 - **THEN** no output is produced (silent exit)
 
 ### Requirement: Timeout safety
-The recall hook must complete within its 15-second timeout even if openspec list or wt-memory recall is slow.
+The recall hook must complete within its 15-second timeout even if git log or wt-memory recall is slow.
 
-#### Scenario: openspec list hangs
-- **WHEN** openspec list takes >5 seconds
-- **THEN** the hook falls back to prompt-based recall or exits silently
+#### Scenario: wt-memory recall hangs
+- **WHEN** wt-memory recall takes >10 seconds
+- **THEN** the hook exits silently (killed by Claude Code timeout)

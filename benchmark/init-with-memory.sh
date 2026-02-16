@@ -50,15 +50,6 @@ wt-deploy-hooks .
 # --- Install memory hooks into OpenSpec skills ---
 wt-memory-hooks install
 
-# --- Add automatic memory hooks to settings.json ---
-# These hooks auto-save memories after commits (Stop) and auto-recall before prompts (UserPromptSubmit)
-# They work independently of the agent following skill instructions
-settings_file=".claude/settings.json"
-jq '.hooks.Stop[0].hooks += [{"type": "command", "command": "wt-hook-memory-save", "timeout": 30}]
-  | .hooks.UserPromptSubmit[0].hooks += [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]' \
-  "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
-echo "  ✔ Memory hooks added to settings.json"
-
 # --- Directories ---
 mkdir -p docs/benchmark results
 

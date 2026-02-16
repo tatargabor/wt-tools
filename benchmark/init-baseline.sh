@@ -43,7 +43,7 @@ openspec init --tools claude
 # openspec init skips config in non-interactive mode — create it
 echo "schema: spec-driven" > openspec/config.yaml
 
-wt-deploy-hooks .
+wt-deploy-hooks --no-memory .
 
 # --- Directories ---
 mkdir -p docs/benchmark results
