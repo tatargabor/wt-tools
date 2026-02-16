@@ -42,6 +42,7 @@ In C02, we implemented stock tracking where `Variant.stockQuantity` decreases wh
 - [ ] Insufficient stock at checkout returns 400 with item details
 - [ ] Removing items from cart does NOT change stock
 - [ ] Cart API shows reservation expiry status per item
+- [ ] Coupon `currentUses` MUST be incremented inside the checkout-confirm transaction (NOT at coupon-apply time). Verify that applying a coupon does NOT increment `currentUses`, and confirming checkout DOES increment it.
 - [ ] Previously passing tests for product CRUD (test-01.sh) still pass
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
@@ -76,6 +77,11 @@ The agent might add the new checkout-time stock check but forget to remove the o
 C07 introduces new error cases: expired reservation, insufficient stock at checkout. The agent must add `RESERVATION_EXPIRED`, `CHECKOUT_STOCK_CHANGED` to `src/lib/errors.ts` and use them in the checkout error responses. This tests whether the agent recalls the error code convention from C02.
 
 **Memory prediction**: MEDIUM VALUE recall. Memory-enabled agent recalls the errors.ts convention and extends it. Without memory, may use inline error strings.
+
+**T7.5: Coupon currentUses increment timing (TRAP-F — 3-benchmark recurring failure)**
+In v3, v4, and v5, BOTH runs got this wrong: Run A increments `currentUses` at coupon-apply time (wrong timing — user may abandon cart), Run B never increments it at all (unlimited coupon uses). The correct behavior: `currentUses++` must happen inside the checkout-confirm transaction, alongside stock decrement and order creation. This is now an explicit acceptance criterion above.
+
+**Memory prediction**: HIGH VALUE if agent saves "coupon currentUses incremented at checkout-confirm." This prevents the wrong-timing bug in future iterations.
 
 ### Expected Memory Interactions (Run B)
 

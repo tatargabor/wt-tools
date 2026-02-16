@@ -121,6 +121,15 @@ check "REGRESSION: No confirm() in cart code" '[ -z "$CONFIRM_FOUND" ]'
 EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-04-empty")
 check "REGRESSION: Empty cart still has /products link" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
 
+# --- Convention compliance checks ---
+if [[ -f "$(dirname "$0")/lib/check-conventions.sh" ]]; then
+  source "$(dirname "$0")/lib/check-conventions.sh"
+  echo ""
+  echo "=== Convention Checks ==="
+  check_convention_format_price
+  check_convention_soft_delete
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

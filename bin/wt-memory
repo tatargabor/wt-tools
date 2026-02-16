@@ -700,7 +700,7 @@ limit = int(os.environ['_SHODH_LIMIT'])
 context = os.environ['_SHODH_CONTEXT']
 
 if hasattr(m, 'proactive_context'):
-    raw = m.proactive_context(context, max_results=limit)
+    raw = m.proactive_context(context, max_results=limit, auto_ingest=False)
     # proactive_context returns a dict with 'memories' list
     results = raw.get('memories', []) if isinstance(raw, dict) else raw
     print(json.dumps(results, default=str))

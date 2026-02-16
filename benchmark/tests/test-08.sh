@@ -114,6 +114,15 @@ if [ -n "$FIRST_ID" ]; then
   check "REGRESSION: Product detail still shows vendor info" 'echo "$DETAIL_PAGE" | grep -qiE "vendor|sold by|artisan"'
 fi
 
+# --- Convention compliance checks ---
+if [[ -f "$(dirname "$0")/lib/check-conventions.sh" ]]; then
+  source "$(dirname "$0")/lib/check-conventions.sh"
+  echo ""
+  echo "=== Convention Checks ==="
+  check_convention_soft_delete
+  check_convention_format_price
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

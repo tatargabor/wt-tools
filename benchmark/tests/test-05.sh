@@ -88,6 +88,15 @@ else
   check "TRAP-L: Checkout page imports ResponsiveContainer" 'false'
 fi
 
+# --- Convention compliance checks ---
+if [[ -f "$(dirname "$0")/lib/check-conventions.sh" ]]; then
+  source "$(dirname "$0")/lib/check-conventions.sh"
+  echo ""
+  echo "=== Convention Checks ==="
+  check_convention_pagination "$PORT"
+  check_convention_format_price
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

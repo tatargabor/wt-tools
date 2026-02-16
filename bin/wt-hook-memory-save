@@ -167,6 +167,12 @@ PYEOF
         return 0  # Too little content to extract from
     fi
 
+    # --- Extract first change name for tagging ---
+    local first_change=""
+    if [[ -n "$change_names" ]]; then
+        first_change="${change_names%%,*}"  # first entry before comma
+    fi
+
     # --- Build extraction prompt ---
     local dedup_note=""
     if [[ "$agent_did_save" == "true" ]]; then
@@ -200,9 +206,15 @@ Output format: one insight per line, format: Type|tags|content
 
 Maximum 5 insights. If nothing is worth saving, output exactly: NONE
 
+ALSO extract cross-cutting conventions established in this session — patterns that ALL future changes must follow.
+Examples: 'use formatPrice() for all price display', 'all list endpoints return { data, total, page, limit }', 'filter deletedAt IS NULL in all product queries'.
+Output conventions as: Convention|tags|content (max 2 conventions)
+Only extract conventions if the session clearly establishes a reusable pattern. Do NOT fabricate conventions.
+
 Example output:
 Learning|error,shopping-cart|Stock decrement failed silently when variant.stockQuantity was null — added null check
 Decision|preference,workflow|User prefers Hungarian commit messages with English code comments
+Convention|product-catalog,formatting|All price display must use formatPrice() from src/lib/formatPrice.ts — never use inline .toFixed()
 
 Session summary:"
 
@@ -221,12 +233,10 @@ Session summary:"
 
     # --- Task 5.1 + 5.2 + 5.3: Parse and save insights ---
     local count=0
+    local conv_count=0
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ "$line" == "NONE" ]] && continue
-
-        # Cap at 5 insights
-        (( count >= 5 )) && break
 
         # Validate format: Type|tags|content
         if [[ "$line" != *"|"*"|"* ]]; then
@@ -238,23 +248,41 @@ Session summary:"
         local tags="${rest%%|*}"
         local content="${rest#*|}"
 
-        # Validate type
-        case "$mem_type" in
-            Learning|Decision|Context) ;;
-            *) continue ;;
-        esac
+        # Handle Convention type: save as Learning with convention tag, cap at 2
+        if [[ "$mem_type" == "Convention" ]]; then
+            (( conv_count >= 2 )) && continue
+            mem_type="Learning"
+            tags="convention,$tags"
+            (( conv_count++ ))
+        else
+            # Cap regular insights at 5
+            (( count >= 5 )) && continue
+
+            # Validate type
+            case "$mem_type" in
+                Learning|Decision|Context) ;;
+                *) continue ;;
+            esac
+
+            (( count++ ))
+        fi
 
         # Skip empty content
         [[ -z "$content" ]] && continue
+
+        # Build tag string with change: prefix if available
+        local full_tags="phase:auto-extract,source:hook,$tags"
+        if [[ -n "$first_change" ]]; then
+            full_tags="change:$first_change,$full_tags"
+        fi
 
         # Save to wt-memory
         echo "$content" | \
             wt-memory remember \
                 --type "$mem_type" \
-                --tags "phase:auto-extract,source:hook,$tags" \
+                --tags "$full_tags" \
                 2>/dev/null || true
 
-        (( count++ ))
     done <<< "$llm_output"
 
     return 0
@@ -348,6 +376,18 @@ while IFS= read -r line; do
         change_name="general"
     fi
 
+    # Fallback: detect change name from openspec/changes/ if commit message gave "general"
+    if [[ "$change_name" == "general" ]] && [[ -d "openspec/changes" ]]; then
+        for d in openspec/changes/*/; do
+            local dname
+            dname=$(basename "$d")
+            [[ "$dname" == "archive" ]] && continue
+            # Use first active change as fallback
+            change_name="$dname"
+            break
+        done
+    fi
+
     # Skip if we already saved this change's decisions
     touch "$DESIGN_MARKER"
     grep -qx "$change_name" "$DESIGN_MARKER" 2>/dev/null && continue
@@ -389,8 +429,14 @@ while IFS= read -r line; do
             | python3 -c "import sys,json; r=json.load(sys.stdin); print('yes' if any('code-map' in ','.join(m.get('tags',[])) for m in r) else 'no')" 2>/dev/null)
 
         if [[ "$has_codemap" != "yes" ]]; then
-            # Generate code map from files changed in this commit
-            changed_files=$(git diff-tree --no-commit-id --name-only -r "$hash" 2>/dev/null \
+            # Generate code map from files changed across ALL new commits (not just this one)
+            local all_hashes
+            all_hashes=$(echo "$COMMITS" | awk '{print $1}')
+            changed_files=$(echo "$all_hashes" | while read -r h; do
+                [[ -z "$h" ]] && continue
+                git diff-tree --no-commit-id --name-only -r "$h" 2>/dev/null
+            done \
+                | sort -u \
                 | grep -vE '(package\.json|package-lock|\.config\.|tsconfig|\.test\.|\.spec\.|__test__)' \
                 | head -8 \
                 | tr '\n' ', ' \

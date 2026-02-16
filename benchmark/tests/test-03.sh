@@ -105,6 +105,15 @@ else
   check "Order has sub-orders grouped by vendor" 'false'
 fi
 
+# --- Convention compliance checks ---
+if [[ -f "$(dirname "$0")/lib/check-conventions.sh" ]]; then
+  source "$(dirname "$0")/lib/check-conventions.sh"
+  echo ""
+  echo "=== Convention Checks ==="
+  check_convention_pagination "$PORT"
+  check_convention_error_codes
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 
