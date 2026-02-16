@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# wt-hook-memory-recall - Claude Code UserPromptSubmit hook for memory recall
+#
+# Called by Claude Code on every user prompt submission.
+# Detects pending OpenSpec changes, recalls memories from completed changes,
+# and outputs actionable context for the agent.
+#
+# Designed to be referenced by name in .claude/settings.json:
+#   "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]}]
+# The script is on PATH via install.sh symlink.
+
+# Read hook input from stdin
+INPUT=$(cat)
+
+# Only run if wt-memory is available and healthy
+command -v wt-memory &>/dev/null || exit 0
+wt-memory health &>/dev/null || exit 0
+
+# Check if there are any memories to recall
+MEMORY_COUNT=$(wt-memory status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
+[[ -z "$MEMORY_COUNT" || "$MEMORY_COUNT" == "0" ]] && exit 0
+
+# --- Build query: prefer OpenSpec-aware, fallback to prompt ---
+QUERY=""
+USE_OPENSPEC=false
+
+if command -v openspec &>/dev/null && [[ -d "openspec" ]]; then
+    # Get completed change names from git log (changes that have commits)
+    COMMITTED_CHANGES=$(git log --oneline 2>/dev/null \
+        | grep -oP '^[a-f0-9]+ \K[^:]+(?=:)' \
+        | sort -u)
+
+    if [[ -n "$COMMITTED_CHANGES" ]]; then
+        QUERY=$(echo "$COMMITTED_CHANGES" | tr '\n' ' ')
+        USE_OPENSPEC=true
+    fi
+fi
+
+# Fallback: use prompt text
+if [[ -z "$QUERY" ]]; then
+    PROMPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))" 2>/dev/null)
+    [[ -z "$PROMPT" ]] && exit 0
+    QUERY=$(echo "$PROMPT" | head -c 200)
+fi
+
+# Recall relevant memories
+TMPFILE=$(mktemp)
+trap "rm -f $TMPFILE" EXIT
+
+wt-memory recall "$QUERY" --limit 8 --mode hybrid 2>/dev/null > "$TMPFILE" || exit 0
+
+# If no memories or empty array, exit silently
+CONTENT=$(cat "$TMPFILE")
+[[ -z "$CONTENT" || "$CONTENT" == "[]" ]] && exit 0
+
+# Format output: actionable bulleted list
+FORMATTED=$(python3 -c "
+import sys, json
+try:
+    memories = json.load(sys.stdin)
+except:
+    sys.exit(0)
+if not memories:
+    sys.exit(0)
+
+# Group by change name (from tags)
+seen = set()
+for m in memories:
+    content = m.get('content', '').replace('\n', ' ')[:300]
+    # Deduplicate by first 50 chars
+    key = content[:50]
+    if key in seen:
+        continue
+    seen.add(key)
+    print(f'  - {content}')
+" < "$TMPFILE" 2>/dev/null)
+
+[[ -z "$FORMATTED" ]] && exit 0
+
+echo ""
+echo "=== PROJECT MEMORY ==="
+if $USE_OPENSPEC; then
+    echo "Previously completed changes — maintain consistency:"
+else
+    echo "Relevant past experience:"
+fi
+echo "$FORMATTED"
+echo "=== END ==="
+
+exit 0

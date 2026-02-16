@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# wt-hook-memory-save - Claude Code Stop hook for automatic memory saving
+#
+# Called by Claude Code after every response (Stop event).
+# Checks for new git commits and saves ONE concise memory per change
+# with only the key design choices extracted from design.md.
+#
+# Designed to be referenced by name in .claude/settings.json:
+#   "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-save", "timeout": 30}]}]
+# The script is on PATH via install.sh symlink.
+
+# Read hook input from stdin (required by Claude Code hooks)
+cat > /dev/null
+
+# Only run if wt-memory is available and healthy
+command -v wt-memory &>/dev/null || exit 0
+wt-memory health &>/dev/null || exit 0
+
+# Marker files
+MARKER_FILE=".wt-tools/.last-memory-commit"
+DESIGN_MARKER=".wt-tools/.saved-designs"
+
+mkdir -p .wt-tools
+
+LAST_HASH=""
+if [[ -f "$MARKER_FILE" ]]; then
+    LAST_HASH=$(cat "$MARKER_FILE" 2>/dev/null)
+fi
+
+# Get current HEAD
+CURRENT_HASH=$(git rev-parse HEAD 2>/dev/null) || exit 0
+
+# If no change since last check, exit
+[[ "$CURRENT_HASH" == "$LAST_HASH" ]] && exit 0
+
+# Get new commits since last check
+if [[ -n "$LAST_HASH" ]]; then
+    if git cat-file -t "$LAST_HASH" &>/dev/null; then
+        COMMITS=$(git log --oneline "$LAST_HASH..HEAD" 2>/dev/null)
+    else
+        COMMITS=$(git log --oneline -1 2>/dev/null)
+    fi
+else
+    COMMITS=$(git log --oneline -1 2>/dev/null)
+fi
+
+# Process each new commit
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    hash="${line%% *}"
+    msg="${line#* }"
+
+    # Extract change name from commit message (format: "change-name: description")
+    if [[ "$msg" == *:* ]]; then
+        change_name="${msg%%:*}"
+    else
+        change_name="general"
+    fi
+
+    # Skip if we already saved this change's decisions
+    touch "$DESIGN_MARKER"
+    grep -qx "$change_name" "$DESIGN_MARKER" 2>/dev/null && continue
+
+    # Build ONE concise memory for this change
+    design_file="openspec/changes/$change_name/design.md"
+    if [[ -f "$design_file" ]]; then
+        # Extract only **Choice**: lines, strip markdown, join with ". "
+        choices=$(grep '^\*\*Choice\*\*' "$design_file" 2>/dev/null \
+            | sed 's/^\*\*Choice\*\*: //' \
+            | sed 's/^\*\*Choice\*\*://' \
+            | tr '\n' '.' \
+            | sed 's/\.\./\. /g; s/\.$//')
+
+        if [[ -n "$choices" ]]; then
+            content="$change_name: $choices"
+        else
+            content="$change_name: $msg"
+        fi
+    else
+        # Fallback: no design.md, use commit message
+        content="$change_name: $msg"
+    fi
+
+    # Truncate to 300 chars
+    if [[ ${#content} -gt 300 ]]; then
+        content="${content:0:297}..."
+    fi
+
+    # Save single Decision memory
+    echo "$content" | \
+        wt-memory remember \
+            --type Decision \
+            --tags "change:$change_name,phase:apply,source:hook,decisions" \
+            2>/dev/null || true
+
+    # Mark this change as saved
+    echo "$change_name" >> "$DESIGN_MARKER"
+
+done <<< "$COMMITS"
+
+# Update marker to current HEAD
+echo "$CURRENT_HASH" > "$MARKER_FILE"
+
+exit 0

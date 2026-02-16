@@ -409,6 +409,13 @@ $prev_text
 - CLAUDE.md is the authoritative source for your workflow — follow it
 - Make incremental progress each iteration
 - Commit your changes before exiting
+
+# Reflection (MANDATORY — last step before finishing)
+Before you stop, write .claude/reflection.md with 3-5 bullet points:
+- Errors you encountered and how you fixed them
+- Non-obvious things you learned about this codebase
+- Workarounds or gotchas the next iteration should know about
+If nothing notable happened, write "No notable issues." to the file.
 EOF
 }
 
@@ -583,6 +590,22 @@ cmd_run() {
         # Get new commits
         local new_commits
         new_commits=$(get_new_commits "$wt_path" "$iter_start")
+
+        # Process reflection file (agent writes learnings here)
+        local reflection_file="$wt_path/.claude/reflection.md"
+        if [[ -f "$reflection_file" ]]; then
+            local reflection_content
+            reflection_content=$(cat "$reflection_file" 2>/dev/null)
+            if [[ -n "$reflection_content" && "$reflection_content" != "No notable issues." ]]; then
+                if command -v wt-memory &>/dev/null && wt-memory health &>/dev/null 2>&1; then
+                    echo "$reflection_content" | wt-memory remember \
+                        --type Learning \
+                        --tags "source:agent,iteration:$iteration,reflection" \
+                        2>/dev/null && echo "💭 Reflection saved to memory" || true
+                fi
+            fi
+            rm -f "$reflection_file"
+        fi
 
         # Calculate tokens used this iteration
         local tokens_after tokens_used tokens_estimated=false
