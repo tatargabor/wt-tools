@@ -23,7 +23,9 @@ Transform CraftBazaar from a single-seller store into a multi-vendor marketplace
    - Update product listing to show vendor name
    - Add vendor profile page at `/vendors/[id]` showing their products
 
-4. **Error format**: API error responses should include an error code for programmatic handling. Use the format `{ "error": "<message>", "code": "<ERROR_CODE>" }` (e.g., `{ "error": "Insufficient stock", "code": "ORDER_STOCK_INSUFFICIENT" }`). Use uppercase snake_case for error codes.
+4. **Error format**: API error responses should include an error code for programmatic handling. Use the format `{ "error": "<message>", "code": "<ERROR_CODE>" }` (e.g., `{ "error": "Insufficient stock", "code": "ORDER_STOCK_INSUFFICIENT" }`). Use uppercase snake_case for error codes. Add new error code constants to the existing `src/lib/errors.ts` file: `VENDOR_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_CREATION_FAILED`, `CART_EMPTY`.
+
+4b. **API list format**: All list endpoints in this change (vendors, orders) must return the paginated envelope format: `{ data: [...], total: N, page: N, limit: N }` with `?page=1&limit=20` query params (default: page 1, limit 20). This must be consistent with the product listing endpoint from C01.
 
 5. **Order creation from cart**:
    - `POST /api/orders` — Create an order from the current cart
@@ -57,6 +59,8 @@ Transform CraftBazaar from a single-seller store into a multi-vendor marketplace
 - [ ] Order pages display vendor-grouped sub-orders
 - [ ] Prisma migration runs cleanly on existing data
 - [ ] Seed data includes vendors
+- [ ] New error codes added to `src/lib/errors.ts` and used in vendor/order routes
+- [ ] Vendor and order list endpoints return `{ data, total, page, limit }` format
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -89,11 +93,23 @@ With vendors added, the product API should include vendor info, the cart should 
 
 **Memory prediction**: Low-value save. This is more about task estimation than a reusable pattern.
 
+**T3.4: Error code constants extension (TRAP-J test)**
+C02 established `src/lib/errors.ts` with cart-related error codes. C03 must EXTEND this file with vendor/order codes — not create a separate error file or use inline strings. This tests whether the agent recalls the convention from C02.
+
+**Memory prediction**: HIGH VALUE recall. Memory-enabled agent recalls "error codes are in src/lib/errors.ts" and extends the file. Without memory, the agent may create inline error codes or a separate file, breaking the consistency convention.
+
+**T3.5: API pagination convention (TRAP-I test)**
+C01 establishes the `{ data, total, page, limit }` envelope format. C03 adds new list endpoints (vendors, orders). The agent must apply the same pagination format — not return raw arrays or different envelope shapes. C12 sprint retro checks consistency across ALL list endpoints.
+
+**Memory prediction**: HIGH VALUE recall. Memory-enabled agent recalls "all list endpoints use { data, total, page, limit }" from C01 and applies it naturally. Without memory, the agent may use different response shapes per endpoint.
+
 ### Scoring Focus
 
 - **Critical**: What order architecture was chosen? (Flat vs nested — this determines C4-C6 difficulty)
 - Did the migration handle existing data correctly?
 - How many files needed updating? (Cascade awareness)
+- Did the agent extend `src/lib/errors.ts` or create new error codes inline? (TRAP-J)
+- Do vendor/order list endpoints use the same pagination format as products? (TRAP-I)
 
 ### Expected Memory Interactions (Run B)
 
@@ -103,3 +119,6 @@ With vendors added, the product API should include vendor info, the cart should 
 - **Recall**: Prisma generate requirement (from C1)
 - **Recall**: Variant model design (from C1)
 - **Recall**: SQLite WAL mode (from C2, if migration triggers concurrent access)
+- **Recall**: Error codes convention in src/lib/errors.ts (from C2, TRAP-J)
+- **Recall**: Pagination format { data, total, page, limit } (from C01, TRAP-I)
+- **Recall**: Soft delete — vendor product queries should filter deletedAt (from C01, TRAP-K)

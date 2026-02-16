@@ -13,7 +13,7 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 2. **Variant model**: Each product has one or more variants. A variant has: `id`, `productId`, `sku`, `attributes` (the combination, e.g. `{size: "Large", color: "Blue"}`), `price`, `stockQuantity`
 
 3. **API routes** (Next.js App Router API routes):
-   - `GET /api/products` — List all products with their variants
+   - `GET /api/products` — List all products with their variants. Must support pagination with `?page=1&limit=20` query params (defaults: page 1, limit 20). Response format: `{ "data": [...], "total": N, "page": N, "limit": N }`. All future list endpoints must follow this same format.
    - `GET /api/products/[id]` — Get a single product with variants
    - `POST /api/products` — Create a product
    - `PUT /api/products/[id]` — Update a product
@@ -26,7 +26,11 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 
 5. **Seed data**: Create a Prisma seed script with at least 5 products, each having 2-4 variants. Use realistic artisan products (ceramic mugs, leather wallets, woven scarves, etc.)
 
-6. **Error format**: All API error responses must use the format `{ "error": "<message>" }` with appropriate HTTP status codes (400, 404, 500). Keep it simple — just the error message string.
+6. **Price display utility**: Create a shared `formatPrice(cents: number): string` utility function at `src/lib/formatPrice.ts`. This function converts cents to a dollar display string (e.g., `2999` → `"$29.99"`). Use this function everywhere prices are displayed — product listing, product detail, and any future pages. Never format prices inline with `.toFixed(2)` or string concatenation; always use `formatPrice()`.
+
+7. **Soft delete support**: Products must support soft deletion. Add a `deletedAt DateTime?` field to the Product model (nullable, default null). The `DELETE /api/products/[id]` endpoint should set `deletedAt = now()` instead of actually deleting the record. All product listing queries (API and pages) must filter `WHERE deletedAt IS NULL` to hide soft-deleted products. The `GET /api/products/[id]` endpoint should return 404 for soft-deleted products.
+
+8. **Error format**: All API error responses must use the format `{ "error": "<message>" }` with appropriate HTTP status codes (400, 404, 500). Keep it simple — just the error message string.
 
 ### Acceptance Criteria
 
@@ -37,6 +41,9 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 - [ ] Seed script populates the database with sample data
 - [ ] `npm run dev` starts without errors
 - [ ] Basic error handling on API routes (404 for missing products, validation errors)
+- [ ] `GET /api/products` returns `{ data, total, page, limit }` with pagination query params
+- [ ] `formatPrice()` utility exists at `src/lib/formatPrice.ts` and is used for all price display
+- [ ] Product model has `deletedAt DateTime?` field; DELETE endpoint soft-deletes; listings filter `deletedAt IS NULL`
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -61,15 +68,37 @@ The spec says `images` is an array of URLs. The agent must decide: JSON array fi
 
 **Memory prediction**: Low-impact trap. Documenting the decision helps future changes but isn't likely to cause failures.
 
+**T1.4: API pagination convention (TRAP-I first occurrence)**
+The change def requires `GET /api/products` to return `{ data, total, page, limit }` with query params. This establishes a convention that ALL future list endpoints must follow. When C03 adds vendor/order listing, C05 adds order history, and C11 adds paginated dashboard, the agent must apply the same format. C12 sprint retro checks ALL list endpoints for consistency.
+
+**Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "all list endpoints use { data, total, page, limit } envelope format." When C03/C05 add new list endpoints, the agent automatically follows the convention. Without memory, each new endpoint might use a different response shape.
+
+**T1.5: formatPrice utility creation (TRAP-H first occurrence)**
+
+The change def requires a shared `formatPrice()` utility at `src/lib/formatPrice.ts`. If the agent creates it, all future changes can import and use it. If the agent skips it and formats prices inline (`.toFixed(2)`, template literals), then C09 (integer cents migration) becomes much harder — instead of updating one utility, the agent must find and update every inline format site.
+
+**Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "use formatPrice() from src/lib/formatPrice.ts for all price display" in C01. In C04/C05, the agent imports it automatically. In C09, it only updates the utility. Without memory, the agent may re-invent inline formatting each time.
+
+**T1.6: Soft delete pattern (TRAP-K first occurrence)**
+The change def requires `deletedAt DateTime?` on Product and soft-delete behavior. If implemented correctly, all future product queries must filter `WHERE deletedAt IS NULL`. This becomes a trap in C04 (coupon shouldn't apply to deleted products), C08 (images migration must handle deleted products), and C12 (sprint retro checks all queries filter correctly).
+
+**Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "Products use soft delete — always filter deletedAt IS NULL in queries." When C04 adds product-related queries or C08 migrates images, the agent applies the filter. Without memory, the agent may query without the filter, silently including deleted products.
+
 ### Scoring Focus
 
 - Did the agent use a separate Variant table or JSON? (Critical for later changes)
 - How many iterations to get Prisma working? (Generate sequence issue)
 - Quality of seed data (realistic? diverse variants?)
+- Did product listing API return `{ data, total, page, limit }` envelope? (TRAP-I)
+- Did the agent create `formatPrice()` utility or use inline formatting? (TRAP-H)
+- Did the agent implement soft delete with `deletedAt` filter? (TRAP-K)
 
 ### Expected Memory Interactions (Run B)
 
 - **Save**: Prisma generate requirement (if encountered as error)
 - **Save**: Variant modeling decision and rationale
 - **Save**: Image storage approach chosen
+- **Save**: API pagination convention { data, total, page, limit } (HIGH VALUE — reused in C03, C05, C11, C12)
+- **Save**: formatPrice() utility at src/lib/formatPrice.ts (HIGH VALUE — reused in C04, C05, C09)
+- **Save**: Soft delete pattern — Products filter deletedAt IS NULL (HIGH VALUE — reused in C04, C08, C12)
 - **Recall**: None (first change, no prior context)

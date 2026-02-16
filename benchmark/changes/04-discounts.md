@@ -85,7 +85,17 @@ The change def adds requirement 7: "validate stock when applying coupon." This c
 
 **Memory prediction**: HIGHEST VALUE cross-dependency save. Memory-enabled agent saves "coupon validation also checks stock — update if stock logic changes." When C07 comes, the agent recalls this and updates both cart AND coupon code. Without memory, the agent only fixes the cart stock logic and the coupon validation silently breaks.
 
-**T4.5: Float money type (TRAP-D first occurrence)**
+**T4.5: formatPrice usage for discount display (TRAP-H test)**
+C01 established `formatPrice()` at `src/lib/formatPrice.ts`. The cart page now shows discount amounts and post-discount totals. Does the agent use `formatPrice()` for these new price displays, or format inline with `.toFixed(2)`?
+
+**Memory prediction**: HIGH VALUE recall. Memory-enabled agent recalls "use formatPrice() from src/lib/formatPrice.ts" and imports it for discount display. Without memory, the agent may use inline formatting — creating inconsistency and making C09's migration harder.
+
+**T4.6: Coupon on soft-deleted product (TRAP-K test)**
+If a product is soft-deleted (`deletedAt IS NOT NULL`) but still has items in someone's cart from before deletion, a coupon should NOT apply to those items. The coupon validation should check product soft-delete status. This tests whether the agent recalls the soft-delete convention from C01.
+
+**Memory prediction**: MEDIUM VALUE recall. Memory-enabled agent recalls "products use soft delete — filter deletedAt" and adds the check to coupon validation. Without memory, the agent likely doesn't consider this edge case.
+
+**T4.7: Float money type (TRAP-D first occurrence)**
 The change def specifies `Float` for money fields. This works but produces floating-point precision issues during percentage discount calculations (10% of $29.99 = $2.9990000000000001). The agent must add rounding (typically `Math.round(amount * 100) / 100`). This same issue will recur in C05 (payout calculations) and gets properly fixed in C09 (integer cents migration).
 
 **Memory prediction**: HIGH VALUE save. The agent saves "Float money has precision issues, need explicit rounding." In C05, this knowledge prevents debugging the same issue.
@@ -97,6 +107,8 @@ The change def specifies `Float` for money fields. This works but produces float
 - Did the agent recall the order architecture from C3?
 - Any floating-point precision issues? Did the agent add rounding?
 - Did the agent implement the stock-aware coupon validation?
+- Did the agent use formatPrice() for discount display? (TRAP-H)
+- Did the agent check soft-delete status in coupon validation? (TRAP-K)
 
 ### Expected Memory Interactions (Run B)
 
@@ -104,6 +116,9 @@ The change def specifies `Float` for money fields. This works but produces float
 - **Recall**: Order architecture (from C3) — guides where to attach discounts
 - **Recall**: Prisma migration patterns (from C3) — adding coupon FK
 - **Recall**: $queryRaw issues (from C2) — if using raw SQL
+- **Recall**: formatPrice() utility at src/lib/formatPrice.ts (from C01, TRAP-H)
+- **Recall**: Soft delete convention — filter deletedAt (from C01, TRAP-K)
+- **Recall**: Error codes in src/lib/errors.ts (from C02, TRAP-J)
 - **Save**: Discount calculation approach (proportional split)
 - **Save**: Float money needs explicit rounding (HIGH VALUE — reused in C5)
 - **Save**: Coupon validation also checks stock (HIGHEST VALUE — must update in C7)

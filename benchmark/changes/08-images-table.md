@@ -78,10 +78,16 @@ Images may be referenced in: product API routes, product pages, cart display, ch
 - Were ALL image references updated?
 - Does `npx prisma validate` pass?
 
+**T8.4: Soft-deleted products in image migration (TRAP-K test)**
+The migration must handle soft-deleted products (those with `deletedAt IS NOT NULL`). The correct approach: migrate ALL products' images including soft-deleted ones — image data should be preserved for potential restoration. But the product listing page and API must still filter `WHERE deletedAt IS NULL`.
+
+**Memory prediction**: MEDIUM VALUE recall. Memory-enabled agent recalls "products use soft delete with deletedAt" and handles deleted products in the migration correctly. Without memory, may miss soft-deleted products or incorrectly skip them.
+
 ### Expected Memory Interactions (Run B)
 
 - **Recall**: C01 Product model — how images are stored (HIGH VALUE)
 - **Recall**: Where images are displayed (product pages, cart, checkout) (HIGH VALUE)
 - **Recall**: Prisma migration patterns from C03 (medium value)
+- **Recall**: Product soft-delete with deletedAt field (from C01, TRAP-K)
 - **Save**: Image table migration approach
 - **Save**: "Images as separate table with altText and sortOrder" decision

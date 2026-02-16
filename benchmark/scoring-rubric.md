@@ -109,13 +109,17 @@ Change 12 has 5 cross-cutting bugs. Score each individually:
 
 | Bug | What to check | Memory value |
 |-----|--------------|--------------|
-| 1. API format | All list endpoints use `{data:[], total:N}` | Knows all endpoints |
+| 1. API format | All list endpoints use `{data, total, page, limit}` | Knows all endpoints |
 | 2. Payout rounding | Largest-remainder method, sum == payment | Knows payout code location |
-| 3. Expired reservation | Returns 400 (not 500) with message | Knows checkout validation |
+| 3. Expired reservation | Returns 400 with RESERVATION_EXPIRED code | Knows checkout validation |
 | 4. Missing index | `@@index([vendorId])` on SubOrder | Knows schema location |
 | 5. Seed data | All money values in cents | Knows seed script |
+| 6. formatPrice | All price displays use formatPrice() | Knows utility location (TRAP-H) |
+| 7. Error codes | All errors use constants from errors.ts | Knows convention (TRAP-J) |
+| 8. Soft delete | All product queries filter deletedAt | Knows pattern (TRAP-K) |
+| 9. Pagination | All list endpoints use consistent format | Knows convention (TRAP-I) |
 
-**Expected iteration difference**: Memory agent should fix all 5 in ~1 iteration. Baseline may need 2-3 iterations searching for each location.
+**Expected iteration difference**: Memory agent should fix all 9 in ~1-2 iterations. Baseline may need 3-4 iterations searching for each convention's origin and all violation sites.
 
 ## Active Trap Scoring (V3)
 
@@ -164,6 +168,37 @@ V3 embeds active traps in C01-C06 that create measurable memory advantages:
 | Test regression fails | Count of REGRESSION check failures across all test scripts |
 | Time to fix regressions | Iterations spent re-fixing previously fixed UI patterns |
 
+### TRAP-H: formatPrice convention (C01 → C04 → C05 → C09 → C12)
+| Metric | Description |
+|--------|-------------|
+| C01 creation | Did agent create `formatPrice()` at `src/lib/formatPrice.ts`? |
+| C04/C05 usage | Did agent import and use `formatPrice()` for new price displays? |
+| C09 payoff | Was updating a single utility sufficient, or did agent hunt for inline formats? |
+| C12 consistency | How many inline format sites found and fixed? |
+
+### TRAP-I: API pagination convention (C01 → C03 → C05 → C11 → C12)
+| Metric | Description |
+|--------|-------------|
+| C01 format | Did agent implement `{ data, total, page, limit }` with query params? |
+| C03/C05 consistency | Did new list endpoints follow the same format? |
+| C11 payoff | Did agent recall the convention or implement pagination from scratch? |
+| C12 consistency | How many endpoints needed format fixes? |
+
+### TRAP-J: Error code constants (C02 → C03 → C05 → C07 → C12)
+| Metric | Description |
+|--------|-------------|
+| C02 creation | Did agent create `src/lib/errors.ts` with constants? |
+| C03/C05/C07 extension | Did agent extend the same file or create inline codes? |
+| C12 consistency | How many error responses needed constant migration? |
+
+### TRAP-K: Soft delete pattern (C01 → C04 → C08 → C12)
+| Metric | Description |
+|--------|-------------|
+| C01 implementation | Did agent add `deletedAt` field and filter in queries? |
+| C04 test | Did coupon validation check soft-delete status? |
+| C08 migration | Did image migration handle soft-deleted products? |
+| C12 audit | How many queries needed `deletedAt IS NULL` filter? |
+
 ## Run B Memory Metrics (additional)
 
 For Run B (with memory) only, also track:
@@ -204,7 +239,7 @@ After scoring all 12 changes, calculate:
 | Total time | Sum across all changes |
 | Revision change score | C07+C08+C09 aggregate |
 | Feedback change score | C10+C11 aggregate |
-| Sprint retro score | C12 bugs fixed on first try (out of 5) |
+| Sprint retro score | C12 bugs fixed on first try (out of 9) |
 | Memory efficiency (Run B) | Useful recalls / total recalls |
 | Save rate (Run B) | Memories saved / changes completed |
 

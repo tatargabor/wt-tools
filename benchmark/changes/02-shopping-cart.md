@@ -43,6 +43,8 @@ Add a shopping cart system with variant-level stock tracking. Buyers can add spe
    - Return appropriate error if insufficient stock
    - Use database transactions to prevent overselling
 
+8. **Error code constants**: Create `src/lib/errors.ts` with named error code constants. All cart API error responses must include a `code` field alongside the error message: `{ "error": "<message>", "code": "<ERROR_CODE>" }`. Define at minimum: `INSUFFICIENT_STOCK`, `PRODUCT_NOT_FOUND`, `VARIANT_NOT_FOUND`, `INVALID_QUANTITY`, `CART_EMPTY`. Import and use these constants in all cart route handlers — never use raw strings for error codes.
+
 ### Acceptance Criteria
 
 - [ ] Cart and CartItem models in Prisma schema with proper relations to Variant
@@ -52,6 +54,8 @@ Add a shopping cart system with variant-level stock tracking. Buyers can add spe
 - [ ] Stock validation prevents adding more than available inventory
 - [ ] Concurrent cart operations don't cause stock inconsistencies
 - [ ] Cart persists across page refreshes (session-based)
+- [ ] `src/lib/errors.ts` exists with error code constants
+- [ ] All cart error responses include `code` field using constants from errors.ts
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -101,6 +105,11 @@ These checks create a "fix on first encounter" scenario. The agent fixes the UI,
 
 **Memory prediction**: HIGHEST VALUE for UI regression prevention. When C04 adds coupon UI to the cart, or C07 adds reservation display, the memory-enabled agent remembers "cart must have +/- controls, no confirm(), link to /products when empty." Without memory, the agent may rebuild the cart component with default patterns, failing the regression checks.
 
+**T2.6: Error code constants file (TRAP-J first occurrence)**
+The change def requires creating `src/lib/errors.ts` with named error constants and using them in all cart API responses. This establishes a convention: all error responses must include a `code` field, and codes must come from the shared constants file — not inline strings. When C03 adds vendor/order errors, C05 adds checkout errors, and C07 modifies stock logic, the agent must extend and import from this same file. C12 sprint retro checks if ALL endpoints use codes from errors.ts consistently.
+
+**Memory prediction**: HIGH VALUE convention save. Memory-enabled agent saves "error codes live in src/lib/errors.ts — import and extend for new error types." In C03, the agent adds `VENDOR_NOT_FOUND`, `ORDER_NOT_FOUND` to the existing file. In C05, adds `PAYMENT_FAILED`, `RESERVATION_EXPIRED`. Without memory, the agent may create inline error codes in each route handler, failing the C12 consistency check.
+
 ### Scoring Focus
 
 - Did the agent encounter SQLITE_BUSY? How many iterations to fix?
@@ -108,6 +117,7 @@ These checks create a "fix on first encounter" scenario. The agent fixes the UI,
 - Is stock validation transactional?
 - Did the agent hit $queryRaw issues? How quickly resolved?
 - How many UI pattern test failures on first test-02 run?
+- Did the agent create `src/lib/errors.ts` with constants? (TRAP-J)
 
 ### Expected Memory Interactions (Run B)
 
@@ -115,6 +125,8 @@ These checks create a "fix on first encounter" scenario. The agent fixes the UI,
 - **Save**: Prisma $queryRaw doesn't work well with SQLite (HIGH VALUE — reused in C5)
 - **Save**: Cart UI: no confirm(), inline +/- controls, empty cart link (HIGH VALUE — regression risk in C4, C7)
 - **Save**: Prisma transaction syntax for stock validation
+- **Save**: Error code constants at src/lib/errors.ts (HIGH VALUE — reused in C03, C05, C07, C12)
 - **Save**: Any C1 refactoring decision (if variant model was wrong)
 - **Recall**: C1 variant model decision (if saved)
 - **Recall**: Prisma generate requirement (if saved in C1)
+- **Recall**: formatPrice() utility from C01 (if cart displays prices)

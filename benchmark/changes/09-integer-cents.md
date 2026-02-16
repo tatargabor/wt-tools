@@ -75,7 +75,12 @@ If the seed script is updated to cents but some values are left in dollars (or v
 
 **Memory prediction**: Medium value. The agent should recall the seed script's location and structure.
 
-**T9.4: Stripe amount format**
+**T9.4: formatPrice() utility — payoff (TRAP-H payoff)**
+If the agent created `formatPrice()` in C01 and used it consistently in C04/C05, then C09 only needs to update this ONE utility function (change the formula from dollar formatting to cent formatting, or it already works since it takes cents). If the agent used inline `.toFixed(2)` everywhere, C09 becomes a hunt through every file for inline formatting — high risk of missing some.
+
+**Memory prediction**: HIGHEST VALUE recall for TRAP-H. Memory-enabled agent knows "all price display goes through formatPrice() at src/lib/formatPrice.ts" — single point of change. Without memory, must grep for all `.toFixed`, `$` template literals, etc.
+
+**T9.5: Stripe amount format**
 Stripe already expects amounts in cents for `payment_intent.create()`. If the agent was previously converting dollars to cents for Stripe, that conversion must be removed (since values are already in cents). Getting this wrong doubles or hundredths the payment amount.
 
 **Memory prediction**: HIGH VALUE recall. Must know the current Stripe integration code to update correctly.

@@ -61,10 +61,10 @@ C06 likely used `buyerSessionId` (from C03's Order model) since there's no user 
 
 **Memory prediction**: Medium value. This tests whether the agent understands the data model limitations.
 
-**T11.3: Pagination implementation**
-Adding pagination to a Next.js page requires either client-side pagination (filter/slice the array) or server-side (query params). The agent needs to choose and implement consistently.
+**T11.3: Pagination convention recall (TRAP-I payoff)**
+C01 established the `{ data, total, page, limit }` pagination format. The vendor dashboard's API endpoint must use the same format. If the agent recalls this convention, implementation is straightforward. If not, the agent may implement a different pagination approach (client-side slicing, or a different API shape), which fails the C12 consistency check.
 
-**Memory prediction**: Low value — this is a standard implementation task.
+**Memory prediction**: HIGH VALUE recall for TRAP-I. Memory-enabled agent recalls "all list endpoints use { data, total, page, limit } with ?page=&limit= query params" from C01 and applies it. Without memory, may implement ad-hoc pagination.
 
 ### Scoring Focus
 

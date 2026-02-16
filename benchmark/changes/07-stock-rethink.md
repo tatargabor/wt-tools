@@ -72,10 +72,17 @@ The agent might add the new checkout-time stock check but forget to remove the o
 - Did the agent create CartReservation model?
 - Was old stock logic fully removed?
 
+**T7.4: Error codes for reservation errors (TRAP-J test)**
+C07 introduces new error cases: expired reservation, insufficient stock at checkout. The agent must add `RESERVATION_EXPIRED`, `CHECKOUT_STOCK_CHANGED` to `src/lib/errors.ts` and use them in the checkout error responses. This tests whether the agent recalls the error code convention from C02.
+
+**Memory prediction**: MEDIUM VALUE recall. Memory-enabled agent recalls the errors.ts convention and extends it. Without memory, may use inline error strings.
+
 ### Expected Memory Interactions (Run B)
 
 - **Recall**: C02 cart implementation — where stock is decremented/incremented (HIGH VALUE)
 - **Recall**: C05 checkout transaction structure — where to add stock logic (HIGH VALUE)
 - **Recall**: Prisma transaction pattern from C02 (medium value)
+- **Recall**: Error codes in src/lib/errors.ts (from C02, TRAP-J)
+- **Recall**: Coupon validation also checks stock (from C04, TRAP-F)
 - **Save**: Cart reservation pattern with TTL
 - **Save**: "Stock only at checkout" architectural decision

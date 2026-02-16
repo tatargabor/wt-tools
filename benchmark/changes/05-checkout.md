@@ -55,6 +55,7 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
 
 7. **Error handling**:
    - Use structured error format: `{ "error": "<message>", "code": "<CODE>", "details": {...} }` — e.g., `{ "error": "Insufficient stock", "code": "CHECKOUT_STOCK_INSUFFICIENT", "details": { "items": [...] } }`
+   - Add new error code constants to `src/lib/errors.ts`: `PAYMENT_FAILED`, `CHECKOUT_STOCK_INSUFFICIENT`, `CHECKOUT_CART_EMPTY`, `STRIPE_ERROR`
    - Payment failure → show error, don't create order
    - Stock changed during checkout → show error, return to cart
    - Stripe API errors → graceful error display
@@ -70,6 +71,9 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
 - [ ] Checkout page renders with Stripe payment element
 - [ ] Order confirmation page shows after successful payment
 - [ ] Error cases handled gracefully (payment failure, stock issues)
+- [ ] Checkout errors use constants from `src/lib/errors.ts`
+- [ ] Checkout page uses `formatPrice()` for all money display
+- [ ] Order history list endpoint returns `{ data, total, page, limit }` format
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -110,6 +114,9 @@ The checkout flow does multiple writes: update stock, create order, create sub-o
 - **Recall**: Discount split approach (from C4) — informs payout calculation
 - **Recall**: Order architecture (from C3) — knows parent order + sub-orders structure
 - **Recall**: Prisma Decimal/money handling (from C4)
+- **Recall**: Error codes in src/lib/errors.ts (from C02, TRAP-J)
+- **Recall**: formatPrice() utility (from C01, TRAP-H)
+- **Recall**: Pagination format { data, total, page, limit } (from C01, TRAP-I)
 - **Save**: Stripe .env.local setup for Next.js
 - **Save**: Payout calculation formula with discount interaction
 - **Save**: Checkout transactional pattern
