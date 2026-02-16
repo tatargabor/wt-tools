@@ -1,6 +1,6 @@
 # Benchmark Run Guide
 
-Complete step-by-step guide for executing the shodh-memory benchmark.
+Complete step-by-step guide for executing the shodh-memory benchmark v2.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ Complete step-by-step guide for executing the shodh-memory benchmark.
 
 ## 1. Bootstrap
 
-Two init scripts handle all setup. Each creates a fresh CraftBazaar repo with the right CLAUDE.md, extracts agent-only change files, and commits.
+Two init scripts handle all setup. Each creates a fresh CraftBazaar repo with the right CLAUDE.md, extracts agent-only change files (12 changes), copies test scripts, and commits.
 
 ### Run A (Baseline — No Memory)
 
@@ -21,7 +21,7 @@ Two init scripts handle all setup. Each creates a fresh CraftBazaar repo with th
 # Default: ~/benchmark/run-a/craftbazaar
 ```
 
-What it does: `git init` → `npm init` → `openspec init --tools claude` → `wt-deploy-hooks` → copies `baseline.md` as CLAUDE.md (PORT=3000) → extracts 6 change files (agent-only, no evaluator notes) → initial commit.
+What it does: `git init` → `npm init` → `openspec init --tools claude` → `wt-deploy-hooks` → copies `baseline.md` as CLAUDE.md (PORT=3000) → extracts 12 change files (agent-only, no evaluator notes) → copies test scripts to `tests/` → initial commit.
 
 **No** `wt-memory-hooks install` — baseline has no memory.
 
@@ -37,23 +37,6 @@ Same as Run A plus: `wt-memory-hooks install` → copies `with-memory.md` as CLA
 ### What the scripts check
 
 Both scripts verify prerequisites before starting and will error if anything is missing. They also verify that evaluator notes didn't leak into the agent-visible change files.
-
-### Manual bootstrap
-
-If you prefer manual setup, the scripts are short and readable — each is ~60 lines of bash. The key steps:
-
-1. `git init` + `npm init -y`
-2. `openspec init --tools claude`
-3. `wt-deploy-hooks .`
-4. (Run B only) `wt-memory-hooks install`
-5. Copy the right CLAUDE.md from `benchmark/claude-md/`
-6. Extract agent-only change sections:
-   ```bash
-   for f in benchmark/changes/0*.md; do
-     sed '/<!-- EVALUATOR NOTES BELOW/,$d' "$f" > docs/benchmark/$(basename "$f")
-   done
-   ```
-7. `git add -A && git commit`
 
 ## 2. Starting the Runs
 
@@ -79,50 +62,33 @@ Then paste this prompt into **each** Claude session:
 Read CLAUDE.md, then check openspec list --json and ls docs/benchmark/ to find the next
 incomplete change. Read the project spec (if first change) and the change definition file.
 Then implement it: run /opsx:ff <change-name> to create artifacts, then /opsx:apply <change-name>
-to implement. Follow the Benchmark Task workflow in CLAUDE.md exactly — work through all 6
-changes in order.
+to implement. Run bash tests/test-NN.sh <PORT> after each change and fix until pass.
+Follow the Benchmark Task workflow in CLAUDE.md exactly — work through all 12 changes in order.
 ```
-
-The agent will follow CLAUDE.md instructions to work through changes 01-06 sequentially, writing status files and committing after each.
-
-**Note:** You'll need to re-prompt the agent when it finishes a change and exits, or when it hits context limits. Each re-prompt starts a fresh session — the agent picks up from git history and `openspec list`.
 
 ### Option B: wt-loop automation
 
-`wt-loop` automates the re-prompting cycle. It can be run from within a Claude session or from a plain terminal:
-
-**From two terminals:**
 ```bash
 # Terminal 1 (Run A)
 cd ~/benchmark/run-a/craftbazaar
-wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+wt-loop start "Build CraftBazaar changes 01-12" --max 30 --stall-threshold 3 --done manual
 
 # Terminal 2 (Run B)
 cd ~/benchmark/run-b/craftbazaar
-wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
-```
-
-**From within interactive Claude sessions:**
-```bash
-# Works because wt-loop unsets CLAUDECODE before spawning child claude processes
-wt-loop start "Build CraftBazaar changes 01-06" --max 20 --stall-threshold 3 --done manual
+wt-loop start "Build CraftBazaar changes 01-12" --max 30 --stall-threshold 3 --done manual
 ```
 
 ### Key flags
 
 | Flag | Value | Purpose |
 |------|-------|---------|
-| `--max 100` | 100 iterations | Generous budget for 6 changes + retries |
-| `--stall-threshold 3` | 3 iterations | Stop if no commits for 3 consecutive iterations (agent is stuck) |
-| `--done manual` | manual completion | Agent decides when done (not based on tasks.md) |
-
-### Important: OpenSpec workflow
-
-The wt-loop prompt directs the agent to read CLAUDE.md and follow its workflow. Both CLAUDE.md variants instruct the agent to use `/opsx:ff` and `/opsx:apply` for each change. This is critical for Run B — the memory hooks are embedded in the OpenSpec skill files, so memory only works if the agent uses OpenSpec commands.
+| `--max 30` | 30 iterations | Budget for 12 changes with test-fix cycles |
+| `--stall-threshold 3` | 3 iterations | Stop if no commits for 3 consecutive iterations |
+| `--done manual` | manual completion | Agent decides when done |
 
 ### First-run trust
 
-When Claude Code opens a project directory for the first time, it prompts to trust the project settings. Since `wt-loop` runs `claude -p` (non-interactive print mode), it cannot answer this prompt. **Before starting the loop**, open Claude interactively once in each directory to accept the trust prompt:
+Before starting the loop, open Claude interactively once in each directory to accept the trust prompt:
 
 ```bash
 cd ~/benchmark/run-a/craftbazaar && claude --dangerously-skip-permissions
@@ -134,14 +100,11 @@ cd ~/benchmark/run-b/craftbazaar && claude --dangerously-skip-permissions
 
 ### Monitoring
 
-From a third terminal (or another Claude session):
+From a third terminal:
 ```bash
 # Check status
 cd ~/benchmark/run-a/craftbazaar && wt-loop status
 cd ~/benchmark/run-b/craftbazaar && wt-loop status
-
-# Or monitor continuously
-cd ~/benchmark/run-a/craftbazaar && wt-loop monitor --interval 60
 ```
 
 ## 3. No-Intervention Policy
@@ -151,15 +114,73 @@ During execution:
 - **Do NOT** fix errors, install packages, or modify files
 - If the agent asks a yes/no question, wt-loop auto-continues (fresh iteration)
 - If the loop stalls (3 iterations with no commits), let it stop — the stall is data
-- If the loop hits max iterations (20), let it stop — record which changes completed
+- If the loop hits max iterations (30), let it stop — record which changes completed
 
 The only acceptable interventions:
 - Restarting if the process crashes (machine reboot, OOM, etc.)
 - Checking status with `wt-loop status` (read-only)
 
-## 4. Results Collection
+## 4. Running Acceptance Tests (post-run)
 
-After both runs complete (or stall/hit max), gather data:
+After both runs complete, run the test suite against each project:
+
+```bash
+# Start the dev server
+cd ~/benchmark/run-a/craftbazaar
+PORT=3000 npm run dev &
+sleep 5
+
+# Run all tests
+for t in tests/test-*.sh; do
+  echo "--- $t ---"
+  bash "$t" 3000
+  echo ""
+done
+
+# Repeat for Run B with PORT=3001
+```
+
+## 5. Running Evaluator Scripts (post-run)
+
+The evaluator scripts in `benchmark/evaluator/` provide automated checks:
+
+```bash
+EVAL_DIR="/path/to/wt-tools/benchmark/evaluator"
+
+# For each run:
+cd ~/benchmark/run-a/craftbazaar
+
+# Schema checks (Image table, Int money, CartReservation, indexes)
+bash "$EVAL_DIR/eval-schema.sh" .
+
+# API checks (response format, money format) — needs running server
+bash "$EVAL_DIR/eval-api.sh" 3000
+
+# Behavior checks (stock logic, transactions, payout formula)
+bash "$EVAL_DIR/eval-behavior.sh" .
+
+# Coherence checks (prisma validate, tsc, seed, build)
+bash "$EVAL_DIR/eval-coherence.sh" .
+```
+
+### Collecting all results
+
+```bash
+bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-a/craftbazaar "Run A (baseline)"
+bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-b/craftbazaar "Run B (memory)"
+```
+
+### Generating comparison
+
+```bash
+bash "$EVAL_DIR/compare.sh" \
+  ~/benchmark/run-a/craftbazaar/results-run-a--baseline-.json \
+  ~/benchmark/run-b/craftbazaar/results-run-b--memory-.json
+```
+
+## 6. Results Collection
+
+After both runs complete, gather data:
 
 ### Automatic data
 
@@ -167,7 +188,7 @@ After both runs complete (or stall/hit max), gather data:
 # For each run (run-a and run-b):
 cd ~/benchmark/<run>/craftbazaar
 
-# Iteration history (time, tokens, commits per iteration)
+# Iteration history
 wt-loop history
 
 # Git log with timestamps
@@ -195,49 +216,31 @@ wt-memory list --json
 wt-memory status
 ```
 
-### Copy data for annotation
-
-```bash
-mkdir -p ~/benchmark/results
-
-# Copy transcripts
-cp ~/benchmark/run-a/craftbazaar/.claude/ralph-loop.log ~/benchmark/results/run-a-transcript.log
-cp ~/benchmark/run-b/craftbazaar/.claude/ralph-loop.log ~/benchmark/results/run-b-transcript.log
-
-# Copy status files
-cp -r ~/benchmark/run-a/craftbazaar/results/ ~/benchmark/results/run-a-status/
-cp -r ~/benchmark/run-b/craftbazaar/results/ ~/benchmark/results/run-b-status/
-
-# Export Run B memories
-cd ~/benchmark/run-b/craftbazaar
-wt-memory export --output ~/benchmark/results/run-b-memories.json
-```
-
-## 5. Post-Run Annotation
+## 7. Post-Run Annotation
 
 For each change in each run:
 
 1. Open the session transcript and find the relevant iterations
-2. Review the agent's approach against the evaluator notes in `benchmark/changes/0N-*.md`
+2. Review the agent's approach against the evaluator notes in `benchmark/changes/NN-*.md`
 3. Fill out `benchmark/templates/session-annotation.md` (one per change per run)
 4. Fill out `benchmark/templates/change-metrics.json` (one per change per run)
 
-### Finding change boundaries in transcripts
+### Key areas to focus on (v2-specific)
 
-Look for these markers in the transcript:
-- `openspec list` output (agent checking completion status)
-- `/opsx:ff <change-name>` invocations (agent starting a new change)
-- `results/change-0N.json` writes (agent completing a change)
-- Commit messages mentioning change names
+| Changes | What to look for |
+|---------|-----------------|
+| C07-C09 | Did the agent find all affected code? How many iterations to search? |
+| C10 | Did the agent add an "Update cart" button? Use confirm()? |
+| C11 | Did the agent remove tabs or enhance them? |
+| C12 | How many of the 5 bugs were fixed on first try? |
 
-## 6. Comparison Report
+## 8. Comparison Report
 
 After annotating all changes:
 
-1. Copy `benchmark/templates/comparison-report.md`
-2. Fill in the aggregate metrics table from per-change data
-3. Fill in the per-change comparison sections
-4. Write narrative findings
-5. For Run B, complete the diagnostic gap analysis using `benchmark/diagnostic-framework.md`
+1. Run the automated comparison: `bash benchmark/evaluator/compare.sh run-a.json run-b.json`
+2. Copy `benchmark/templates/comparison-report.md`
+3. Fill in the per-change comparison sections with transcript evidence
+4. For Run B, complete the diagnostic gap analysis using `benchmark/diagnostic-framework.md`
 
 Alternatively, use `benchmark/collect-results.md` for agent-assisted evaluation.

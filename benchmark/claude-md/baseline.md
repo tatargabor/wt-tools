@@ -10,17 +10,26 @@
 - **Seed**: `npx prisma db seed`
 - **Tests**: `npm test`
 
-## Testing
+## Acceptance Testing
 
-Run tests after implementing each change:
-```bash
-npm test
-```
+Each change has a corresponding test script in `tests/test-NN.sh`. After implementing a change:
 
-If tests don't exist yet, verify manually:
-- Check API routes with curl or fetch
-- Verify pages render at the expected URLs
-- Check database state with `npx prisma studio`
+1. Start the dev server if not running:
+   ```bash
+   PORT=3000 npm run dev &
+   sleep 3
+   ```
+
+2. Run the test for the change you just implemented:
+   ```bash
+   bash tests/test-NN.sh 3000
+   ```
+
+3. If the test fails, fix the issues and re-run until all checks pass.
+
+4. Do NOT commit until the test passes.
+
+**Important**: These tests check API responses, schema structure, and page content. They are the acceptance criteria for each change.
 
 ## OpenSpec Workflow
 
@@ -34,13 +43,20 @@ This project uses OpenSpec for structured change management. Key commands:
 When implementing a change:
 1. Use `/opsx:ff` to create artifacts (proposal, specs, design, tasks)
 2. Use `/opsx:apply` to implement the tasks
-3. Commit all work when done
+3. Run `bash tests/test-NN.sh 3000` and fix any failures
+4. Commit all work when done
 
 ## Benchmark Task
 
-You are autonomously building CraftBazaar through 6 sequential changes. Each session starts fresh (no conversation history from previous sessions).
+You are autonomously building CraftBazaar through 12 sequential changes. Each session starts fresh (no conversation history from previous sessions).
 
 **Project spec**: Read `docs/benchmark/project-spec.md` for the full domain description, tech stack, entities, and project structure. Read this before your first change.
+
+**Changes are in three phases:**
+- **01-06**: Build the core marketplace (products, cart, vendors, discounts, checkout, order workflow)
+- **07-09**: Revision changes — stakeholder changed their mind on earlier decisions
+- **10-11**: Feedback changes — design team corrections to UI/UX
+- **12**: Sprint retro — fix 5 cross-cutting bugs
 
 **Your workflow each session:**
 
@@ -49,7 +65,7 @@ You are autonomously building CraftBazaar through 6 sequential changes. Each ses
    openspec list --json
    ```
 
-2. Find the next incomplete change. Changes are numbered 01-06 in `docs/benchmark/`:
+2. Find the next incomplete change. Changes are numbered 01-12 in `docs/benchmark/`:
    ```bash
    ls docs/benchmark/
    ```
@@ -58,7 +74,8 @@ You are autonomously building CraftBazaar through 6 sequential changes. Each ses
 3. Implement the change:
    - Run `/opsx:ff <change-name>` to create artifacts
    - Run `/opsx:apply <change-name>` to implement tasks
-   - Make sure all acceptance criteria pass
+   - Run `bash tests/test-NN.sh 3000` to verify
+   - Fix any test failures and re-run until pass
 
 4. After completing a change, write a status file:
    ```bash
@@ -77,11 +94,15 @@ You are autonomously building CraftBazaar through 6 sequential changes. Each ses
    git add -A && git commit -m "<change-name>: <summary>"
    ```
 
-6. If all 6 changes are complete, report: "All CraftBazaar changes complete."
+6. If all 12 changes are complete, report: "All CraftBazaar changes complete."
 
 **Important:**
-- Work on changes in order (01 → 02 → 03 → 04 → 05 → 06)
+- Work on changes in order (01 → 02 → ... → 12)
 - Each change builds on the previous — don't skip ahead
+- Changes 07-09 REVISE earlier decisions — read them carefully
+- Changes 10-11 CORRECT design issues — follow the specific corrections exactly
+- Change 12 has 5 bugs to fix — find and fix all of them
 - If you encounter an error, debug and fix it — don't ask for help
 - If a previous change's code needs updating for the current change, update it
 - Write the results JSON even if the change had issues — document what happened
+- Run the acceptance test after each change — do NOT commit until it passes

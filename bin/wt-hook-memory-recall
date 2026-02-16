@@ -2,8 +2,9 @@
 # wt-hook-memory-recall - Claude Code UserPromptSubmit hook for memory recall
 #
 # Called by Claude Code on every user prompt submission.
-# Detects pending OpenSpec changes, recalls memories from completed changes,
-# and outputs actionable context for the agent.
+# Only fires on CHANGE BOUNDARIES — when the agent starts working on a new change.
+# Compares the currently detected change action with `.claude/last-recall-change`.
+# For revision/feedback changes (07-12), also recalls the original change being revised.
 #
 # Designed to be referenced by name in .claude/settings.json:
 #   "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]}]
@@ -20,28 +21,113 @@ wt-memory health &>/dev/null || exit 0
 MEMORY_COUNT=$(wt-memory status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
 [[ -z "$MEMORY_COUNT" || "$MEMORY_COUNT" == "0" ]] && exit 0
 
-# --- Build query: prefer OpenSpec-aware, fallback to prompt ---
-QUERY=""
-USE_OPENSPEC=false
+# --- Detect current change action ---
+# Look at what the agent is about to work on by checking:
+# 1. The prompt text for change names (opsx:ff, opsx:apply mentions)
+# 2. Git log for the most recent committed change
+# 3. OpenSpec change list for pending changes
 
-if command -v openspec &>/dev/null && [[ -d "openspec" ]]; then
-    # Get completed change names from git log (changes that have commits)
-    COMMITTED_CHANGES=$(git log --oneline 2>/dev/null \
-        | grep -oP '^[a-f0-9]+ \K[^:]+(?=:)' \
-        | sort -u)
+CURRENT_CHANGE=""
 
-    if [[ -n "$COMMITTED_CHANGES" ]]; then
-        QUERY=$(echo "$COMMITTED_CHANGES" | tr '\n' ' ')
-        USE_OPENSPEC=true
+# Try to extract change name from prompt
+PROMPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))" 2>/dev/null)
+
+if [[ -n "$PROMPT" ]]; then
+    # Look for opsx:ff or opsx:apply with a change name
+    CURRENT_CHANGE=$(echo "$PROMPT" | grep -oP '(?:opsx:ff|opsx:apply)\s+(\S+)' | head -1 | awk '{print $2}')
+fi
+
+# Fallback: detect from recent git commits and OpenSpec
+if [[ -z "$CURRENT_CHANGE" ]] && command -v openspec &>/dev/null && [[ -d "openspec" ]]; then
+    # Get last committed change name
+    LAST_COMMIT_CHANGE=$(git log --oneline -1 2>/dev/null | grep -oP '^[a-f0-9]+ \K[^:]+(?=:)' || true)
+
+    # Get all change names from docs/benchmark
+    if [[ -d "docs/benchmark" ]]; then
+        # Find the next change after the last committed one
+        CURRENT_CHANGE=$(python3 -c "
+import os, re, glob
+
+# Get change files sorted by number
+files = sorted(glob.glob('docs/benchmark/[0-9]*.md'))
+changes = []
+for f in files:
+    basename = os.path.basename(f).replace('.md', '')
+    # Extract change name (e.g., '01-product-catalog' -> 'product-catalog')
+    name = re.sub(r'^\d+-', '', basename)
+    changes.append(name)
+
+last = '$LAST_COMMIT_CHANGE'
+
+if not last or last not in changes:
+    # Start from beginning
+    print(changes[0] if changes else '')
+else:
+    idx = changes.index(last)
+    if idx + 1 < len(changes):
+        print(changes[idx + 1])
+    else:
+        print(last)  # Still on last change
+" 2>/dev/null)
     fi
 fi
 
-# Fallback: use prompt text
-if [[ -z "$QUERY" ]]; then
-    PROMPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))" 2>/dev/null)
-    [[ -z "$PROMPT" ]] && exit 0
-    QUERY=$(echo "$PROMPT" | head -c 200)
+# If we still can't determine the change, exit silently
+[[ -z "$CURRENT_CHANGE" ]] && exit 0
+
+# --- Change boundary check ---
+# Compare with last recalled change
+MARKER_DIR=".claude"
+MARKER_FILE="$MARKER_DIR/last-recall-change"
+mkdir -p "$MARKER_DIR"
+
+LAST_RECALLED=""
+if [[ -f "$MARKER_FILE" ]]; then
+    LAST_RECALLED=$(cat "$MARKER_FILE" 2>/dev/null)
 fi
+
+# If same change as last recall, skip (no output)
+if [[ "$CURRENT_CHANGE" == "$LAST_RECALLED" ]]; then
+    exit 0
+fi
+
+# Update marker
+echo "$CURRENT_CHANGE" > "$MARKER_FILE"
+
+# --- Build recall query ---
+# Map revision/feedback changes to their originals for enhanced recall
+QUERY="$CURRENT_CHANGE"
+REVISION_NOTE=""
+
+case "$CURRENT_CHANGE" in
+    stock-rethink)
+        QUERY="$CURRENT_CHANGE shopping-cart cart stock variant checkout"
+        REVISION_NOTE="This change revises C02 (shopping-cart). Recall cart and stock implementation details."
+        ;;
+    images-table)
+        QUERY="$CURRENT_CHANGE product-catalog images product model"
+        REVISION_NOTE="This change revises C01 (product-catalog). Recall how images are stored."
+        ;;
+    integer-cents)
+        QUERY="$CURRENT_CHANGE discounts checkout money price decimal payout"
+        REVISION_NOTE="This change revises C04+C05. Recall all money fields and calculation locations."
+        ;;
+    cart-ux-correction)
+        QUERY="$CURRENT_CHANGE shopping-cart cart page confirm update button"
+        REVISION_NOTE="This change corrects C02 cart page UX. Recall cart component structure."
+        ;;
+    vendor-dashboard-redesign)
+        QUERY="$CURRENT_CHANGE order-workflow vendor dashboard tabs status"
+        REVISION_NOTE="This change corrects C06 dashboard. Recall vendor dashboard component (MUST remove tabs)."
+        ;;
+    sprint-retro)
+        QUERY="$CURRENT_CHANGE product-catalog multi-vendor discounts checkout order-workflow API payout seed"
+        REVISION_NOTE="Sprint retro: 5 cross-cutting bugs. Recall all API endpoints, payout logic, seed script, and schema."
+        ;;
+    *)
+        QUERY="$CURRENT_CHANGE implementation"
+        ;;
+esac
 
 # Recall relevant memories
 TMPFILE=$(mktemp)
@@ -63,11 +149,10 @@ except:
 if not memories:
     sys.exit(0)
 
-# Group by change name (from tags)
+# Deduplicate by first 50 chars
 seen = set()
 for m in memories:
     content = m.get('content', '').replace('\n', ' ')[:300]
-    # Deduplicate by first 50 chars
     key = content[:50]
     if key in seen:
         continue
@@ -79,11 +164,11 @@ for m in memories:
 
 echo ""
 echo "=== PROJECT MEMORY ==="
-if $USE_OPENSPEC; then
-    echo "Previously completed changes — maintain consistency:"
-else
-    echo "Relevant past experience:"
+echo "Starting change: $CURRENT_CHANGE"
+if [[ -n "$REVISION_NOTE" ]]; then
+    echo "NOTE: $REVISION_NOTE"
 fi
+echo "Relevant past experience — maintain consistency:"
 echo "$FORMATTED"
 echo "=== END ==="
 

@@ -51,7 +51,7 @@ wt-deploy-hooks .
 wt-memory-hooks install
 
 # --- Directories ---
-mkdir -p docs/benchmark results
+mkdir -p docs/benchmark results tests
 
 # --- CLAUDE.md (with memory, PORT=3001) ---
 cp "$SCRIPT_DIR/claude-md/with-memory.md" ./CLAUDE.md
@@ -60,12 +60,12 @@ cp "$SCRIPT_DIR/claude-md/with-memory.md" ./CLAUDE.md
 cp "$SCRIPT_DIR/project-spec.md" docs/benchmark/project-spec.md
 
 # --- Extract agent-only sections from change definitions ---
-for f in "$SCRIPT_DIR"/changes/0*.md; do
+for f in "$SCRIPT_DIR"/changes/[0-9]*.md; do
   sed '/<!-- EVALUATOR NOTES BELOW/,$d' "$f" > docs/benchmark/"$(basename "$f")"
 done
 
 # --- Create OpenSpec changes with proposals ---
-for f in "$SCRIPT_DIR"/changes/0*.md; do
+for f in "$SCRIPT_DIR"/changes/[0-9]*.md; do
   # Derive change name: 01-product-catalog.md -> product-catalog
   change_name=$(basename "$f" .md | sed 's/^[0-9]*-//')
 
@@ -81,10 +81,17 @@ for f in "$SCRIPT_DIR"/changes/0*.md; do
   echo "  ✔ Change: $change_name (proposal ready)"
 done
 
+# --- Copy test scripts ---
+if [ -d "$SCRIPT_DIR/tests" ]; then
+  cp "$SCRIPT_DIR"/tests/test-*.sh tests/
+  chmod +x tests/test-*.sh
+  echo "  ✔ Test scripts copied to tests/"
+fi
+
 # --- Verify extraction ---
-count=$(ls docs/benchmark/0*.md 2>/dev/null | wc -l)
-if [ "$count" -ne 6 ]; then
-  echo "WARNING: Expected 6 change files, found $count" >&2
+count=$(ls docs/benchmark/[0-9]*.md 2>/dev/null | wc -l)
+if [ "$count" -ne 12 ]; then
+  echo "WARNING: Expected 12 change files, found $count" >&2
 fi
 
 if grep -rl "Evaluator Notes" docs/benchmark/*.md 2>/dev/null; then
@@ -105,7 +112,8 @@ echo ""
 echo "=== Done ==="
 echo "  Directory: $TARGET"
 echo "  CLAUDE.md: with-memory (PORT=3001, proactive memory enabled)"
-echo "  Changes:   6 OpenSpec changes with proposals"
+echo "  Changes:   12 OpenSpec changes with proposals"
+echo "  Tests:     12 acceptance test scripts in tests/"
 echo "  Memory:    hooks installed"
 echo ""
 echo "Next steps:"
@@ -115,4 +123,4 @@ echo "     # Type 'hello', wait for response, Ctrl+C to exit"
 echo ""
 echo "  2. Start the run:"
 echo "     cd $TARGET"
-echo "     wt-loop start \"Build CraftBazaar changes 01-06\" --max 100 --stall-threshold 3 --done manual"
+echo "     wt-loop start \"Build CraftBazaar changes 01-12\" --max 30 --stall-threshold 3 --done manual"
