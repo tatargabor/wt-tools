@@ -21,7 +21,7 @@ Two init scripts handle all setup. Each creates a fresh CraftBazaar repo with th
 # Default: ~/benchmark/run-a/craftbazaar
 ```
 
-What it does: `git init` → `npm init` → `openspec init --tools claude` → `wt-deploy-hooks` → copies `baseline.md` as CLAUDE.md (PORT=3000) → extracts 12 change files (agent-only, no evaluator notes) → copies test scripts to `tests/` → initial commit.
+What it does: `git init` → `npm init` → `openspec init --tools claude` → `wt-deploy-hooks` → copies `baseline.md` as CLAUDE.md (PORT=4000) → extracts 12 change files (agent-only, no evaluator notes) → copies test scripts to `tests/` → initial commit.
 
 **No** `wt-memory-hooks install` — baseline has no memory.
 
@@ -32,7 +32,7 @@ What it does: `git init` → `npm init` → `openspec init --tools claude` → `
 # Default: ~/benchmark/run-b/craftbazaar
 ```
 
-Same as Run A plus: `wt-memory-hooks install` → copies `with-memory.md` as CLAUDE.md (PORT=3001) → verifies `wt-memory health`.
+Same as Run A plus: `wt-memory-hooks install` → copies `with-memory.md` as CLAUDE.md (PORT=4001) → verifies `wt-memory health`.
 
 ### What the scripts check
 
@@ -127,17 +127,17 @@ After both runs complete, run the test suite against each project:
 ```bash
 # Start the dev server
 cd ~/benchmark/run-a/craftbazaar
-PORT=3000 npm run dev &
+PORT=4000 npm run dev &
 sleep 5
 
 # Run all tests
 for t in tests/test-*.sh; do
   echo "--- $t ---"
-  bash "$t" 3000
+  bash "$t" 4000
   echo ""
 done
 
-# Repeat for Run B with PORT=3001
+# Repeat for Run B with PORT=4001
 ```
 
 ## 5. Running Evaluator Scripts (post-run)
@@ -154,7 +154,7 @@ cd ~/benchmark/run-a/craftbazaar
 bash "$EVAL_DIR/eval-schema.sh" .
 
 # API checks (response format, money format) — needs running server
-bash "$EVAL_DIR/eval-api.sh" 3000
+bash "$EVAL_DIR/eval-api.sh" 4000
 
 # Behavior checks (stock logic, transactions, payout formula)
 bash "$EVAL_DIR/eval-behavior.sh" .
@@ -232,7 +232,7 @@ For each change in each run:
 | C07-C09 | Did the agent find all affected code? How many iterations to search? |
 | C10 | Did the agent add an "Update cart" button? Use confirm()? |
 | C11 | Did the agent remove tabs or enhance them? |
-| C12 | How many of the 5 bugs were fixed on first try? |
+| C12 | How many of the 12 bugs were fixed on first try? |
 
 ## 8. Comparison Report
 

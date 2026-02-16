@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-02.sh - Shopping Cart tests (Change 02)
 # Tests: cart CRUD, stock tracking, totals
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

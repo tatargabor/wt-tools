@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-04.sh - Discount and Coupon tests (Change 04)
 # Tests: coupon validation, discount application, cart totals
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

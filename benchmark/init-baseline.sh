@@ -48,7 +48,7 @@ wt-deploy-hooks --no-memory .
 # --- Directories ---
 mkdir -p docs/benchmark results tests
 
-# --- CLAUDE.md (baseline, PORT=3000, no memory) ---
+# --- CLAUDE.md (baseline, PORT=4000, no memory) ---
 cp "$SCRIPT_DIR/claude-md/baseline.md" ./CLAUDE.md
 
 # --- Project spec (domain context for the agent) ---
@@ -80,6 +80,11 @@ done
 if [ -d "$SCRIPT_DIR/tests" ]; then
   cp "$SCRIPT_DIR"/tests/test-*.sh tests/
   chmod +x tests/test-*.sh
+  # Copy test library (check-conventions.sh etc.)
+  if [ -d "$SCRIPT_DIR/tests/lib" ]; then
+    mkdir -p tests/lib
+    cp "$SCRIPT_DIR"/tests/lib/*.sh tests/lib/
+  fi
   echo "  ✔ Test scripts copied to tests/"
 fi
 
@@ -101,7 +106,7 @@ git commit -m "Initial CraftBazaar setup (baseline run)"
 echo ""
 echo "=== Done ==="
 echo "  Directory: $TARGET"
-echo "  CLAUDE.md: baseline (PORT=3000, no memory)"
+echo "  CLAUDE.md: baseline (PORT=4000, no memory)"
 echo "  Changes:   12 OpenSpec changes with proposals"
 echo "  Tests:     12 acceptance test scripts in tests/"
 echo ""

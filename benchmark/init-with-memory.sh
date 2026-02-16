@@ -53,7 +53,7 @@ wt-memory-hooks install
 # --- Directories ---
 mkdir -p docs/benchmark results tests
 
-# --- CLAUDE.md (with memory, PORT=3001) ---
+# --- CLAUDE.md (with memory, PORT=4001) ---
 cp "$SCRIPT_DIR/claude-md/with-memory.md" ./CLAUDE.md
 
 # --- Project spec (domain context for the agent) ---
@@ -85,6 +85,11 @@ done
 if [ -d "$SCRIPT_DIR/tests" ]; then
   cp "$SCRIPT_DIR"/tests/test-*.sh tests/
   chmod +x tests/test-*.sh
+  # Copy test library (check-conventions.sh etc.)
+  if [ -d "$SCRIPT_DIR/tests/lib" ]; then
+    mkdir -p tests/lib
+    cp "$SCRIPT_DIR"/tests/lib/*.sh tests/lib/
+  fi
   echo "  ✔ Test scripts copied to tests/"
 fi
 
@@ -111,7 +116,7 @@ git commit -m "Initial CraftBazaar setup (memory run)"
 echo ""
 echo "=== Done ==="
 echo "  Directory: $TARGET"
-echo "  CLAUDE.md: with-memory (PORT=3001, proactive memory enabled)"
+echo "  CLAUDE.md: with-memory (PORT=4001, proactive memory enabled)"
 echo "  Changes:   12 OpenSpec changes with proposals"
 echo "  Tests:     12 acceptance test scripts in tests/"
 echo "  Memory:    hooks installed"

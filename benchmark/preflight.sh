@@ -7,7 +7,7 @@
 # Usage: bash benchmark/preflight.sh [PORT]
 # Exit 0 = all checks pass, Exit 1 = one or more checks failed.
 
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 PASS=0; FAIL=0
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -91,12 +91,13 @@ echo ""
 # --- Port availability ---
 echo "--- Port Availability ---"
 if command -v ss &>/dev/null; then
-    PORT_USED=$(ss -tlnp 2>/dev/null | grep -c ":$PORT " || echo 0)
+    PORT_USED=$(ss -tlnp 2>/dev/null | grep -c ":$PORT " 2>/dev/null || true)
 elif command -v lsof &>/dev/null; then
-    PORT_USED=$(lsof -i ":$PORT" 2>/dev/null | grep -c LISTEN || echo 0)
+    PORT_USED=$(lsof -i ":$PORT" 2>/dev/null | grep -c LISTEN 2>/dev/null || true)
 else
     PORT_USED=0  # Can't check, assume free
 fi
+PORT_USED=${PORT_USED:-0}
 check "Port $PORT is free" '[ "$PORT_USED" -eq 0 ]'
 
 echo ""

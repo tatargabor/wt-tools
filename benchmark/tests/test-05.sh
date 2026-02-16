@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-05.sh - Checkout and Payment tests (Change 05)
 # Tests: payment intent creation, order confirmation, payout splitting
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

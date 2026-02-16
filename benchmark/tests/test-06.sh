@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-06.sh - Order Status Workflow tests (Change 06)
 # Tests: status transitions, invalid transitions, derived status
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

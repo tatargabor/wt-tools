@@ -64,7 +64,7 @@ for ev in evaluators:
     if os.path.exists(ev_path):
         if 'api' in ev:
             # API evaluator needs port — try to detect
-            cmd = f'bash {ev_path} 3000'
+            cmd = f'bash {ev_path} 4000'
         else:
             cmd = f'bash {ev_path} .'
         code, out, err = run(cmd, timeout=120)
@@ -79,7 +79,7 @@ test_results = {}
 if os.path.isdir(test_dir):
     for tf in sorted(glob.glob(os.path.join(test_dir, 'test-*.sh'))):
         tname = os.path.basename(tf)
-        code, out, err = run(f'bash {tf} 3000', timeout=30)
+        code, out, err = run(f'bash {tf} 4000', timeout=30)
         lines = out.split('\n')
         pass_count = sum(1 for l in lines if l.startswith('PASS:'))
         fail_count = sum(1 for l in lines if l.startswith('FAIL:'))

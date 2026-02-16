@@ -3,7 +3,7 @@
 ## Project Setup
 
 - **Stack**: Next.js 14 (App Router) + Prisma + SQLite + TypeScript + Tailwind CSS
-- **Dev server**: `PORT=3000 npm run dev`
+- **Dev server**: `PORT=4000 npm run dev`
 - **Database**: SQLite (file-based, `prisma/dev.db`)
 - **Migrations**: `npx prisma migrate dev`
 - **Generate client**: `npx prisma generate` (required after schema changes)
@@ -16,13 +16,13 @@ Each change has a corresponding test script in `tests/test-NN.sh`. After impleme
 
 1. Start the dev server if not running:
    ```bash
-   PORT=3000 npm run dev &
+   PORT=4000 npm run dev &
    sleep 3
    ```
 
 2. Run the test for the change you just implemented:
    ```bash
-   bash tests/test-NN.sh 3000
+   bash tests/test-NN.sh 4000
    ```
 
 3. If the test fails, fix the issues and re-run until all checks pass.
@@ -43,7 +43,7 @@ This project uses OpenSpec for structured change management. Key commands:
 When implementing a change:
 1. Use `/opsx:ff` to create artifacts (proposal, specs, design, tasks)
 2. Use `/opsx:apply` to implement the tasks
-3. Run `bash tests/test-NN.sh 3000` and fix any failures
+3. Run `bash tests/test-NN.sh 4000` and fix any failures
 4. Commit all work when done
 
 ## Benchmark Task
@@ -56,7 +56,7 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 - **01-06**: Build the core marketplace (products, cart, vendors, discounts, checkout, order workflow)
 - **07-09**: Revision changes — stakeholder changed their mind on earlier decisions
 - **10-11**: Feedback changes — design team corrections to UI/UX
-- **12**: Sprint retro — fix 5 cross-cutting bugs
+- **12**: Sprint retro — fix 12 cross-cutting bugs
 
 **Your workflow each session:**
 
@@ -72,7 +72,7 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 2. Implement the change:
    - Run `/opsx:ff <change-name>` to create artifacts
    - Run `/opsx:apply <change-name>` to implement tasks
-   - Run `bash tests/test-NN.sh 3000` to verify
+   - Run `bash tests/test-NN.sh 4000` to verify
    - Fix any test failures and re-run until ALL checks pass
    - The test script automatically creates `results/change-NN.json` when all checks pass
 
@@ -88,7 +88,7 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 - Each change builds on the previous — don't skip ahead
 - Changes 07-09 REVISE earlier decisions — read them carefully
 - Changes 10-11 CORRECT design issues — follow the specific corrections exactly
-- Change 12 has 5 bugs to fix — find and fix all of them
+- Change 12 has 12 bugs to fix — find and fix all of them
 - If you encounter an error, debug and fix it — don't ask for help
 - If a previous change's code needs updating for the current change, update it
 - Run the acceptance test after each change — do NOT commit until it passes

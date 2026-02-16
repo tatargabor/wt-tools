@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-03.sh - Multi-Vendor tests (Change 03)
 # Tests: vendor CRUD, order creation with sub-orders
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

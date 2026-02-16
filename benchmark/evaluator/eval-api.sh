@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 
 python3 -c "

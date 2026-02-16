@@ -85,7 +85,7 @@ npx prisma migrate dev
 npx prisma generate
 
 # Start dev server
-PORT=${PORT:-3000} npm run dev
+PORT=${PORT:-4000} npm run dev
 
 # Run tests
 npm test

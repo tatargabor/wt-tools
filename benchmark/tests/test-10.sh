@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-10.sh - Cart Page UX Correction tests (Change 10)
 # Tests: no confirm() calls, no Update button, empty cart has /products link
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

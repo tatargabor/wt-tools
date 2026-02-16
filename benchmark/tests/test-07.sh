@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-07.sh - Stock Reservation Rethink tests (Change 07)
 # Tests: stock NOT decremented on cart add, stock decremented at checkout, expired reservation handling
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

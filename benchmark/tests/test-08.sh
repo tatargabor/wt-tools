@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-08.sh - Product Images Table tests (Change 08)
 # Tests: Image table exists, Product has no images column, API returns new format
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

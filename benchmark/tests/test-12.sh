@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-12.sh - Sprint Retrospective Fixes tests (Change 12)
 # Tests: API format consistency, payout math, reservation error, index, seed data
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

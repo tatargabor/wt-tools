@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-11.sh - Vendor Dashboard Redesign tests (Change 11)
 # Tests: no tabs, pagination controls, badge CSS classes
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

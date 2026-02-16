@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-01.sh - Product Catalog tests (Change 01)
 # Tests: product CRUD, variant operations, seed data
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 

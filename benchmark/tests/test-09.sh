@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-09.sh - Integer Cents tests (Change 09)
 # Tests: all money fields are Int, payout math is exact
-PORT="${1:-3000}"
+PORT="${1:-4000}"
 BASE="http://localhost:$PORT"
 PASS=0; FAIL=0
 
