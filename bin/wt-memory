@@ -36,10 +36,11 @@ CLI helper for Shodh-Memory (local per-project cognitive memory).
 
 Core Commands:
   health                          Check if shodh-memory is available
-  remember --type TYPE [--tags t1,t2] < content
+  remember --type TYPE [--tags t1,t2] [--metadata JSON] [--failure] [--anomaly] < content
                                   Save a memory (reads content from stdin)
-  recall "query" [--limit N] [--mode MODE] [--tags t1,t2]
+  recall "query" [--limit N] [--mode MODE] [--tags t1,t2] [--tags-only] [--min-importance F]
                                   Semantic search (JSON stdout)
+  proactive "context" [--limit N] Context-aware retrieval with relevance scores (JSON stdout)
   list [--type TYPE] [--limit N]  List memories (JSON stdout)
   status [--json]                 Show config, health, and memory count
   projects                        List all projects with memory counts
@@ -50,6 +51,11 @@ Forget / Cleanup:
   forget --older-than <days>      Delete memories older than N days
   forget --tags <t1,t2>           Delete memories matching tags
   forget --pattern <regex>        Delete memories matching regex pattern
+
+Diagnostics:
+  stats [--json]                  Memory quality diagnostics (types, tags, importance)
+  cleanup [--threshold F] [--dry-run]
+                                  Remove low-value memories (default threshold 0.2)
 
 Introspection:
   get <id>                        Get a single memory by ID (JSON stdout)
@@ -244,11 +250,17 @@ except AttributeError:
 cmd_remember() {
     local memory_type=""
     local tags=""
+    local metadata=""
+    local is_failure=false
+    local is_anomaly=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --type) memory_type="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
+            --metadata) metadata="$2"; shift 2 ;;
+            --failure) is_failure=true; shift ;;
+            --anomaly) is_anomaly=true; shift ;;
             *) shift ;;
         esac
     done
@@ -256,6 +268,14 @@ cmd_remember() {
     if [[ -z "$memory_type" ]]; then
         echo "Error: --type is required" >&2
         return 1
+    fi
+
+    # Validate --metadata is valid JSON dict if provided
+    if [[ -n "$metadata" ]]; then
+        if ! echo "$metadata" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d,dict)" 2>/dev/null; then
+            echo "Error: --metadata must be a valid JSON object (e.g., '{\"key\":\"value\"}')" >&2
+            return 1
+        fi
     fi
 
     # Map unsupported types to valid shodh-memory types
@@ -315,13 +335,21 @@ cmd_remember() {
     _SHODH_CONTENT="$content" \
     _SHODH_TYPE="$memory_type" \
     _SHODH_TAGS="$tags_py" \
+    _SHODH_METADATA="${metadata:-"{}"}" \
+    _SHODH_IS_FAILURE="$is_failure" \
+    _SHODH_IS_ANOMALY="$is_anomaly" \
     run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 tags = json.loads(os.environ['_SHODH_TAGS'])
-m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], tags=tags)
+metadata_raw = json.loads(os.environ.get('_SHODH_METADATA', '{}'))
+metadata = {str(k): str(v) for k, v in metadata_raw.items()} if metadata_raw else None
+is_failure = os.environ.get('_SHODH_IS_FAILURE', 'false') == 'true'
+is_anomaly = os.environ.get('_SHODH_IS_ANOMALY', 'false') == 'true'
+m.remember(os.environ['_SHODH_CONTENT'], memory_type=os.environ['_SHODH_TYPE'], tags=tags,
+    metadata=metadata, is_failure=is_failure, is_anomaly=is_anomaly)
 " || rc=$?
 
     if [[ $rc -ne 0 ]]; then
@@ -467,12 +495,16 @@ cmd_recall() {
     local limit=5
     local mode=""
     local tags=""
+    local tags_only=false
+    local min_importance=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
             --mode) mode="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
+            --tags-only) tags_only=true; shift ;;
+            --min-importance) min_importance="$2"; shift 2 ;;
             -*)
                 shift
                 ;;
@@ -485,7 +517,13 @@ cmd_recall() {
         esac
     done
 
-    if [[ -z "$query" ]]; then
+    # --tags-only requires --tags
+    if [[ "$tags_only" == "true" && -z "$tags" ]]; then
+        echo "Error: --tags-only requires --tags" >&2
+        return 1
+    fi
+
+    if [[ -z "$query" && "$tags_only" == "false" ]]; then
         echo "[]"
         return 0
     fi
@@ -520,6 +558,7 @@ cmd_recall() {
         _SHODH_BRANCH_LIMIT="$branch_limit" \
         _SHODH_MODE="$mode" \
         _SHODH_BRANCH_TAGS="$branch_tags_py" \
+        _SHODH_MIN_IMPORTANCE="$min_importance" \
         run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import json, os
@@ -529,6 +568,7 @@ limit = int(os.environ['_SHODH_LIMIT'])
 branch_limit = int(os.environ['_SHODH_BRANCH_LIMIT'])
 mode = os.environ.get('_SHODH_MODE', '')
 branch_tags = json.loads(os.environ['_SHODH_BRANCH_TAGS'])
+min_imp = os.environ.get('_SHODH_MIN_IMPORTANCE', '')
 
 kwargs_branch = {'limit': branch_limit, 'tags': branch_tags}
 kwargs_all = {'limit': limit}
@@ -555,6 +595,11 @@ for r in all_results:
         seen.add(rid)
         merged.append(r)
 
+# Post-filter by min importance
+if min_imp:
+    threshold = float(min_imp)
+    merged = [r for r in merged if float(r.get('importance', 0)) >= threshold]
+
 print(json.dumps(merged[:limit], default=str))
 " || echo "[]"
     else
@@ -569,22 +614,104 @@ print(json.dumps(merged[:limit], default=str))
         _SHODH_LIMIT="$limit" \
         _SHODH_MODE="$mode" \
         _SHODH_TAGS="$tags_py" \
+        _SHODH_TAGS_ONLY="$tags_only" \
+        _SHODH_MIN_IMPORTANCE="$min_importance" \
         run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
-kwargs = {'limit': int(os.environ['_SHODH_LIMIT'])}
-mode = os.environ.get('_SHODH_MODE', '')
-if mode:
-    kwargs['mode'] = mode
 tags = json.loads(os.environ.get('_SHODH_TAGS', '[]'))
-if tags:
-    kwargs['tags'] = tags
-results = m.recall(os.environ['_SHODH_QUERY'], **kwargs)
+tags_only = os.environ.get('_SHODH_TAGS_ONLY', 'false') == 'true'
+min_imp = os.environ.get('_SHODH_MIN_IMPORTANCE', '')
+
+if tags_only and tags:
+    # Fast tag-based lookup
+    if hasattr(m, 'recall_by_tags'):
+        results = m.recall_by_tags(tags, limit=int(os.environ['_SHODH_LIMIT']))
+    else:
+        # Fallback: use recall with tags filter
+        results = m.recall('', limit=int(os.environ['_SHODH_LIMIT']), tags=tags)
+else:
+    kwargs = {'limit': int(os.environ['_SHODH_LIMIT'])}
+    mode = os.environ.get('_SHODH_MODE', '')
+    if mode:
+        kwargs['mode'] = mode
+    if tags:
+        kwargs['tags'] = tags
+    results = m.recall(os.environ['_SHODH_QUERY'], **kwargs)
+
+# Post-filter by min importance
+if min_imp:
+    threshold = float(min_imp)
+    results = [r for r in results if float(r.get('importance', 0)) >= threshold]
+
 print(json.dumps(results, default=str))
 " || echo "[]"
     fi
+
+    return 0
+}
+
+# Proactive context retrieval — auto-surfaces relevant memories with relevance scores
+# Usage: wt-memory proactive "conversation context" [--limit N]
+cmd_proactive() {
+    local context=""
+    local limit=5
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            -*)
+                shift
+                ;;
+            *)
+                if [[ -z "$context" ]]; then
+                    context="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$context" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Health check — return empty array if not installed
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "[]"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_CONTEXT="$context" \
+    _SHODH_LIMIT="$limit" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+limit = int(os.environ['_SHODH_LIMIT'])
+context = os.environ['_SHODH_CONTEXT']
+
+if hasattr(m, 'proactive_context'):
+    raw = m.proactive_context(context, max_results=limit)
+    # proactive_context returns a dict with 'memories' list
+    results = raw.get('memories', []) if isinstance(raw, dict) else raw
+    print(json.dumps(results, default=str))
+else:
+    # Fallback: use recall with hybrid mode
+    results = m.recall(context, limit=limit, mode='hybrid')
+    # Add placeholder relevance fields for consistent output
+    for r in results:
+        r['relevance_score'] = 'N/A'
+    print(json.dumps(results, default=str))
+" || echo "[]"
 
     return 0
 }
@@ -710,6 +837,147 @@ try:
 except AttributeError:
     print(json.dumps({'error': 'brain_state not available in this shodh-memory version'}))
 " || echo "{}"
+
+    return 0
+}
+
+# Memory quality diagnostics
+# Usage: wt-memory stats [--json]
+cmd_stats() {
+    local json_mode=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_JSON="$json_mode" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from collections import Counter
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+json_mode = os.environ.get('_SHODH_JSON', 'false') == 'true'
+
+# Get all memories
+memories = m.list_memories()
+total = len(memories)
+
+# Type distribution
+type_dist = Counter(r.get('experience_type', 'unknown') for r in memories)
+
+# Tag frequency (top 10)
+tag_counter = Counter()
+for r in memories:
+    for t in r.get('tags', []):
+        tag_counter[t] += 1
+tag_dist = dict(tag_counter.most_common(10))
+
+# Importance histogram (5 buckets)
+buckets = {'0.0-0.2': 0, '0.2-0.4': 0, '0.4-0.6': 0, '0.6-0.8': 0, '0.8-1.0': 0}
+noise_count = 0
+for r in memories:
+    imp = float(r.get('importance', 0.5))
+    if imp < 0.2: buckets['0.0-0.2'] += 1
+    elif imp < 0.4: buckets['0.2-0.4'] += 1
+    elif imp < 0.6: buckets['0.4-0.6'] += 1
+    elif imp < 0.8: buckets['0.6-0.8'] += 1
+    else: buckets['0.8-1.0'] += 1
+    if imp < 0.3: noise_count += 1
+
+noise_ratio = round(noise_count / total, 2) if total > 0 else 0
+
+if json_mode:
+    print(json.dumps({
+        'total': total,
+        'type_distribution': dict(type_dist),
+        'tag_distribution': tag_dist,
+        'importance_histogram': buckets,
+        'noise_ratio': noise_ratio
+    }, default=str))
+else:
+    print(f'Total memories: {total}')
+    print(f'Noise ratio: {noise_ratio:.0%} (importance < 0.3)')
+    print()
+    print('Type distribution:')
+    for t, c in sorted(type_dist.items(), key=lambda x: -x[1]):
+        print(f'  {t}: {c}')
+    print()
+    print('Top tags:')
+    for t, c in tag_counter.most_common(10):
+        print(f'  {t}: {c}')
+    print()
+    print('Importance histogram:')
+    for bucket, count in buckets.items():
+        bar = '#' * count
+        print(f'  {bucket}: {count:3d} {bar}')
+" || { [[ "$json_mode" == "true" ]] && echo "{}"; }
+
+    return 0
+}
+
+# Memory cleanup — remove low-value memories
+# Usage: wt-memory cleanup [--threshold F] [--dry-run]
+cmd_cleanup() {
+    local threshold=0.2
+    local dry_run=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --threshold) threshold="$2"; shift 2 ;;
+            --dry-run) dry_run=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_THRESHOLD="$threshold" \
+    _SHODH_DRY_RUN="$dry_run" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+threshold = float(os.environ['_SHODH_THRESHOLD'])
+dry_run = os.environ.get('_SHODH_DRY_RUN', 'false') == 'true'
+
+if not dry_run and hasattr(m, 'forget_by_importance'):
+    count = m.forget_by_importance(threshold)
+    print(json.dumps({'deleted_count': count}))
+else:
+    # Fallback or dry-run: list, filter, optionally delete
+    memories = m.list_memories()
+    to_delete = [r for r in memories if float(r.get('importance', 0.5)) < threshold]
+    if dry_run:
+        print(json.dumps({'would_delete': len(to_delete), 'dry_run': True}))
+    else:
+        deleted = 0
+        for r in to_delete:
+            try:
+                m.forget(r['id'])
+                deleted += 1
+            except Exception:
+                pass
+        print(json.dumps({'deleted_count': deleted}))
+" || echo '{"deleted_count": 0}'
 
     return 0
 }
@@ -1684,10 +1952,13 @@ main() {
         health)   cmd_health "$@" ;;
         remember) cmd_remember "$@" ;;
         recall)   cmd_recall "$@" ;;
+        proactive) cmd_proactive "$@" ;;
         list)     cmd_list "$@" ;;
         forget)   cmd_forget "$@" ;;
         context)  cmd_context "$@" ;;
         brain)    cmd_brain "$@" ;;
+        stats)    cmd_stats "$@" ;;
+        cleanup)  cmd_cleanup "$@" ;;
         get|inspect) cmd_get "$@" ;;
         export)   cmd_export "$@" ;;
         import)   cmd_import "$@" ;;

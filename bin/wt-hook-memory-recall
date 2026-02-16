@@ -94,9 +94,11 @@ fi
 # Update marker
 echo "$CURRENT_CHANGE" > "$MARKER_FILE"
 
-# --- Build recall query ---
-# Map revision/feedback changes to their originals for enhanced recall
+# --- Build proactive context ---
+# Build a descriptive context string for proactive_context() retrieval.
+# Also keep QUERY as fallback for wt-memory recall if proactive is unavailable.
 QUERY="$CURRENT_CHANGE"
+PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE."
 REVISION_NOTE=""
 
 REREAD_FILES=""
@@ -104,6 +106,7 @@ REREAD_FILES=""
 case "$CURRENT_CHANGE" in
     stock-rethink)
         QUERY="$CURRENT_CHANGE shopping-cart cart stock variant checkout"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising shopping-cart (C02). Focus on cart, stock management, variant handling, and checkout transaction flow."
         REVISION_NOTE="This change revises C02 (shopping-cart). Recall cart and stock implementation details."
         REREAD_FILES="BEFORE implementing, RE-READ these files (do NOT rely on memory alone):
   - src/app/api/cart/items/route.ts (where stock is currently decremented on cart add)
@@ -113,6 +116,7 @@ case "$CURRENT_CHANGE" in
         ;;
     images-table)
         QUERY="$CURRENT_CHANGE product-catalog images product model"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising product-catalog (C01). Focus on images storage, product model, and image references across all pages and APIs."
         REVISION_NOTE="This change revises C01 (product-catalog). Recall how images are stored."
         REREAD_FILES="BEFORE implementing, RE-READ these files to find ALL image references:
   - prisma/schema.prisma (Product model — current images field type)
@@ -125,6 +129,7 @@ case "$CURRENT_CHANGE" in
         ;;
     integer-cents)
         QUERY="$CURRENT_CHANGE discounts checkout money price decimal payout"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising discounts and checkout (C04+C05). Focus on money fields, price storage as integer cents, payout calculations, and display formatting."
         REVISION_NOTE="This change revises C04+C05. Recall all money fields and calculation locations."
         REREAD_FILES="BEFORE implementing, RE-READ these files to find ALL money fields:
   - prisma/schema.prisma (EVERY Float/Decimal field must become Int)
@@ -137,6 +142,7 @@ case "$CURRENT_CHANGE" in
         ;;
     cart-ux-correction)
         QUERY="$CURRENT_CHANGE shopping-cart cart page confirm update button"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Correcting shopping-cart (C02) UX. Focus on cart page components, confirm dialogs, update buttons, real-time totals."
         REVISION_NOTE="This change corrects C02 cart page UX. Recall cart component structure."
         REREAD_FILES="BEFORE implementing, RE-READ the cart page:
   - src/app/cart/ (all files — understand current cart UI structure)
@@ -144,6 +150,7 @@ case "$CURRENT_CHANGE" in
         ;;
     vendor-dashboard-redesign)
         QUERY="$CURRENT_CHANGE order-workflow vendor dashboard tabs status"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Correcting order-workflow (C06) dashboard. Focus on vendor dashboard, removing tabs, status badges, and dropdowns."
         REVISION_NOTE="This change corrects C06 dashboard. Recall vendor dashboard component (MUST remove tabs)."
         REREAD_FILES="BEFORE implementing, RE-READ the vendor dashboard:
   - src/app/vendor/ or src/app/vendors/ (dashboard components)
@@ -151,6 +158,7 @@ case "$CURRENT_CHANGE" in
         ;;
     sprint-retro)
         QUERY="$CURRENT_CHANGE product-catalog multi-vendor discounts checkout order-workflow API payout seed"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Sprint retro fixing 5 cross-cutting bugs: API format inconsistency, payout rounding, expired reservation handling, missing database index, and seed data cents."
         REVISION_NOTE="Sprint retro: 5 cross-cutting bugs. Recall all API endpoints, payout logic, seed script, and schema."
         REREAD_FILES="CRITICAL: This change fixes 5 cross-cutting bugs. You MUST re-read actual code, not rely on memory.
   RE-READ these files BEFORE implementing ANY fix:
@@ -162,20 +170,25 @@ case "$CURRENT_CHANGE" in
         ;;
     *)
         QUERY="$CURRENT_CHANGE implementation"
+        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Implementation in progress."
         ;;
 esac
 
-# Recall relevant memories
+# Retrieve relevant memories using proactive context (with recall fallback)
 TMPFILE=$(mktemp)
 trap "rm -f $TMPFILE" EXIT
 
-wt-memory recall "$QUERY" --limit 8 --mode hybrid 2>/dev/null > "$TMPFILE" || exit 0
+# Try proactive first (context-aware with relevance scores)
+if ! wt-memory proactive "$PROACTIVE_CONTEXT" --limit 8 2>/dev/null > "$TMPFILE"; then
+    # Fallback to recall if proactive fails
+    wt-memory recall "$QUERY" --limit 8 --mode hybrid 2>/dev/null > "$TMPFILE" || exit 0
+fi
 
 # If no memories or empty array, exit silently
 CONTENT=$(cat "$TMPFILE")
 [[ -z "$CONTENT" || "$CONTENT" == "[]" ]] && exit 0
 
-# Format output: actionable bulleted list
+# Format output: actionable bulleted list with relevance filtering
 FORMATTED=$(python3 -c "
 import sys, json
 try:
@@ -185,9 +198,24 @@ except:
 if not memories:
     sys.exit(0)
 
+# Filter out low-relevance results (proactive returns relevance_score)
+filtered = []
+for m in memories:
+    score = m.get('relevance_score')
+    if score is not None and score != 'N/A':
+        try:
+            if float(score) < 0.3:
+                continue
+        except (ValueError, TypeError):
+            pass
+    filtered.append(m)
+
+if not filtered:
+    sys.exit(0)
+
 # Deduplicate by first 50 chars
 seen = set()
-for m in memories:
+for m in filtered:
     content = m.get('content', '').replace('\n', ' ')[:300]
     key = content[:50]
     if key in seen:
