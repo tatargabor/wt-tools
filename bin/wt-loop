@@ -369,9 +369,18 @@ detect_next_change_action() {
         return
     fi
 
+    local change_idx=0
     for change in "${change_order[@]}"; do
+        change_idx=$((change_idx + 1))
         local change_dir="$wt_path/openspec/changes/$change"
         local tasks_file="$change_dir/tasks.md"
+
+        # Check 0: Does results file exist? (change fully done — test passed)
+        local nn
+        nn=$(printf "%02d" "$change_idx")
+        if [[ -f "$wt_path/results/change-${nn}.json" ]]; then
+            continue  # Skip — this change is verified complete
+        fi
 
         # Check 1: Does tasks.md exist? (ff done)
         if [[ ! -f "$tasks_file" ]]; then
@@ -762,8 +771,9 @@ cmd_run() {
             echo "✅ Commits this iteration: $(echo "$new_commits" | jq -r 'length') new"
 
             # Repeated commit message detection: same message N times = stall
+            # Normalize: strip trailing iteration/attempt numbers for comparison
             local current_commit_msg
-            current_commit_msg=$(git log -1 --format='%s' 2>/dev/null || echo "")
+            current_commit_msg=$(git log -1 --format='%s' 2>/dev/null | sed -E 's/ (on |)iteration [0-9]+//; s/ \(attempt [0-9]+\)//' || echo "")
             if [[ -n "$current_commit_msg" && "$current_commit_msg" == "$last_commit_msg" ]]; then
                 repeated_msg_count=$((repeated_msg_count + 1))
                 echo "⚠️  Same commit message repeated ($repeated_msg_count/$stall_threshold): $current_commit_msg"
