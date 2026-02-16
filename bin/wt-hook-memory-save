@@ -379,6 +379,40 @@ while IFS= read -r line; do
         fi
     fi
 
+    # --- Code map safety net ---
+    # If agent didn't save a code map, generate one from git diff
+    CODEMAP_MARKER=".wt-tools/.saved-codemaps"
+    touch "$CODEMAP_MARKER"
+    if ! grep -qx "$change_name" "$CODEMAP_MARKER" 2>/dev/null; then
+        # Check if agent already saved a code map for this change
+        has_codemap=$(wt-memory recall "$change_name code map" --limit 1 --mode semantic 2>/dev/null \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print('yes' if any('code-map' in ','.join(m.get('tags',[])) for m in r) else 'no')" 2>/dev/null)
+
+        if [[ "$has_codemap" != "yes" ]]; then
+            # Generate code map from files changed in this commit
+            changed_files=$(git diff-tree --no-commit-id --name-only -r "$hash" 2>/dev/null \
+                | grep -vE '(package\.json|package-lock|\.config\.|tsconfig|\.test\.|\.spec\.|__test__)' \
+                | head -8 \
+                | tr '\n' ', ' \
+                | sed 's/,$//')
+
+            if [[ -n "$changed_files" ]]; then
+                codemap_content="$change_name code map (auto): $changed_files"
+                if [[ ${#codemap_content} -gt 400 ]]; then
+                    codemap_content="${codemap_content:0:397}..."
+                fi
+
+                echo "$codemap_content" | \
+                    wt-memory remember \
+                        --type Context \
+                        --tags "change:$change_name,phase:apply,source:hook,code-map" \
+                        2>/dev/null || true
+            fi
+        fi
+
+        echo "$change_name" >> "$CODEMAP_MARKER"
+    fi
+
     # Mark this change as processed (whether or not we saved)
     echo "$change_name" >> "$DESIGN_MARKER"
 

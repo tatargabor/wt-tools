@@ -125,6 +125,11 @@ Implement tasks from an OpenSpec change.
      ```bash
      echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Context --tags change:<change-name>,phase:apply,source:agent,implementation
      ```
+   - **Code map** (MANDATORY when all tasks complete): Save a structural map of key files this change created or modified. Format: `<change-name> code map: <path> (<role>), ...` — list the 3-8 most important files with their semantic role. This helps future changes find where things live.
+     ```bash
+     echo "<change-name> code map: prisma/schema.prisma (Product+Category models), src/app/api/products/route.ts (GET list, POST create), src/app/products/page.tsx (product listing page)" | wt-memory remember --type Context --tags change:<change-name>,phase:apply,source:agent,code-map
+     ```
+     Focus on: models/schema, API routes, pages/components, utility functions. Skip: config files, package.json, test files.
    If health fails, skip silently.
 
 **Output During Implementation**
