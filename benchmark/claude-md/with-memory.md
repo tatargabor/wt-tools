@@ -135,9 +135,10 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 **Important:**
 - Work on changes in order (01 → 02 → ... → 12)
 - Each change builds on the previous — don't skip ahead
+- Changes 07-12 are revisions/corrections — if the memory hook injects a "RE-READ these files" block, you MUST read every listed file BEFORE implementing. Do NOT rely on memory alone for these changes.
 - Changes 07-09 REVISE earlier decisions — read them carefully and recall what you built
 - Changes 10-11 CORRECT design issues — follow the specific corrections exactly
-- Change 12 has 5 bugs to fix — recall where each component lives
+- Change 12 has 5 bugs to fix — read ALL affected files before implementing any fix
 - If you encounter an error, debug and fix it — don't ask for help
 - If a previous change's code needs updating for the current change, update it
 - Run the acceptance test after each change — do NOT commit until it passes
