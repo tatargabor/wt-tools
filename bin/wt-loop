@@ -354,11 +354,11 @@ get_new_commits() {
 detect_next_change_action() {
     local wt_path="$1"
 
-    # Get ordered change names from docs/benchmark/0*.md or openspec/changes/
+    # Get ordered change names from docs/benchmark/NN-*.md or openspec/changes/
     local change_order=()
-    if ls "$wt_path"/docs/benchmark/0*.md &>/dev/null; then
+    if ls "$wt_path"/docs/benchmark/[0-9]*.md &>/dev/null; then
         # Derive from numbered benchmark files: 01-product-catalog.md → product-catalog
-        for f in "$wt_path"/docs/benchmark/0*.md; do
+        for f in "$wt_path"/docs/benchmark/[0-9]*.md; do
             local name
             name=$(basename "$f" .md | sed 's/^[0-9]*-//')
             change_order+=("$name")
@@ -1056,7 +1056,7 @@ cmd_start() {
 
     # Auto-detect done criteria based on project structure
     if [[ "$done_criteria" == "tasks" ]]; then
-        if [[ -d "$wt_path/openspec/changes" ]] && ls "$wt_path"/docs/benchmark/0*.md &>/dev/null 2>&1; then
+        if [[ -d "$wt_path/openspec/changes" ]] && ls "$wt_path"/docs/benchmark/[0-9]*.md &>/dev/null 2>&1; then
             # OpenSpec project with ordered benchmark changes — use openspec done criteria
             done_criteria="openspec"
             info "Detected OpenSpec benchmark project, using 'openspec' done criteria"
