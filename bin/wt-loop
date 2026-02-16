@@ -47,6 +47,7 @@ Start Options:
   --iteration-timeout <n>  Per-iteration timeout in minutes (default: 45)
   --capacity-limit <pct>   Stop if capacity exceeds (default: 80%)
   --permission-mode <mode> Claude permission mode: auto-accept|allowedTools|plan (default: config)
+  --label <text>           Label for this loop instance (shown in banner and terminal title)
   --force                  Force start even with incompatible permission mode (e.g. plan)
 
 Monitor Options:
@@ -55,6 +56,7 @@ Monitor Options:
 Examples:
   cd ~/project-wt-add-auth
   wt-loop start "Implement authentication per spec" --max 10
+  wt-loop start "Build changes 01-12" --label "Run A (baseline)" --max 30
   wt-loop status
   wt-loop monitor --interval 15
   wt-loop stop
@@ -146,6 +148,7 @@ init_loop_state() {
     local capacity_limit="$6"
     local stall_threshold="${7:-$DEFAULT_STALL_THRESHOLD}"
     local iteration_timeout="${8:-45}"
+    local label="${9:-}"
 
     local state_file
     state_file=$(get_loop_state_file "$wt_path")
@@ -168,7 +171,8 @@ init_loop_state() {
   "capacity_limit_pct": $capacity_limit,
   "stall_threshold": $stall_threshold,
   "iteration_timeout_min": $iteration_timeout,
-  "total_tokens": 0
+  "total_tokens": 0,
+  "label": $(if [[ -n "$label" ]]; then echo "\"$label\""; else echo "null"; fi)
 }
 EOF
 }
@@ -522,13 +526,15 @@ cmd_run() {
     fi
 
     # Read settings from state
-    local max_iter done_criteria task capacity_limit stall_threshold iteration_timeout_min
+    local max_iter done_criteria task capacity_limit stall_threshold iteration_timeout_min label permission_mode
     max_iter=$(jq -r '.max_iterations' "$state_file")
     done_criteria=$(jq -r '.done_criteria' "$state_file")
     task=$(jq -r '.task' "$state_file")
     capacity_limit=$(jq -r '.capacity_limit_pct' "$state_file")
     stall_threshold=$(jq -r '.stall_threshold // 2' "$state_file")
     iteration_timeout_min=$(jq -r '.iteration_timeout_min // 45' "$state_file")
+    label=$(jq -r '.label // empty' "$state_file")
+    permission_mode=$(jq -r '.permission_mode // "default"' "$state_file")
 
     # Signal trap variables for cleanup
     local current_iter_started=""
@@ -572,12 +578,31 @@ cmd_run() {
 
     cd "$wt_path" || exit 1
 
+    # Gather context for banner
+    local git_branch
+    git_branch=$(git -C "$wt_path" branch --show-current 2>/dev/null || echo "unknown")
+    local memory_status="inactive"
+    if command -v wt-memory &>/dev/null && wt-memory health &>/dev/null; then
+        memory_status="active"
+    fi
+    local title_suffix=""
+    if [[ -n "$label" ]]; then
+        title_suffix=" ($label)"
+    fi
+
     echo ""
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║  Ralph Loop: $worktree_name"
-    echo "║  Task: ${task:0:50}..."
-    echo "║  Max iterations: $max_iter | Done criteria: $done_criteria"
-    echo "║  Stall threshold: $stall_threshold | Iter timeout: ${iteration_timeout_min}m"
+    if [[ -n "$label" ]]; then
+    echo "║  Label: $label"
+    fi
+    echo "║  Path: $wt_path"
+    echo "║  Branch: $git_branch"
+    echo "║  Task: $task"
+    echo "║  ──────────────────────────────────────────────────────────────"
+    echo "║  Mode: $permission_mode | Max: $max_iter | Stall: $stall_threshold | Timeout: ${iteration_timeout_min}m"
+    echo "║  Memory: $memory_status"
+    echo "║  Started: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
 
@@ -592,7 +617,7 @@ cmd_run() {
         iteration=$((iteration + 1))
 
         # Update terminal title with progress
-        update_terminal_title "Ralph: ${worktree_name} [${iteration}/${max_iter}]"
+        update_terminal_title "Ralph: ${worktree_name}${title_suffix} [${iteration}/${max_iter}]"
 
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -800,7 +825,7 @@ except:
                 echo "║  The loop appears to have nothing left to do.                   ║"
                 echo "╚════════════════════════════════════════════════════════════════╝"
                 update_loop_state "$state_file" "status" '"stalled"'
-                update_terminal_title "Ralph: ${worktree_name} [stalled]"
+                update_terminal_title "Ralph: ${worktree_name}${title_suffix} [stalled]"
                 trap - EXIT SIGTERM SIGINT
                 exit 0
             fi
@@ -826,7 +851,7 @@ except:
                     echo "║  The agent appears stuck in a loop.                             ║"
                     echo "╚════════════════════════════════════════════════════════════════╝"
                     update_loop_state "$state_file" "status" '"stalled"'
-                    update_terminal_title "Ralph: ${worktree_name} [stalled]"
+                    update_terminal_title "Ralph: ${worktree_name}${title_suffix} [stalled]"
                     trap - EXIT SIGTERM SIGINT
                     exit 0
                 fi
@@ -868,7 +893,7 @@ except:
             echo "╚════════════════════════════════════════════════════════════════╝"
 
             update_loop_state "$state_file" "status" '"done"'
-            update_terminal_title "Ralph: ${worktree_name} [done]"
+            update_terminal_title "Ralph: ${worktree_name}${title_suffix} [done]"
             trap - EXIT SIGTERM SIGINT
 
             # Send notification
@@ -921,7 +946,7 @@ except:
     echo "╚════════════════════════════════════════════════════════════════╝"
 
     update_loop_state "$state_file" "status" '"stuck"'
-    update_terminal_title "Ralph: ${worktree_name} [stuck]"
+    update_terminal_title "Ralph: ${worktree_name}${title_suffix} [stuck]"
     trap - EXIT SIGTERM SIGINT
 
     # Send notification
@@ -941,6 +966,7 @@ cmd_start() {
     local fullscreen=false
     local permission_mode_override=""
     local force_start=false
+    local label=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -976,6 +1002,10 @@ cmd_start() {
             --fullscreen)
                 fullscreen=true
                 shift
+                ;;
+            --label)
+                label="$2"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -1061,7 +1091,7 @@ cmd_start() {
 
     # Initialize state
     info "Initializing loop state..."
-    init_loop_state "$wt_path" "$worktree_name" "$task" "$max_iter" "$done_criteria" "$capacity_limit" "$stall_threshold" "$iteration_timeout"
+    init_loop_state "$wt_path" "$worktree_name" "$task" "$max_iter" "$done_criteria" "$capacity_limit" "$stall_threshold" "$iteration_timeout" "$label"
 
     # Save permission mode in state
     local state_file_init
@@ -1074,6 +1104,9 @@ cmd_start() {
     info "Spawning terminal for Ralph loop..."
 
     local terminal_title="Ralph: $worktree_name"
+    if [[ -n "$label" ]]; then
+        terminal_title="Ralph: $worktree_name ($label)"
+    fi
     local log_file
     log_file=$(get_loop_log_file "$wt_path")
 
@@ -1111,6 +1144,7 @@ SCRIPT
         osascript << APPLESCRIPT &
 tell application "Terminal"
     set theTab to do script "exec /bin/bash $temp_script"
+    set custom title of theTab to "$terminal_title"
     repeat
         delay 5
         try
