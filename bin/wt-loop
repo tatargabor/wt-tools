@@ -41,7 +41,7 @@ Commands:
   run                      Internal: run the loop (called by terminal)
 
 Start Options:
-  --done <criteria>        Done detection: tasks|manual (default: tasks)
+  --done <criteria>        Done detection: tasks|openspec|manual (default: tasks, auto-detects openspec)
   --max <n>                Max iterations (default: 10)
   --stall-threshold <n>    Stall after N commit-less iterations (default: 2)
   --iteration-timeout <n>  Per-iteration timeout in minutes (default: 45)
@@ -314,6 +314,12 @@ check_done() {
         tasks)
             check_tasks_done "$wt_path"
             ;;
+        openspec)
+            # All OpenSpec changes complete when detect_next_change_action returns "done"
+            local action
+            action=$(detect_next_change_action "$wt_path")
+            [[ "$action" == "done" ]]
+            ;;
         manual)
             # Check if user marked done in state file
             local state_file
@@ -478,6 +484,19 @@ Do NOT write any files. Do NOT create any commits. Simply stop.
     # Use specific task if detected, otherwise fall back to generic task
     local effective_task="${specific_task:-$task}"
 
+    # Skip reflection when all changes are done — it creates dirty files
+    # that prevent stall detection from firing as a safety net
+    local reflection_section=""
+    if [[ "$change_action" != "done" ]]; then
+        reflection_section="
+# Reflection (MANDATORY — last step before finishing)
+Before you stop, write .claude/reflection.md with 3-5 bullet points:
+- Errors you encountered and how you fixed them
+- Non-obvious things you learned about this codebase
+- Workarounds or gotchas the next iteration should know about
+If nothing notable happened, write \"No notable issues.\" to the file."
+    fi
+
     cat <<EOF
 # Task
 $effective_task
@@ -499,13 +518,7 @@ $prev_text
 - Do ONLY the task specified above — do NOT work on other changes
 - CLAUDE.md is the authoritative source for your workflow — follow it
 - Commit your changes before exiting
-
-# Reflection (MANDATORY — last step before finishing)
-Before you stop, write .claude/reflection.md with 3-5 bullet points:
-- Errors you encountered and how you fixed them
-- Non-obvious things you learned about this codebase
-- Workarounds or gotchas the next iteration should know about
-If nothing notable happened, write "No notable issues." to the file.
+$reflection_section
 EOF
 }
 
@@ -1041,9 +1054,13 @@ cmd_start() {
     local worktree_name
     worktree_name=$(basename "$wt_path")
 
-    # If done_criteria is "tasks", verify tasks.md exists; fallback to "manual" if not
+    # Auto-detect done criteria based on project structure
     if [[ "$done_criteria" == "tasks" ]]; then
-        if ! find_tasks_file "$wt_path" &>/dev/null; then
+        if [[ -d "$wt_path/openspec/changes" ]] && ls "$wt_path"/docs/benchmark/0*.md &>/dev/null 2>&1; then
+            # OpenSpec project with ordered benchmark changes — use openspec done criteria
+            done_criteria="openspec"
+            info "Detected OpenSpec benchmark project, using 'openspec' done criteria"
+        elif ! find_tasks_file "$wt_path" &>/dev/null; then
             warn "No tasks.md found, using manual done criteria"
             done_criteria="manual"
         fi
