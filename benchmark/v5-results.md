@@ -84,10 +84,15 @@ The 9-bug sprint retro (C12) was the biggest change in v5. Both runs fixed nearl
 - **Run B: PASS** — Same
 - **Winner: Tie** (both improved from v4 where Run A had partial fail)
 
-#### TRAP-E: Stock Rethink / Lazy Decrement
-- **Run A: PASS** — No stock decrement at add-to-cart, only at checkout confirm in transaction
-- **Run B: PASS** — Same pattern, uses Prisma `decrement` instead of raw SQL
-- **Winner: Tie**
+#### TRAP-B: $queryRaw Pain (C02 → C05)
+- **Run A: N/A** — Neither run used `$queryRaw` in v5 (both used Prisma client throughout)
+- **Run B: N/A** — Same
+- **Winner: Tie** (trap not triggered — both runs avoided raw SQL from the start)
+
+#### TRAP-E: Error Format Inconsistency (C01 → C03 → C05 → C12)
+- **Run A: PASS** — All error responses use `{ error: "<message>" }` format consistently
+- **Run B: PASS** — Same
+- **Winner: Tie** (largely subsumed by TRAP-J error codes convention in v5)
 
 #### TRAP-F: Coupon/Stock Cross-Dependency (C04 → C07)
 - **Run A: BUG** — `currentUses` incremented at coupon-apply time (should be checkout-confirm). Users who abandon cart still consume coupon uses.
@@ -104,11 +109,12 @@ The 9-bug sprint retro (C12) was the biggest change in v5. Both runs fixed nearl
 | Trap | Run A | Run B |
 |------|-------|-------|
 | A: Images | PASS | PASS |
+| B: $queryRaw | N/A (not triggered) | N/A (not triggered) |
 | D: Integer cents | PASS | PASS |
-| E: Stock rethink | PASS | PASS |
+| E: Error format | PASS | PASS |
 | F: Coupon increment | BUG (wrong timing) | BUG (never increments) |
 | G: Checkout button | FAIL | FAIL |
-| **Score** | **4/5** | **3.5/5** |
+| **Score (excl. B)** | **4/5** | **3.5/5** |
 
 ## C12 Sprint Retro: 9-Bug Analysis
 
@@ -162,7 +168,7 @@ This is the single most important change for measuring memory value — the agen
 | Agent inline saves | 35% | 60% |
 | Hook saves | 12% | 14% |
 | Code maps | 0 | 4 (new) |
-| memory_type working | yes | **broken** |
+| memory_type working | yes | yes (field: `experience_type`) |
 | Untagged memories | low | **37%** |
 
 ### Critical Issues
@@ -214,8 +220,7 @@ This is the single most important change for measuring memory value — the agen
 1. **No measurable memory advantage**: Combined trap score is tied (7.5/9). Run B won on convention traps (+0.5) but lost on original traps (-0.5). Net zero.
 2. **TRAP-F still fails for both**: Coupon `currentUses` increment is wrong in both runs (Run A: wrong timing, Run B: never). Third consecutive benchmark where this fails.
 3. **TRAP-G checkout button still missing**: Neither run adds a "Proceed to Checkout" link to the cart page. Third consecutive benchmark.
-4. **Memory noise regressed**: 15% → 37%. `proactive-context` pollution and untagged memories are new problems.
-5. **memory_type broken**: All memories have type "unknown" — a storage/API regression.
+4. **Memory noise regressed**: 15% → 37%. `proactive-context` pollution (21 `Conversation` type entries) and untagged memories are new problems.
 
 ### What's surprising
 
