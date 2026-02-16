@@ -38,13 +38,9 @@ Fast-forward through artifact creation - generate everything needed to start imp
    - `applyRequires`: array of artifact IDs needed before implementation (e.g., `["tasks"]`)
    - `artifacts`: list of all artifacts with their status and dependencies
 
-3b. **Recall relevant past experience (automatic)**
+3b. **Use injected memories**
 
-   If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<change-name> <description-from-user>" --limit 5 --mode hybrid --tags change:<change-name>`
-   - Keep relevant memories (past decisions, patterns, errors) in mind during artifact creation
-
-   If `wt-memory health` fails, skip silently.
+   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform artifact creation (avoid past errors, reuse working patterns).
 
 3c. **Recognize knowledge mid-flow (ongoing)**
 

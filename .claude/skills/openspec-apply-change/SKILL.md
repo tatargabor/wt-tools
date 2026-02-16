@@ -56,13 +56,9 @@ Implement tasks from an OpenSpec change.
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output
 
-4b. **Recall relevant patterns and errors (automatic)**
+4b. **Use injected memories**
 
-   If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<change-name> implementation patterns errors" --limit 5 --mode hybrid --tags change:<change-name>`
-   - Use relevant memories to inform implementation (avoid past errors, reuse working patterns)
-
-   If `wt-memory health` fails, skip silently.
+   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform implementation (avoid past errors, reuse working patterns).
 
 4c. **Recognize knowledge mid-flow (ongoing)**
 

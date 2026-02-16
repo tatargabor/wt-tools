@@ -38,15 +38,9 @@ Continue working on a change by creating the next artifact.
    - `artifacts`: Array of artifacts with their status ("done", "ready", "blocked")
    - `isComplete`: Boolean indicating if all artifacts are complete
 
-2b. **Recall relevant past experience (automatic)**
+2b. **Use injected memories**
 
-   If `wt-memory health` succeeds:
-   - Read proposal.md (if it exists) to understand the change context
-   - Construct a search query from the change name and key terms from the proposal
-   - Run: `wt-memory recall "<change-name> <keywords>" --limit 5 --mode hybrid --tags change:<change-name>`
-   - If relevant memories are returned, keep them in mind when creating artifacts (decisions, patterns, past errors)
-
-   If `wt-memory health` fails, skip silently.
+   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform artifact creation (avoid past errors, reuse working patterns).
 
 2c. **Recognize knowledge mid-flow (ongoing)**
 

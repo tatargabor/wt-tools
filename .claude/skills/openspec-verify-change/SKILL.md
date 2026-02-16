@@ -41,13 +41,9 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    This returns the change directory and context files. Read all available artifacts from `contextFiles`.
 
-3b. **Recall relevant past experience (automatic)**
+3b. **Use injected memories**
 
-   If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<change-name> verification issues bugs" --limit 5 --mode hybrid --tags change:<change-name>`
-   - Use relevant memories to inform verification (known issues, past patterns)
-
-   If `wt-memory health` fails, skip silently.
+   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform verification (known issues, past patterns).
 
 3c. **Agent discovery saving during verification**
 

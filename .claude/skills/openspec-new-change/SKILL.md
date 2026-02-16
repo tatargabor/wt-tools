@@ -24,14 +24,9 @@ Start a new change using the experimental artifact-driven approach.
 
    **IMPORTANT**: Do NOT proceed without understanding what the user wants to build.
 
-1b. **Check for related past work (automatic)**
+1b. **Use injected memories**
 
-   If `wt-memory health` succeeds:
-   - Run: `wt-memory recall "<user-description-or-change-name>" --limit 3 --mode hybrid`
-   - If relevant memories are found, briefly note: "Note: Related past work found — <one-line summary of most relevant memory>"
-   - This helps the user (and you) avoid repeating past mistakes or rediscovering known patterns
-
-   If `wt-memory health` fails, skip silently.
+   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, briefly note relevant past work to help avoid repeating past mistakes.
 
 2. **Determine the workflow schema**
 

@@ -693,16 +693,57 @@ cmd_run() {
                 should_save=false
             elif echo "$reflection_content" | grep -qiE "^(all changes complete|no notable|no errors encountered|nothing to report)"; then
                 should_save=false
+            elif echo "$reflection_content" | grep -qiE "already (fully |)implemented|already existed|already had a proposal|already committed|confirm tests pass"; then
+                should_save=false
             elif [[ ${#reflection_content} -lt 50 ]]; then
                 should_save=false
             fi
 
             if $should_save; then
                 if command -v wt-memory &>/dev/null && wt-memory health &>/dev/null 2>&1; then
-                    echo "$reflection_content" | wt-memory remember \
-                        --type Learning \
-                        --tags "source:agent,iteration:$iteration,reflection" \
-                        2>/dev/null && echo "💭 Reflection saved to memory" || true
+                    # Extract change name from last commit for tagging
+                    local change_tag=""
+                    local last_msg
+                    last_msg=$(cd "$wt_path" && git log -1 --format='%s' 2>/dev/null || echo "")
+                    if [[ "$last_msg" == *:* ]]; then
+                        local change_name="${last_msg%%:*}"
+                        # Validate: change name should be kebab-case, not too long
+                        if [[ "$change_name" =~ ^[a-z][a-z0-9-]+$ && ${#change_name} -lt 40 ]]; then
+                            change_tag="change:$change_name,"
+                        fi
+                    fi
+
+                    # Content dedup: check if similar memory already exists
+                    local prefix="${reflection_content:0:80}"
+                    local is_dupe=false
+                    local existing
+                    existing=$(wt-memory recall "$prefix" --limit 1 --mode semantic 2>/dev/null | \
+                        python3 -c "
+import sys, json
+try:
+    memories = json.load(sys.stdin)
+    if memories and len(memories) > 0:
+        existing = memories[0].get('content', '')[:80]
+        new = sys.argv[1][:80]
+        # Check if first 80 chars are >70% similar (simple overlap check)
+        overlap = sum(1 for a, b in zip(existing, new) if a == b)
+        threshold = int(min(len(existing), len(new)) * 0.7)
+        print('dupe' if overlap > threshold and threshold > 30 else 'ok')
+    else:
+        print('ok')
+except:
+    print('ok')
+" "$prefix" 2>/dev/null)
+                    [[ "$existing" == "dupe" ]] && is_dupe=true
+
+                    if ! $is_dupe; then
+                        echo "$reflection_content" | wt-memory remember \
+                            --type Learning \
+                            --tags "${change_tag}source:agent,reflection" \
+                            2>/dev/null && echo "💭 Reflection saved to memory" || true
+                    else
+                        echo "💭 Reflection skipped (duplicate)"
+                    fi
                 fi
             fi
             rm -f "$reflection_file"
