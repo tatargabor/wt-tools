@@ -87,8 +87,6 @@ print(','.join(sorted(names)[:5]) if names else '')
     # not skill prompt text which contains the instruction string.
     local tmpfile
     tmpfile=$(mktemp)
-    trap "rm -f $tmpfile" EXIT
-
     local agent_saved
     agent_saved=$(python3 << PYEOF
 import json, sys
@@ -262,11 +260,49 @@ Session summary:"
     return 0
 }
 
-# Run transcript extraction if transcript is available
+# ============================================================
+# Background wrapper for transcript extraction
+# ============================================================
+
+LOCK_FILE=".wt-tools/.transcript-extraction.lock"
+LOG_FILE=".wt-tools/transcript-extraction.log"
+
+run_extraction_background() {
+    local transcript="$1"
+
+    # --- Lockfile: check for concurrent extraction ---
+    if [[ -f "$LOCK_FILE" ]]; then
+        local existing_pid
+        existing_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            # Active extraction running — skip
+            return 0
+        fi
+        # Stale lock — remove it
+        rm -f "$LOCK_FILE"
+    fi
+
+    # Take lock (use BASHPID for actual subprocess PID, $$ gives parent)
+    echo ${BASHPID:-$$} > "$LOCK_FILE"
+
+    # Cleanup trap for background process (lock + any temp files)
+    trap 'rm -f "$LOCK_FILE" /tmp/tmp.wt-extract.* 2>/dev/null' EXIT
+
+    # Run extraction, log errors with timestamp
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting extraction for: $transcript" >> "$LOG_FILE"
+    extract_from_transcript "$transcript" 2>> "$LOG_FILE" || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Extraction complete" >> "$LOG_FILE"
+
+    # Cleanup lock (trap also handles this, belt+suspenders)
+    rm -f "$LOCK_FILE"
+}
+
+# Run transcript extraction in background if transcript is available
 if [[ -n "$TRANSCRIPT_PATH" ]]; then
     # Expand ~ in path
     TRANSCRIPT_PATH="${TRANSCRIPT_PATH/#\~/$HOME}"
-    extract_from_transcript "$TRANSCRIPT_PATH"
+    run_extraction_background "$TRANSCRIPT_PATH" &
+    disown
 fi
 
 # ============================================================
