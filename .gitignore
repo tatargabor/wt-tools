@@ -18,6 +18,13 @@ loop-state.json
 # Team sync worktree (wt-control branch)
 .wt-control/
 
+# Runtime state (agent tracking, memory markers, extraction logs)
+.wt-tools/agents/
+.wt-tools/.last-memory-commit
+.wt-tools/.saved-designs
+.wt-tools/.transcript-extraction.lock
+.wt-tools/transcript-extraction.log
+
 # Project-specific JIRA/Confluence config (contains credentials/project keys)
 .wt-tools/jira.json
 .wt-tools/confluence.json
