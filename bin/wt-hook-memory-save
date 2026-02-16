@@ -80,29 +80,103 @@ print(','.join(sorted(names)[:5]) if names else '')
             | sed 's/,$//')
     fi
 
-    # --- Task 3.1 + 3.2: Agent deduplication check ---
-    local agent_saved=false
-    if grep -q '\[Memory saved:' "$transcript" 2>/dev/null || \
-       grep -q '\[Agent insights saved:' "$transcript" 2>/dev/null || \
-       grep -q 'wt-memory remember' "$transcript" 2>/dev/null; then
-        agent_saved=true
-    fi
-
-    # --- Task 4.1: Extract last ~100 lines ---
+    # --- Pre-process transcript: extract meaningful content, check dedup ---
+    # This reduces ~280KB raw JSONL to ~3-8KB of meaningful text,
+    # cutting haiku cost from ~$0.10 to ~$0.002 per invocation.
+    # Also fixes dedup: only checks assistant messages for [Memory saved:],
+    # not skill prompt text which contains the instruction string.
     local tmpfile
     tmpfile=$(mktemp)
     trap "rm -f $tmpfile" EXIT
 
-    tail -100 "$transcript" > "$tmpfile"
+    local agent_saved
+    agent_saved=$(python3 << PYEOF
+import json, sys
 
-    # --- Task 4.2: Build extraction prompt ---
+transcript_path = "$transcript"
+entries = []
+agent_saved = False
+
+with open(transcript_path) as f:
+    for line in f:
+        try:
+            obj = json.loads(line)
+            t = obj.get('type', '')
+
+            if t == 'user':
+                msg = obj.get('message', {})
+                content = msg.get('content', '')
+                if isinstance(content, str) and len(content) < 2000:
+                    # Skip skill prompt expansions (very long user messages)
+                    # and system-reminder tags
+                    if '<system-reminder>' not in content and len(content) > 5:
+                        entries.append(f"USER: {content[:500]}")
+
+            elif t == 'assistant':
+                msg = obj.get('message', {})
+                content = msg.get('content', [])
+                if isinstance(content, list):
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get('type') == 'text':
+                            text = block.get('text', '')
+                            if text:
+                                # Check dedup: did agent actually save memories?
+                                if '[Memory saved:' in text or '[Agent insights saved:' in text:
+                                    agent_saved = True
+                                entries.append(f"AGENT: {text[:500]}")
+                        elif block.get('type') == 'tool_use':
+                            name = block.get('name', '')
+                            inp = block.get('input', {})
+                            if name == 'Bash':
+                                cmd = inp.get('command', '')[:200]
+                                entries.append(f"TOOL[Bash]: {cmd}")
+
+            elif t == 'tool_result':
+                # Only capture errors (short) — skip large file contents
+                content = obj.get('content', '')
+                if isinstance(content, str) and ('error' in content.lower() or 'Error' in content) and len(content) < 1000:
+                    entries.append(f"ERROR: {content[:500]}")
+
+        except:
+            pass
+
+# Output last ~80 meaningful entries (not raw JSONL lines)
+for entry in entries[-80:]:
+    print(entry)
+
+# Signal dedup status on the last line
+print(f"__AGENT_SAVED__:{agent_saved}")
+PYEOF
+)
+
+    # Extract dedup flag from pre-processor output
+    local dedup_flag
+    dedup_flag=$(echo "$agent_saved" | tail -1)
+    # Write transcript content (without the flag line) to tmpfile
+    echo "$agent_saved" | head -n -1 > "$tmpfile"
+
+    local agent_did_save=false
+    if [[ "$dedup_flag" == *"True"* ]]; then
+        agent_did_save=true
+    fi
+
+    # Check if pre-processed content is meaningful (at least a few entries)
+    local line_count
+    line_count=$(wc -l < "$tmpfile")
+    if [[ "$line_count" -lt 3 ]]; then
+        return 0  # Too little content to extract from
+    fi
+
+    # --- Build extraction prompt ---
     local dedup_note=""
-    if [[ "$agent_saved" == "true" ]]; then
+    if [[ "$agent_did_save" == "true" ]]; then
         dedup_note="NOTE: The agent already saved some memories during this session. Only extract insights the agent likely MISSED — focus on errors, user corrections, and non-obvious discoveries that weren't explicitly saved."
     fi
 
     local prompt
-    prompt="You are a memory extraction system. Analyze this Claude Code session transcript (JSONL) and extract valuable insights for future sessions.
+    prompt="You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.
 
 $dedup_note
 
@@ -132,9 +206,9 @@ Example output:
 Learning|error,shopping-cart|Stock decrement failed silently when variant.stockQuantity was null — added null check
 Decision|preference,workflow|User prefers Hungarian commit messages with English code comments
 
-Transcript (last 100 entries):"
+Session summary:"
 
-    # --- Task 4.3: Call claude CLI with haiku ---
+    # --- Call claude CLI with haiku ---
     local llm_output
     llm_output=$( (echo "$prompt"; echo ""; cat "$tmpfile") | CLAUDECODE= claude -p --model haiku --no-session-persistence 2>/dev/null)
 
