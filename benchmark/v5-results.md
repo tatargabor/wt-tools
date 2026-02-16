@@ -112,9 +112,11 @@ The 9-bug sprint retro (C12) was the biggest change in v5. Both runs fixed nearl
 | B: $queryRaw | N/A (not triggered) | N/A (not triggered) |
 | D: Integer cents | PASS | PASS |
 | E: Error format | PASS | PASS |
-| F: Coupon increment | BUG (wrong timing) | BUG (never increments) |
+| F: Coupon increment | BUG (wrong timing) = 1.0 | BUG (never increments) = 0.5 |
 | G: Checkout button | FAIL | FAIL |
 | **Score (excl. B)** | **4/5** | **3.5/5** |
+
+*Scoring: PASS=1.0, PARTIAL/BUG with partial function=0.5, FAIL/BUG non-functional=0. TRAP-F: Run A increments at wrong time (functional but buggy) vs Run B never increments (non-functional).*
 
 ## C12 Sprint Retro: 9-Bug Analysis
 
@@ -132,6 +134,8 @@ This is the single most important change for measuring memory value — the agen
 | 8. Soft delete query audit (NEW) | PASS | PASS | - | - |
 | 9. Pagination consistency (NEW) | PASS | PASS | - | - |
 | **Total** | **9/9** | **8/9** | 3-4/5 | 3-4/5 |
+
+*Scoring: PASS=1, PARTIAL=0 (noted qualitatively but scored as failure). Run B Bug 3: catch-all error masking scored as PARTIAL=0.*
 
 ### Key findings
 
