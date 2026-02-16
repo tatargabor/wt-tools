@@ -4,7 +4,7 @@
 
 ### Overview
 
-The sprint retrospective identified 5 bugs across the codebase. Fix all of them.
+The sprint retrospective identified 12 bugs across the codebase. Fix all of them.
 
 ### Bug Reports
 
