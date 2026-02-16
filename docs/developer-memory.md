@@ -122,6 +122,66 @@ wt-memory recall "project structure"
 
 ---
 
+## Branch Awareness
+
+Every memory is automatically tagged with the git branch it was created on. This provides branch context without isolating knowledge.
+
+### How it works
+
+- `wt-memory remember` auto-appends `branch:<current-branch>` tag (e.g., `branch:master`, `branch:change/add-auth`)
+- `wt-memory recall` boosts results from the current branch (they appear first), but still returns cross-branch results
+- If not in a git repo or on a detached HEAD, the branch tag is silently skipped
+
+### Scenarios
+
+| Scenario | Remember | Recall |
+|---|---|---|
+| Working on `master` | Tagged `branch:master` | Boost master memories |
+| Feature branch `change/xyz` | Tagged `branch:change/xyz` | Boost change/xyz, master results also returned |
+| Parallel worktrees | Each tags with its own branch | Cross-branch memories visible (lower priority) |
+| After branch merge | Memories keep original branch tag | Findable from any branch |
+| Branch dropped | Memories persist with branch tag | Learnings not lost |
+| Detached HEAD | No branch tag | No boost (flat recall) |
+| Explicit `--tags` on recall | n/a | Branch boost skipped (user filter takes priority) |
+
+### Override
+
+If you pass `--tags branch:custom` explicitly to `remember`, the auto-tag is skipped (no duplicate).
+
+---
+
+## Memory Migrations
+
+When the memory storage format evolves (e.g., adding branch tags to existing memories), migrations transform the data automatically.
+
+### Auto-migration
+
+On the first `wt-memory` command after an upgrade, pending migrations run automatically:
+
+```
+$ wt-memory list
+Migrating memory storage... done (1 migration(s) applied)
+[...]
+```
+
+Use `--no-migrate` to skip: `wt-memory --no-migrate list`
+
+### Manual control
+
+```bash
+# Run pending migrations
+wt-memory migrate
+
+# Check migration status
+wt-memory migrate --status
+```
+
+### Migration 001: Branch tags
+
+The first migration adds `branch:unknown` to all pre-existing memories that don't have a `branch:*` tag. This is non-destructive — no data is lost, only a tag is added.
+
+---
+
 ## OpenSpec Integration
 
 If you use [OpenSpec](https://github.com/tatargabor/wt-tools) workflows (`/opsx:new`, `/opsx:apply`, etc.), memory hooks add automatic recall and remember at key points in each phase. Install them once:
@@ -364,6 +424,22 @@ Agents watch for these patterns in conversation:
 
 Export produces a single JSON file with version header, project name, and all records. Import uses UUID-based deduplication — records already present (by ID or `metadata.original_id`) are skipped. Safe for roundtrip: A→export→B→import→B→export→A→import produces no duplicates. Use `--dry-run` to preview without writing.
 
+**Sync (team sharing via git):**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory sync` | Push + pull in one step |
+| `wt-memory sync push` | Export and push to git remote |
+| `wt-memory sync pull [--from user/machine]` | Pull and import from git remote |
+| `wt-memory sync status` | Show sync state and remote sources |
+
+**Migration:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory migrate` | Run pending memory migrations |
+| `wt-memory migrate --status` | Show migration history |
+
 **Maintenance:**
 
 | Command | Description |
@@ -371,7 +447,7 @@ Export produces a single JSON file with version header, project name, and all re
 | `wt-memory health --index` | Check index health (JSON output) |
 | `wt-memory repair` | Repair index integrity |
 
-**Global option:** `--project NAME` — override auto-detected project name.
+**Global options:** `--project NAME` — override auto-detected project name. `--no-migrate` — skip auto-migration.
 
 **Valid types:** `Decision`, `Learning`, `Context`
 
