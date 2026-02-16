@@ -1001,27 +1001,27 @@ cmd_start() {
         fs_flag="--full-screen"
     fi
 
-    # The run command: cd to worktree and run wt-loop run
-    # Uses `script` to create a PTY so child processes (claude -p) see a real
-    # terminal, avoiding SIGTTOU/Tl stops. Also provides real-time log streaming.
-    local run_cmd="cd \"$wt_path\" && script -f -q \"$log_file\" -c '\"$SCRIPT_DIR/wt-loop\" run'"
+    # The run command: cd to worktree and run wt-loop run with tee for logging.
+    # NOTE: We intentionally do NOT use `script` here. `script` creates a PTY that
+    # makes Claude think it's in interactive mode, preventing it from exiting after
+    # processing piped input. The terminal emulator already provides a TTY for the
+    # parent shell; Claude's stdin comes from a pipe (echo | claude) which properly
+    # closes on EOF without `script` interference.
+    local run_cmd="cd \"$wt_path\" && \"$SCRIPT_DIR/wt-loop\" run 2>&1 | tee \"$log_file\""
 
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS: Use Terminal.app via osascript
-        # Create a temp script to avoid escaping issues
         local temp_script="/tmp/ralph-loop-$(echo "$worktree_name" | tr '/' '-').sh"
         cat > "$temp_script" << SCRIPT
 #!/bin/bash
 cd "$wt_path"
-script -F -q "$log_file" "$SCRIPT_DIR/wt-loop" run
+"$SCRIPT_DIR/wt-loop" run 2>&1 | tee "$log_file"
 SCRIPT
         chmod +x "$temp_script"
-        # Launch in Terminal.app with auto-close: exec replaces the shell so
-        # Terminal sees the process exit, then the watcher closes the window.
+        # Launch in Terminal.app with auto-close
         osascript << APPLESCRIPT &
 tell application "Terminal"
     set theTab to do script "exec /bin/bash $temp_script"
-    -- Wait for the loop to finish
     repeat
         delay 5
         try
@@ -1030,7 +1030,6 @@ tell application "Terminal"
             exit repeat
         end try
     end repeat
-    -- Close the window when done
     delay 1
     try
         close (first window whose selected tab is theTab) saving no
