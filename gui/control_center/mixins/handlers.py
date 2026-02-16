@@ -377,7 +377,7 @@ class HandlersMixin:
         return {}
 
     @log_exceptions
-    def on_double_click(self):
+    def on_double_click(self, _index=None):
         """Handle double-click on row - focus IDE window if open, otherwise open via wt-work"""
         wt = self.get_selected_worktree()
         if not wt:
