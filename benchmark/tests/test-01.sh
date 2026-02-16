@@ -102,4 +102,19 @@ check "Seed data has at least 3 products" '[ "$PRODUCT_COUNT" -ge 3 ]'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
+
+# Write results file on full pass (agent cannot fake this)
+if [ $FAIL -eq 0 ]; then
+  mkdir -p results
+  cat > results/change-01.json << RESULT
+{
+  "change": "product-catalog",
+  "completed": true,
+  "test_pass": $PASS,
+  "test_fail": $FAIL
+}
+RESULT
+  echo ">> results/change-01.json written"
+fi
+
 exit $((FAIL > 0 ? 1 : 0))

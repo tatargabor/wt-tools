@@ -73,26 +73,15 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
    - Run `/opsx:ff <change-name>` to create artifacts
    - Run `/opsx:apply <change-name>` to implement tasks
    - Run `bash tests/test-NN.sh 3000` to verify
-   - Fix any test failures and re-run until pass
+   - Fix any test failures and re-run until ALL checks pass
+   - The test script automatically creates `results/change-NN.json` when all checks pass
 
-3. After completing a change, write a status file:
-   ```bash
-   mkdir -p results
-   cat > results/change-<NN>.json << 'RESULT'
-   {
-     "change": "<change-name>",
-     "completed": true,
-     "notes": "<brief summary of what was done and any issues encountered>"
-   }
-   RESULT
-   ```
-
-4. Commit all work:
+3. Commit all work:
    ```bash
    git add -A && git commit -m "<change-name>: <summary>"
    ```
 
-5. Check if done: you are finished ONLY when `ls results/change-*.json | wc -l` returns 12. If fewer than 12, go back to step 1.
+4. Check if done: you are finished ONLY when `ls results/change-*.json | wc -l` returns 12. If fewer than 12, go back to step 1.
 
 **Important:**
 - Work on changes in order (01 → 02 → ... → 12)
@@ -102,5 +91,6 @@ You are autonomously building CraftBazaar through 12 sequential changes. Each se
 - Change 12 has 5 bugs to fix — find and fix all of them
 - If you encounter an error, debug and fix it — don't ask for help
 - If a previous change's code needs updating for the current change, update it
-- Write the results JSON even if the change had issues — document what happened
 - Run the acceptance test after each change — do NOT commit until it passes
+- Do NOT create `results/change-NN.json` files manually — only the test scripts create them on pass
+- Do NOT modify test scripts — they are read-only acceptance criteria

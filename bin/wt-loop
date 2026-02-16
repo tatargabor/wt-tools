@@ -452,7 +452,7 @@ After implementation, commit your changes and stop.
                 openspec_instructions="
 # ALL CHANGES COMPLETE
 All OpenSpec changes have been implemented. There is nothing left to do.
-Write 'All changes complete.' to .claude/reflection.md and stop.
+Do NOT write any files. Do NOT create any commits. Simply stop.
 "
                 ;;
             *)
@@ -574,6 +574,8 @@ cmd_run() {
 
     local iteration=0
     local stall_count=0
+    local repeated_msg_count=0
+    local last_commit_msg=""
     local start_time
     start_time=$(date -Iseconds)
 
@@ -673,7 +675,20 @@ cmd_run() {
         if [[ -f "$reflection_file" ]]; then
             local reflection_content
             reflection_content=$(cat "$reflection_file" 2>/dev/null)
-            if [[ -n "$reflection_content" && "$reflection_content" != "No notable issues." ]]; then
+
+            # Filter out noise: empty, too short, or generic/completion messages
+            local should_save=true
+            if [[ -z "$reflection_content" ]]; then
+                should_save=false
+            elif [[ "$reflection_content" == "No notable issues." ]]; then
+                should_save=false
+            elif echo "$reflection_content" | grep -qiE "^(all changes complete|no notable|no errors encountered|nothing to report)"; then
+                should_save=false
+            elif [[ ${#reflection_content} -lt 50 ]]; then
+                should_save=false
+            fi
+
+            if $should_save; then
                 if command -v wt-memory &>/dev/null && wt-memory health &>/dev/null 2>&1; then
                     echo "$reflection_content" | wt-memory remember \
                         --type Learning \
@@ -745,6 +760,29 @@ cmd_run() {
         else
             stall_count=0  # Reset on progress
             echo "✅ Commits this iteration: $(echo "$new_commits" | jq -r 'length') new"
+
+            # Repeated commit message detection: same message N times = stall
+            local current_commit_msg
+            current_commit_msg=$(git log -1 --format='%s' 2>/dev/null || echo "")
+            if [[ -n "$current_commit_msg" && "$current_commit_msg" == "$last_commit_msg" ]]; then
+                repeated_msg_count=$((repeated_msg_count + 1))
+                echo "⚠️  Same commit message repeated ($repeated_msg_count/$stall_threshold): $current_commit_msg"
+                if [[ $repeated_msg_count -ge $stall_threshold ]]; then
+                    echo ""
+                    echo "╔════════════════════════════════════════════════════════════════╗"
+                    echo "║  🛑 STALLED: Same commit message $repeated_msg_count times          ║"
+                    echo "║  \"${current_commit_msg:0:50}\"                                      ║"
+                    echo "║  The agent appears stuck in a loop.                             ║"
+                    echo "╚════════════════════════════════════════════════════════════════╝"
+                    update_loop_state "$state_file" "status" '"stalled"'
+                    update_terminal_title "Ralph: ${worktree_name} [stalled]"
+                    trap - EXIT SIGTERM SIGINT
+                    exit 0
+                fi
+            else
+                repeated_msg_count=0
+                last_commit_msg="$current_commit_msg"
+            fi
         fi
 
         # Check done

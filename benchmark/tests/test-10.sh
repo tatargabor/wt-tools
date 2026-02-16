@@ -84,4 +84,19 @@ check "Empty cart has link to /products" '[ "$HAS_PRODUCTS_LINK" = "yes" ]'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
+
+# Write results file on full pass (agent cannot fake this)
+if [ $FAIL -eq 0 ]; then
+  mkdir -p results
+  cat > results/change-10.json << RESULT
+{
+  "change": "cart-ux-correction",
+  "completed": true,
+  "test_pass": $PASS,
+  "test_fail": $FAIL
+}
+RESULT
+  echo ">> results/change-10.json written"
+fi
+
 exit $((FAIL > 0 ? 1 : 0))

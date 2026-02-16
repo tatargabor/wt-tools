@@ -103,4 +103,19 @@ check "Status badges with 'badge' CSS class present" '[ "$HAS_BADGES" = "yes" ]'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
+
+# Write results file on full pass (agent cannot fake this)
+if [ $FAIL -eq 0 ]; then
+  mkdir -p results
+  cat > results/change-11.json << RESULT
+{
+  "change": "vendor-dashboard-redesign",
+  "completed": true,
+  "test_pass": $PASS,
+  "test_fail": $FAIL
+}
+RESULT
+  echo ">> results/change-11.json written"
+fi
+
 exit $((FAIL > 0 ? 1 : 0))
