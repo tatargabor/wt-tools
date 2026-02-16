@@ -339,6 +339,60 @@ get_new_commits() {
     fi
 }
 
+# Detect the next OpenSpec change action needed.
+# Returns: "ff:<change-name>" or "apply:<change-name>" or "done"
+detect_next_change_action() {
+    local wt_path="$1"
+
+    # Get ordered change names from docs/benchmark/0*.md or openspec/changes/
+    local change_order=()
+    if ls "$wt_path"/docs/benchmark/0*.md &>/dev/null; then
+        # Derive from numbered benchmark files: 01-product-catalog.md → product-catalog
+        for f in "$wt_path"/docs/benchmark/0*.md; do
+            local name
+            name=$(basename "$f" .md | sed 's/^[0-9]*-//')
+            change_order+=("$name")
+        done
+    elif [[ -d "$wt_path/openspec/changes" ]]; then
+        # Fallback: alphabetical order
+        for d in "$wt_path"/openspec/changes/*/; do
+            [[ -d "$d" ]] || continue
+            local name
+            name=$(basename "$d")
+            [[ "$name" == "archive" ]] && continue
+            change_order+=("$name")
+        done
+    fi
+
+    if [[ ${#change_order[@]} -eq 0 ]]; then
+        echo "none"
+        return
+    fi
+
+    for change in "${change_order[@]}"; do
+        local change_dir="$wt_path/openspec/changes/$change"
+        local tasks_file="$change_dir/tasks.md"
+
+        # Check 1: Does tasks.md exist? (ff done)
+        if [[ ! -f "$tasks_file" ]]; then
+            echo "ff:$change"
+            return
+        fi
+
+        # Check 2: Are all tasks checked? (apply done)
+        local unchecked
+        unchecked=$(grep -cE '^\s*-\s*\[\s*\]' "$tasks_file" 2>/dev/null)
+        unchecked=${unchecked//[^0-9]/}  # Strip non-digit chars
+        unchecked=${unchecked:-0}
+        if [[ "$unchecked" -gt 0 ]]; then
+            echo "apply:$change"
+            return
+        fi
+    done
+
+    echo "done"
+}
+
 # Build the prompt for Claude
 build_prompt() {
     local task="$1"
@@ -355,14 +409,6 @@ build_prompt() {
         prev_commits=$(jq -r '[.iterations[].commits[]?] | join(", ")' "$state_file" 2>/dev/null || echo "")
     fi
 
-    # Pre-compute values to avoid command substitution in heredoc
-    local done_text=""
-    case "$done_criteria" in
-        tasks) done_text="All items in tasks.md should be marked [x]" ;;
-        manual) done_text="User will mark done manually" ;;
-        *) done_text="$done_criteria" ;;
-    esac
-
     local prev_text=""
     if [[ -n "$prev_commits" ]]; then
         prev_text="Previous iterations made commits: $prev_commits"
@@ -370,22 +416,58 @@ build_prompt() {
         prev_text="This is the first iteration."
     fi
 
-    # Detect OpenSpec project
+    # Detect OpenSpec project and determine specific action
+    local change_action=""
+    local specific_task=""
     local openspec_instructions=""
+
     if [[ -d "$wt_path/openspec" ]]; then
-        openspec_instructions="
-# OpenSpec Workflow (MANDATORY)
-This project uses OpenSpec. You MUST use OpenSpec commands for ALL changes:
-1. Run: openspec list --json  — to see change status
-2. For each incomplete change, run /opsx:ff <change-name> to create artifacts
-3. Then run /opsx:apply <change-name> to implement the tasks
-4. Do NOT write code directly — always go through /opsx:ff then /opsx:apply
+        change_action=$(detect_next_change_action "$wt_path")
+
+        case "$change_action" in
+            ff:*)
+                local change_name="${change_action#ff:}"
+                specific_task="Create artifacts for the '$change_name' change"
+                openspec_instructions="
+# YOUR TASK (MANDATORY — do this and ONLY this)
+Run: /opsx:ff $change_name
+This will create design.md, specs, and tasks.md for the '$change_name' change.
+Do NOT implement any code. Do NOT work on any other changes.
+After /opsx:ff completes, commit the artifacts and stop.
 "
+                ;;
+            apply:*)
+                local change_name="${change_action#apply:}"
+                specific_task="Implement the '$change_name' change"
+                openspec_instructions="
+# YOUR TASK (MANDATORY — do this and ONLY this)
+Run: /opsx:apply $change_name
+This will implement the tasks defined in tasks.md for the '$change_name' change.
+Do NOT work on any other changes. Focus ONLY on '$change_name'.
+After implementation, commit your changes and stop.
+"
+                ;;
+            done)
+                specific_task="All changes are complete"
+                openspec_instructions="
+# ALL CHANGES COMPLETE
+All OpenSpec changes have been implemented. There is nothing left to do.
+Write 'All changes complete.' to .claude/reflection.md and stop.
+"
+                ;;
+            *)
+                # No OpenSpec or no changes detected — use generic task
+                specific_task="$task"
+                ;;
+        esac
     fi
+
+    # Use specific task if detected, otherwise fall back to generic task
+    local effective_task="${specific_task:-$task}"
 
     cat <<EOF
 # Task
-$task
+$effective_task
 
 # Context
 This is iteration $iteration of $max_iter in an autonomous Ralph loop.
@@ -394,20 +476,15 @@ Previous work is visible in the git history and current file state.
 # Instructions
 1. Read CLAUDE.md first — it contains the project workflow and specific instructions
 2. Follow the workflow described in CLAUDE.md exactly
-3. Check what has been done so far (git log, openspec list, file state)
-4. Continue from where the previous iteration left off
-5. Make atomic commits for each meaningful change
-6. If stuck on the same issue, try a different approach
+3. Do ONLY what is specified in YOUR TASK above — nothing more
+4. If stuck on the same issue, try a different approach
 $openspec_instructions
-# Done Criteria
-$done_text
-
 # Previous Work
 $prev_text
 
 # Important
+- Do ONLY the task specified above — do NOT work on other changes
 - CLAUDE.md is the authoritative source for your workflow — follow it
-- Make incremental progress each iteration
 - Commit your changes before exiting
 
 # Reflection (MANDATORY — last step before finishing)
@@ -636,9 +713,19 @@ cmd_run() {
         fi
 
         # Stall detection: no commits = no progress
+        # Exception: ff iterations create artifacts without committing — check for new/modified files
+        local has_artifact_progress=false
         if [[ "$new_commits" == "[]" ]] || [[ -z "$new_commits" ]]; then
+            local dirty_count
+            dirty_count=$(git status --porcelain 2>/dev/null | wc -l)
+            if [[ "$dirty_count" -gt 0 ]]; then
+                has_artifact_progress=true
+            fi
+        fi
+
+        if { [[ "$new_commits" == "[]" ]] || [[ -z "$new_commits" ]]; } && ! $has_artifact_progress; then
             stall_count=$((stall_count + 1))
-            echo "⚠️  No commits this iteration (stall count: $stall_count/$stall_threshold)"
+            echo "⚠️  No commits or new files this iteration (stall count: $stall_count/$stall_threshold)"
 
             # Check for stall condition
             if [[ $stall_count -ge $stall_threshold ]]; then
@@ -652,6 +739,9 @@ cmd_run() {
                 trap - EXIT SIGTERM SIGINT
                 exit 0
             fi
+        elif $has_artifact_progress; then
+            stall_count=0  # Artifact creation counts as progress (ff iterations)
+            echo "📝 No commits but new artifact files detected (ff iteration)"
         else
             stall_count=0  # Reset on progress
             echo "✅ Commits this iteration: $(echo "$new_commits" | jq -r 'length') new"
