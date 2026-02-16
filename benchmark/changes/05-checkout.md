@@ -34,7 +34,8 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
    - After payment, calculate how much each vendor is owed
    - Payout per vendor = vendor's sub-order total (after applicable discounts)
    - Platform fee: 10% of each vendor's sub-order total
-   - Store payout info: `VendorPayout`: `id`, `orderId`, `vendorId`, `grossAmount`, `platformFee`, `netAmount`
+   - Store payout info: `VendorPayout`: `id`, `orderId`, `vendorId`, `grossAmount` (Float), `platformFee` (Float), `netAmount` (Float)
+   - For performance, batch-insert all VendorPayout records using Prisma `$queryRaw` with a multi-row INSERT
    - Note: actual Stripe Connect payouts are out of scope — just calculate and store
 
 5. **Tax calculation**:
@@ -53,6 +54,7 @@ Add a complete checkout flow with Stripe payment integration (test mode). The ch
    - Order confirmation page after successful payment
 
 7. **Error handling**:
+   - Use structured error format: `{ "error": "<message>", "code": "<CODE>", "details": {...} }` — e.g., `{ "error": "Insufficient stock", "code": "CHECKOUT_STOCK_INSUFFICIENT", "details": { "items": [...] } }`
    - Payment failure → show error, don't create order
    - Stock changed during checkout → show error, return to cart
    - Stripe API errors → graceful error display

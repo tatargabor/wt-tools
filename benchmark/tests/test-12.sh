@@ -180,6 +180,42 @@ case "$SEED_CHECK" in
     ;;
 esac
 
+# --- Regression checks: ALL prior UI fixes must survive sprint retro ---
+# C12 touches many parts of the codebase. Verify nothing regressed.
+
+# Cart UI (from C02, verified in C04/C07/C10)
+CONFIRM_FOUND=$(find . -path ./node_modules -prune -o -name '*.tsx' -print -o -name '*.ts' -print -o -name '*.jsx' -print -o -name '*.js' -print 2>/dev/null \
+  | xargs grep -l 'confirm(' 2>/dev/null \
+  | xargs grep -l 'cart\|Cart' 2>/dev/null \
+  | head -1)
+check "REGRESSION: No confirm() in cart code" '[ -z "$CONFIRM_FOUND" ]'
+
+EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-12-empty")
+check "REGRESSION: Empty cart has /products link" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
+
+# Product display (from C01/C03/C08)
+PRODUCT_PAGE=$(curl -s "$BASE/products")
+check "REGRESSION: /products page renders" 'echo "$PRODUCT_PAGE" | grep -qi "product\|catalog\|shop"'
+
+# Vendor dashboard (from C06/C11) — no tabs
+VENDOR_DASH_ID=$(curl -s "$BASE/api/vendors" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    items = d.get('data', d) if isinstance(d, dict) else d
+    if isinstance(items, list) and items:
+        print(items[0]['id'])
+    else:
+        print('')
+except:
+    print('')
+" 2>/dev/null)
+if [ -n "$VENDOR_DASH_ID" ]; then
+  DASH_HTML=$(curl -s "$BASE/vendor/$VENDOR_DASH_ID/dashboard")
+  check "REGRESSION: Vendor dashboard has no tabs" '! echo "$DASH_HTML" | grep -qiE "<tab|role=.tab|TabPanel|TabList"'
+  check "REGRESSION: Vendor dashboard has badges" 'echo "$DASH_HTML" | grep -qi "badge"'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 exit $((FAIL > 0 ? 1 : 0))

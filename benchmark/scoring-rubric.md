@@ -117,6 +117,53 @@ Change 12 has 5 cross-cutting bugs. Score each individually:
 
 **Expected iteration difference**: Memory agent should fix all 5 in ~1 iteration. Baseline may need 2-3 iterations searching for each location.
 
+## Active Trap Scoring (V3)
+
+V3 embeds active traps in C01-C06 that create measurable memory advantages:
+
+### TRAP-A: JSON images (C01 → C08 → C12)
+| Metric | Description |
+|--------|-------------|
+| C01 implementation | Did agent use JSON string as instructed? |
+| C08 migration difficulty | Did agent know the exact JSON format to migrate from? |
+| Iterations saved (memory) | Compare C08 iteration count between runs |
+
+### TRAP-B: $queryRaw pain (C02 → C05)
+| Metric | Description |
+|--------|-------------|
+| C02 first encounter | How many iterations to resolve $queryRaw issues? |
+| C05 second encounter | Did agent avoid $queryRaw (memory) or hit same issue again? |
+| Time saved | C05 iteration delta between runs |
+
+### TRAP-D: Float money precision (C04 → C05 → C09)
+| Metric | Description |
+|--------|-------------|
+| C04 rounding discovery | Did agent encounter Float precision issues? How fixed? |
+| C05 payout rounding | Did agent immediately add rounding (memory) or debug again? |
+| C09 migration rationale | Did agent recall WHY integer cents are needed? |
+
+### TRAP-E: Error format inconsistency (C01 → C03 → C05 → C12)
+| Metric | Description |
+|--------|-------------|
+| Format used per change | C01: {error}, C03: {error, code}, C05: {error, code, details} |
+| C12 consistency fix | How many endpoints needed fixing? Did agent know which? |
+| Memory advantage | Memory agent knows which endpoints use which format |
+
+### TRAP-F: Hidden cross-dependency (C04 → C07)
+| Metric | Description |
+|--------|-------------|
+| C07 coupon stock fix | Did agent update the coupon stock validation when changing stock logic? |
+| Discovery method | Memory recall vs. test failure vs. code search |
+| Iterations to find | Count of iterations before the hidden dependency was discovered |
+
+### TRAP-G: UI regression (C02 → C04/C07/C10/C12)
+| Metric | Description |
+|--------|-------------|
+| Regression count | How many times did a UI fix get undone by a later change? |
+| First-fix saves | Did memory of C02 UI fixes prevent regression in C04/C07? |
+| Test regression fails | Count of REGRESSION check failures across all test scripts |
+| Time to fix regressions | Iterations spent re-fixing previously fixed UI patterns |
+
 ## Run B Memory Metrics (additional)
 
 For Run B (with memory) only, also track:

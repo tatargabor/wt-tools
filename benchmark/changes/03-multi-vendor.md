@@ -23,7 +23,9 @@ Transform CraftBazaar from a single-seller store into a multi-vendor marketplace
    - Update product listing to show vendor name
    - Add vendor profile page at `/vendors/[id]` showing their products
 
-4. **Order creation from cart**:
+4. **Error format**: API error responses should include an error code for programmatic handling. Use the format `{ "error": "<message>", "code": "<ERROR_CODE>" }` (e.g., `{ "error": "Insufficient stock", "code": "ORDER_STOCK_INSUFFICIENT" }`). Use uppercase snake_case for error codes.
+
+5. **Order creation from cart**:
    - `POST /api/orders` — Create an order from the current cart
    - The order process must:
      a. Validate all cart items are still in stock
@@ -32,18 +34,18 @@ Transform CraftBazaar from a single-seller store into a multi-vendor marketplace
      d. Each sub-order has its own items, subtotal, and status
      e. Clear the cart after successful order creation
 
-5. **Order models**:
+6. **Order models**:
    - `Order`: `id`, `buyerSessionId`, `totalAmount`, `status`, `createdAt`
    - `SubOrder`: `id`, `orderId`, `vendorId`, `subtotal`, `status`, `createdAt`
    - `OrderItem`: `id`, `subOrderId`, `variantId`, `quantity`, `unitPrice`
 
-6. **Order viewing**:
+7. **Order viewing**:
    - `GET /api/orders` — List buyer's orders
    - `GET /api/orders/[id]` — Get order details with sub-orders and items
    - Orders page at `/orders` showing order history
    - Order detail page at `/orders/[id]` showing sub-orders grouped by vendor
 
-7. **Seed data update**: Add 3-4 vendors and reassign existing products to them
+8. **Seed data update**: Add 3-4 vendors and reassign existing products to them
 
 ### Acceptance Criteria
 

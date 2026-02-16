@@ -8,7 +8,7 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 
 ### Requirements
 
-1. **Product model**: Create a Prisma schema for products with fields: `id`, `name`, `description`, `basePrice`, `images` (array of URLs), `createdAt`, `updatedAt`
+1. **Product model**: Create a Prisma schema for products with fields: `id`, `name`, `description`, `basePrice` (Float), `images` (String — store as JSON string, e.g. `JSON.stringify(["url1","url2"])`), `createdAt`, `updatedAt`
 
 2. **Variant model**: Each product has one or more variants. A variant has: `id`, `productId`, `sku`, `attributes` (the combination, e.g. `{size: "Large", color: "Blue"}`), `price`, `stockQuantity`
 
@@ -25,6 +25,8 @@ Build the product catalog — the foundation of CraftBazaar. Products have varia
 4. **Product browsing page**: A simple page at `/products` that lists all products with images, and a detail page at `/products/[id]` showing variants with their prices and stock
 
 5. **Seed data**: Create a Prisma seed script with at least 5 products, each having 2-4 variants. Use realistic artisan products (ceramic mugs, leather wallets, woven scarves, etc.)
+
+6. **Error format**: All API error responses must use the format `{ "error": "<message>" }` with appropriate HTTP status codes (400, 404, 500). Keep it simple — just the error message string.
 
 ### Acceptance Criteria
 

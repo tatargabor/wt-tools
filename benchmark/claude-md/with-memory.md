@@ -29,7 +29,7 @@ Each change has a corresponding test script in `tests/test-NN.sh`. After impleme
 
 4. Do NOT commit until the test passes.
 
-**Important**: These tests check API responses, schema structure, and page content. They are the acceptance criteria for each change.
+**Important**: These tests check API responses, schema structure, and page content. They are the acceptance criteria for each change. **Test scripts are read-only** — fix your code to match the tests, never modify the test files. Later tests include regression checks that verify earlier fixes survived.
 
 ## OpenSpec Workflow
 

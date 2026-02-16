@@ -102,6 +102,18 @@ CHECKOUT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/chec
   -d '{"paymentIntentId":"pi_test_expired"}')
 check "Checkout endpoint handles errors (not 500)" '[ "$CHECKOUT_STATUS" != "500" ]'
 
+# --- Regression checks: Cart UI (from C02) ---
+# C07 heavily modifies cart logic. Verify UI patterns survived.
+
+CONFIRM_FOUND=$(find . -path ./node_modules -prune -o -name '*.tsx' -print -o -name '*.ts' -print -o -name '*.jsx' -print -o -name '*.js' -print 2>/dev/null \
+  | xargs grep -l 'confirm(' 2>/dev/null \
+  | xargs grep -l 'cart\|Cart' 2>/dev/null \
+  | head -1)
+check "REGRESSION: No confirm() in cart code" '[ -z "$CONFIRM_FOUND" ]'
+
+EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-07-empty")
+check "REGRESSION: Empty cart still has /products link" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 exit $((FAIL > 0 ? 1 : 0))

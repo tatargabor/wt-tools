@@ -102,6 +102,20 @@ else
   check "DELETE /api/cart/items/[id] returns 200" 'false'
 fi
 
+# --- UI pattern checks (these establish baseline expectations) ---
+# These checks verify cart page UX patterns that must be preserved in later changes.
+
+# Check: No confirm() dialog in cart source (agents often add this by default)
+CONFIRM_FOUND=$(find . -path ./node_modules -prune -o -name '*.tsx' -print -o -name '*.ts' -print -o -name '*.jsx' -print -o -name '*.js' -print 2>/dev/null \
+  | xargs grep -l 'confirm(' 2>/dev/null \
+  | xargs grep -l 'cart\|Cart' 2>/dev/null \
+  | head -1)
+check "No confirm() dialog in cart code" '[ -z "$CONFIRM_FOUND" ]'
+
+# Check: Empty cart has a link to /products
+EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-02-empty")
+check "Empty cart has link to /products" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 exit $((FAIL > 0 ? 1 : 0))

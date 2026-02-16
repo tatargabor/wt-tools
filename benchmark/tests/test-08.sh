@@ -101,6 +101,19 @@ else
   check "API returns images as [{url, altText, sortOrder}]" 'false'
 fi
 
+# --- Regression checks: Product display (from C01/C03) ---
+# C08 modifies product display for new Image model. Verify earlier patterns survived.
+
+# Check product listing page still renders
+PRODUCT_PAGE=$(curl -s "$BASE/products")
+check "REGRESSION: /products page still renders" 'echo "$PRODUCT_PAGE" | grep -qi "product\|catalog\|shop"'
+
+# Check product detail page still shows vendor info (from C03)
+if [ -n "$FIRST_ID" ]; then
+  DETAIL_PAGE=$(curl -s "$BASE/products/$FIRST_ID")
+  check "REGRESSION: Product detail still shows vendor info" 'echo "$DETAIL_PAGE" | grep -qiE "vendor|sold by|artisan"'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 exit $((FAIL > 0 ? 1 : 0))
