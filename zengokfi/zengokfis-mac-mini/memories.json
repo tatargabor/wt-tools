@@ -2,159 +2,204 @@
   "version": 1,
   "format": "wt-memory-export",
   "project": "wt-tools",
-  "exported_at": "2026-02-16T10:39:14.493692+00:00",
-  "count": 28,
+  "exported_at": "2026-02-17T08:54:31.770890+00:00",
+  "count": 53,
   "records": [
     {
+      "tags": [
+        "change:memory-benchmark-protocol",
+        "phase:explore",
+        "source:agent",
+        "shodh-memory",
+        "project-isolation",
+        "benchmark"
+      ],
+      "id": "004c1e73-dd17-4755-9de3-16d1264c3096",
+      "created_at": "2026-02-16T10:39:21.651550+00:00",
+      "experience_type": "Learning",
+      "entities": [],
+      "compressed": false,
+      "importance": 0.5,
       "is_failure": false,
-      "access_count": 0,
+      "content": "wt-memory project isolation uses basename of git root directory. Two repos with the same directory name (e.g. run-a/craftbazaar and run-b/craftbazaar) share the same memory store. For benchmark parallel runs, use different directory names (craftbazaar-baseline vs craftbazaar-memory) to ensure memory isolation. Note: Run A (no memory hooks) never calls wt-memory so there's no actual cross-contamination, but different names are safer.",
+      "is_anomaly": false,
+      "metadata": {
+        "original_id": "1653e92a-9de0-4f31-a041-38c718a345ac"
+      },
+      "last_accessed": "2026-02-16T10:39:21.651550+00:00",
+      "access_count": 0
+    },
+    {
       "id": "0289fbe4-ca8f-4e1b-87c2-9d93cf56cd92",
+      "content": "memory-export-import: implementation complete \u2014 CLI export/import commands with UUID-based dedup (4-level check via metadata.original_id), GUI Export/Import buttons in MemoryBrowseDialog, 15 CLI tests (including full A\u2192B\u2192A roundtrip), 5 GUI tests, docs updated.",
       "entities": [],
       "experience_type": "Context",
       "importance": 0.26499998569488525,
       "created_at": "2026-02-15T19:50:14.664255+00:00",
+      "access_count": 0,
+      "metadata": {},
+      "last_accessed": "2026-02-15T19:50:14.664255+00:00",
       "compressed": false,
+      "is_anomaly": false,
       "tags": [
         "change:memory-export-import",
         "phase:apply",
         "source:agent",
         "implementation"
       ],
-      "metadata": {},
-      "last_accessed": "2026-02-15T19:50:14.664255+00:00",
-      "is_anomaly": false,
-      "content": "memory-export-import: implementation complete \u2014 CLI export/import commands with UUID-based dedup (4-level check via metadata.original_id), GUI Export/Import buttons in MemoryBrowseDialog, 15 CLI tests (including full A\u2192B\u2192A roundtrip), 5 GUI tests, docs updated."
+      "is_failure": false
     },
     {
+      "importance": 0.3499999940395355,
+      "experience_type": "Context",
+      "metadata": {},
       "last_accessed": "2026-02-15T16:30:56.264645+00:00",
+      "is_failure": false,
       "tags": [
         "phase:explore",
         "source:agent",
         "memory-testing",
         "test-design"
       ],
-      "importance": 0.3499999940395355,
+      "id": "0c791e7c-0a98-4881-8394-8545363bcae9",
       "content": "Memory test suite design: 4-layer approach \u2014 (1) CLI functional tests with real shodh-memory and isolated SHODH_STORAGE, (2) hook file patching tests with temp git repo, (3) marker/reminder pipeline tests for .memory mechanism, (4) compliance tests verifying all skill+command files contain wt-memory hooks. Real Claude agent spy testing (C approach) deferred as too expensive/flaky for automated testing.",
       "entities": [],
-      "access_count": 0,
-      "experience_type": "Context",
-      "compressed": false,
-      "is_failure": false,
       "created_at": "2026-02-15T16:30:56.264645+00:00",
-      "metadata": {},
-      "is_anomaly": false,
-      "id": "0c791e7c-0a98-4881-8394-8545363bcae9"
+      "compressed": false,
+      "access_count": 0,
+      "is_anomaly": false
     },
     {
-      "last_accessed": "2026-02-16T10:04:21.238825+00:00",
-      "access_count": 0,
-      "is_failure": false,
-      "content": "Fix double-click not opening editor: Fix double-click not opening editor: accept QModelIndex from signal",
+      "content": "wt-memory sync design constraint: minimal overhead \u2014 no auto-sync, no background processes, git operations (commit/push/fetch) only when user explicitly requests via command. Avoid unnecessary traffic if nothing changed.",
       "entities": [],
-      "metadata": {},
-      "experience_type": "Decision",
-      "created_at": "2026-02-16T10:04:21.238825+00:00",
-      "id": "109712b5-482f-48d3-ae6f-1b3f397cdf45",
+      "created_at": "2026-02-16T10:39:22.937874+00:00",
+      "last_accessed": "2026-02-16T10:39:22.937874+00:00",
       "compressed": false,
+      "metadata": {
+        "original_id": "ec315461-9630-44b2-9b26-7f29326f7a95"
+      },
+      "importance": 0.45000001788139343,
       "is_anomaly": false,
-      "importance": 0.3799999952316284,
+      "experience_type": "Decision",
+      "is_failure": false,
+      "tags": [
+        "change:memory-git-sync",
+        "phase:explore",
+        "source:user",
+        "sync",
+        "performance"
+      ],
+      "access_count": 0,
+      "id": "0f853585-bfb7-40ae-832b-a79b3d6ea141"
+    },
+    {
+      "experience_type": "Decision",
+      "is_failure": false,
       "tags": [
         "change:Fix double-click not opening editor",
         "phase:apply",
         "source:hook",
         "decisions"
-      ]
+      ],
+      "compressed": false,
+      "metadata": {},
+      "access_count": 0,
+      "last_accessed": "2026-02-16T10:04:21.238825+00:00",
+      "id": "109712b5-482f-48d3-ae6f-1b3f397cdf45",
+      "content": "Fix double-click not opening editor: Fix double-click not opening editor: accept QModelIndex from signal",
+      "importance": 0.3799999952316284,
+      "entities": [],
+      "created_at": "2026-02-16T10:04:21.238825+00:00",
+      "is_anomaly": false
     },
     {
-      "is_failure": false,
-      "last_accessed": "2026-02-15T19:43:11.258995+00:00",
       "tags": [
         "phase:bulk-archive",
         "source:agent",
         "completion"
       ],
-      "is_anomaly": false,
-      "access_count": 0,
-      "compressed": false,
-      "id": "12c9846f-c776-4cb4-a0dc-1eb3398d8d55",
+      "importance": 0.25,
       "content": "Bulk archived 14 changes on shodh-memory-integration branch: memory-browse-upgrade, agent-insight-memory, developer-memory-docs, proactive-memory, shodh-openspec-hooks, shodh-memory-gui, shodh-memory-integration, gui-debug-logging, disable-auto-orphan-kill, remove-openspec-coupling, hybrid-editor-awareness, fix-editor-open-tty-fallback, fix-linux-window-focus, editor-detection-overhaul. 6 with spec sync, 8 with --skip-specs due to header mismatches in main specs.",
       "entities": [],
-      "metadata": {},
-      "experience_type": "Context",
       "created_at": "2026-02-15T19:43:11.258995+00:00",
-      "importance": 0.25
-    },
-    {
+      "experience_type": "Context",
       "access_count": 0,
-      "id": "163c0cc8-434f-4c6b-8ed2-ad9229328c72",
+      "last_accessed": "2026-02-15T19:43:11.258995+00:00",
       "is_failure": false,
-      "entities": [],
-      "importance": 0.4000000059604645,
-      "content": "GUI dialog hide/show rule: The Control Center uses NSStatusWindowLevel (25). All dialogs opened from it MUST use self.hide() before dialog.exec() and self.show() after, otherwise the CC covers the dialog. WindowStaysOnTopHint alone is NOT enough on macOS \u2014 it only sets NSFloatingWindowLevel (~3-8). This has been a recurring bug.",
       "metadata": {},
-      "experience_type": "Learning",
-      "last_accessed": "2026-02-15T15:19:49.594859+00:00",
       "compressed": false,
       "is_anomaly": false,
+      "id": "12c9846f-c776-4cb4-a0dc-1eb3398d8d55"
+    },
+    {
+      "importance": 0.4000000059604645,
+      "entities": [],
+      "is_anomaly": false,
+      "content": "GUI dialog hide/show rule: The Control Center uses NSStatusWindowLevel (25). All dialogs opened from it MUST use self.hide() before dialog.exec() and self.show() after, otherwise the CC covers the dialog. WindowStaysOnTopHint alone is NOT enough on macOS \u2014 it only sets NSFloatingWindowLevel (~3-8). This has been a recurring bug.",
+      "created_at": "2026-02-15T15:19:49.594859+00:00",
+      "id": "163c0cc8-434f-4c6b-8ed2-ad9229328c72",
+      "experience_type": "Learning",
+      "last_accessed": "2026-02-15T15:19:49.594859+00:00",
+      "access_count": 0,
+      "compressed": false,
+      "metadata": {},
+      "is_failure": false,
       "tags": [
         "source:user",
         "gui",
         "dialog",
         "macos",
         "recurring-bug"
-      ],
-      "created_at": "2026-02-15T15:19:49.594859+00:00"
+      ]
     },
     {
-      "entities": [],
-      "metadata": {},
       "id": "18a42bb9-3418-426b-9966-576ebb6ef7f4",
+      "entities": [],
+      "importance": 0.3799999952316284,
       "last_accessed": "2026-02-16T10:36:50.003687+00:00",
       "compressed": false,
-      "is_anomaly": false,
-      "importance": 0.3799999952316284,
+      "is_failure": false,
       "content": "general: Add v3 active traps and regression checks to benchmark",
+      "access_count": 0,
+      "created_at": "2026-02-16T10:36:50.003687+00:00",
+      "metadata": {},
       "tags": [
         "change:general",
         "phase:apply",
         "source:hook",
         "decisions"
       ],
-      "access_count": 0,
-      "is_failure": false,
       "experience_type": "Decision",
-      "created_at": "2026-02-16T10:36:50.003687+00:00"
+      "is_anomaly": false
     },
     {
-      "importance": 0.4000000059604645,
-      "last_accessed": "2026-02-15T16:42:43.561419+00:00",
+      "experience_type": "Learning",
       "content": "MemoryBrowseDialog pagination uses client-side caching: wt-memory list is called once, full JSON parsed into _cached_memories, then cards rendered in batches of 50 from cache. The bottleneck is QFrame widget creation, not data loading \u2014 even 2000 memories parse quickly as JSON.",
-      "access_count": 0,
-      "is_anomaly": false,
-      "metadata": {},
+      "is_failure": false,
+      "id": "21c3037e-7877-4314-ab23-be6e4140b9cb",
       "tags": [
         "change:memory-browse-upgrade",
         "phase:apply",
         "source:agent",
         "pattern"
       ],
-      "experience_type": "Learning",
-      "id": "21c3037e-7877-4314-ab23-be6e4140b9cb",
-      "created_at": "2026-02-15T16:42:43.561419+00:00",
       "entities": [],
+      "created_at": "2026-02-15T16:42:43.561419+00:00",
+      "access_count": 0,
+      "last_accessed": "2026-02-15T16:42:43.561419+00:00",
+      "metadata": {},
       "compressed": false,
-      "is_failure": false
+      "importance": 0.4000000059604645,
+      "is_anomaly": false
     },
     {
       "experience_type": "Learning",
       "is_failure": false,
-      "content": "The regular archive skill only has self-reflection memory hooks (no recall, no mid-flow). Recall and mid-flow hooks are specific to creative/interactive skills (explore, ff, apply, new, continue). Archive skills are mechanical wrap-up operations.",
-      "importance": 0.38284164667129517,
-      "metadata": {},
-      "entities": [],
-      "last_accessed": "2026-02-15T18:02:53.183348+00:00",
+      "id": "24e99022-0a95-4e43-86f3-22f1efb5a784",
       "is_anomaly": false,
-      "access_count": 0,
+      "last_accessed": "2026-02-15T18:02:53.183348+00:00",
+      "compressed": false,
+      "content": "The regular archive skill only has self-reflection memory hooks (no recall, no mid-flow). Recall and mid-flow hooks are specific to creative/interactive skills (explore, ff, apply, new, continue). Archive skills are mechanical wrap-up operations.",
       "tags": [
         "change:bulk-archive-memory-hooks",
         "phase:ff",
@@ -162,59 +207,83 @@
         "memory-hooks",
         "skill-patterns"
       ],
-      "compressed": false,
+      "entities": [],
       "created_at": "2026-02-15T18:02:53.183348+00:00",
-      "id": "24e99022-0a95-4e43-86f3-22f1efb5a784"
+      "importance": 0.38284164667129517,
+      "metadata": {},
+      "access_count": 0
     },
     {
-      "id": "2f985cf2-0a55-405f-b927-955fb1325076",
-      "last_accessed": "2026-02-15T16:32:26.483397+00:00",
       "access_count": 0,
-      "experience_type": "Decision",
+      "last_accessed": "2026-02-15T16:32:26.483397+00:00",
       "entities": [],
+      "compressed": false,
+      "created_at": "2026-02-15T16:32:26.483397+00:00",
+      "is_failure": false,
+      "importance": 0.45000001788139343,
+      "id": "2f985cf2-0a55-405f-b927-955fb1325076",
+      "experience_type": "Decision",
+      "metadata": {},
+      "is_anomaly": false,
+      "content": "Use marker files (.memory) for O(1) runtime checks instead of re-parsing SKILL.md on every hook invocation. One-time check at skill start, fast lookup on every Stop event.",
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "decision"
-      ],
-      "created_at": "2026-02-15T16:32:26.483397+00:00",
-      "metadata": {},
-      "content": "Use marker files (.memory) for O(1) runtime checks instead of re-parsing SKILL.md on every hook invocation. One-time check at skill start, fast lookup on every Stop event.",
-      "importance": 0.45000001788139343,
-      "is_failure": false,
-      "compressed": false,
-      "is_anomaly": false
+      ]
     },
     {
       "entities": [],
-      "access_count": 0,
-      "is_anomaly": false,
-      "last_accessed": "2026-02-15T19:43:13.983687+00:00",
       "created_at": "2026-02-15T19:43:13.983687+00:00",
-      "content": "openspec archive spec sync frequently fails when delta specs reference requirement headers that have been renamed or restructured in main specs. Use --skip-specs to force archive, or --no-validate --skip-specs for changes with malformed delta specs. 8/14 changes needed --skip-specs in this batch.",
+      "access_count": 0,
       "tags": [
         "phase:bulk-archive",
         "source:agent",
         "openspec",
         "spec-sync"
       ],
-      "id": "376d1f66-83c5-4ada-8717-bcd3764ee3bc",
-      "experience_type": "Learning",
-      "metadata": {},
-      "importance": 0.4000000059604645,
       "compressed": false,
-      "is_failure": false
-    },
-    {
-      "experience_type": "Learning",
-      "content": "CLAUDE.md deference deadlock: The proactive memory instruction says 'defer to skill hooks if the active skill has wt-memory hooks'. But this checks the SKILL.md on disk, while the LLM receives the command file prompt (which may lack hooks). Result: ambient memory defers, but the prompt has no hooks either \u2192 nothing saves. Fix: defer only if the ACTUAL prompt received contains wt-memory steps, not based on SKILL.md file existence.",
-      "created_at": "2026-02-15T16:08:00.549308+00:00",
+      "last_accessed": "2026-02-15T19:43:13.983687+00:00",
       "is_failure": false,
       "is_anomaly": false,
-      "last_accessed": "2026-02-15T16:08:00.549308+00:00",
-      "importance": 0.5,
+      "content": "openspec archive spec sync frequently fails when delta specs reference requirement headers that have been renamed or restructured in main specs. Use --skip-specs to force archive, or --no-validate --skip-specs for changes with malformed delta specs. 8/14 changes needed --skip-specs in this batch.",
+      "metadata": {},
+      "importance": 0.4000000059604645,
+      "id": "376d1f66-83c5-4ada-8717-bcd3764ee3bc",
+      "experience_type": "Learning"
+    },
+    {
+      "compressed": false,
+      "is_anomaly": false,
+      "content": "async-transcript-extraction: Use `&` + `disown` to background the entire `extract_from_transcript` call, wrapped in a helper that handles lockfile and cleanup. Use `.wt-tools/.transcript-extraction.lock` with PID check. If lock exists and PID is alive, skip. Otherwise, take lock. The backgrounded...",
+      "is_failure": false,
+      "tags": [
+        "change:async-transcript-extraction",
+        "phase:apply",
+        "source:hook",
+        "decisions",
+        "branch:change/shodh-memory-integration"
+      ],
+      "metadata": {},
+      "id": "43518616-e8ec-413f-a57b-8d463f6dd6d6",
+      "importance": 0.45000001788139343,
+      "access_count": 0,
       "entities": [],
+      "created_at": "2026-02-16T16:16:18.575872+00:00",
+      "last_accessed": "2026-02-16T16:16:18.575872+00:00",
+      "experience_type": "Decision"
+    },
+    {
+      "id": "457032e8-46ae-47ab-b06f-c1bf01556a86",
+      "metadata": {},
+      "content": "CLAUDE.md deference deadlock: The proactive memory instruction says 'defer to skill hooks if the active skill has wt-memory hooks'. But this checks the SKILL.md on disk, while the LLM receives the command file prompt (which may lack hooks). Result: ambient memory defers, but the prompt has no hooks either \u2192 nothing saves. Fix: defer only if the ACTUAL prompt received contains wt-memory steps, not based on SKILL.md file existence.",
+      "is_anomaly": false,
+      "is_failure": false,
+      "last_accessed": "2026-02-15T16:08:00.549308+00:00",
+      "experience_type": "Learning",
+      "access_count": 0,
+      "compressed": false,
       "tags": [
         "source:agent",
         "memory-hooks",
@@ -222,96 +291,207 @@
         "claude-md",
         "critical-bug"
       ],
-      "access_count": 0,
-      "metadata": {},
-      "compressed": false,
-      "id": "457032e8-46ae-47ab-b06f-c1bf01556a86"
+      "entities": [],
+      "importance": 0.5,
+      "created_at": "2026-02-15T16:08:00.549308+00:00"
     },
     {
+      "entities": [],
+      "metadata": {},
+      "importance": 0.45000001788139343,
+      "experience_type": "Decision",
+      "access_count": 0,
+      "last_accessed": "2026-02-16T13:45:33.416736+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "created_at": "2026-02-16T13:45:33.416736+00:00",
+      "content": "memory-branch-tags: Inject `branch:<name>` tag inside `cmd_remember` itself, after parsing user-provided tags. Use `git branch --show-current` to get the current branch name at remember-time. Use `branch:` prefix with the full branch name, e.g., `branch:change/shodh-memory-integration`, `branch:m...",
+      "is_anomaly": false,
+      "id": "48d0cb65-4411-47e2-b35c-902ca12e853d",
+      "tags": [
+        "change:memory-branch-tags",
+        "phase:apply",
+        "source:hook",
+        "decisions",
+        "branch:change/shodh-memory-integration"
+      ]
+    },
+    {
+      "metadata": {},
+      "created_at": "2026-02-15T19:23:47.869887+00:00",
+      "compressed": false,
+      "is_anomaly": false,
+      "id": "4a19baad-7623-49c8-943e-e349ada50033",
+      "access_count": 0,
+      "is_failure": false,
+      "content": "Dual-file architecture: when adding features to OpenSpec skills, always check and edit both SKILL.md and the corresponding command file. Use diff to verify they match.",
+      "importance": 0.4650000035762787,
+      "last_accessed": "2026-02-15T19:23:47.869887+00:00",
+      "experience_type": "Decision",
+      "entities": [],
       "tags": [
         "change:bulk-archive-memory-hooks",
         "phase:archive",
         "source:agent",
         "decision"
-      ],
-      "id": "4a19baad-7623-49c8-943e-e349ada50033",
-      "access_count": 0,
-      "entities": [],
-      "content": "Dual-file architecture: when adding features to OpenSpec skills, always check and edit both SKILL.md and the corresponding command file. Use diff to verify they match.",
-      "importance": 0.4650000035762787,
-      "last_accessed": "2026-02-15T19:23:47.869887+00:00",
-      "metadata": {},
-      "created_at": "2026-02-15T19:23:47.869887+00:00",
-      "compressed": false,
-      "experience_type": "Decision",
-      "is_failure": false,
-      "is_anomaly": false
+      ]
     },
     {
-      "access_count": 0,
-      "content": "Archive skills (archive, bulk-archive) only need self-reflection memory hooks. Recall and mid-flow hooks belong to interactive/creative skills (explore, ff, apply, new, continue). This is a deliberate pattern split, not an omission.",
-      "importance": 0.4000000059604645,
       "id": "4a49449a-b68b-4416-b117-e5c5b726598a",
-      "created_at": "2026-02-15T19:23:50.367919+00:00",
-      "metadata": {},
+      "content": "Archive skills (archive, bulk-archive) only need self-reflection memory hooks. Recall and mid-flow hooks belong to interactive/creative skills (explore, ff, apply, new, continue). This is a deliberate pattern split, not an omission.",
+      "last_accessed": "2026-02-15T19:23:50.367919+00:00",
+      "experience_type": "Learning",
+      "access_count": 0,
       "entities": [],
-      "compressed": false,
+      "importance": 0.4000000059604645,
+      "created_at": "2026-02-15T19:23:50.367919+00:00",
       "is_failure": false,
+      "compressed": false,
+      "is_anomaly": false,
+      "metadata": {},
       "tags": [
         "change:bulk-archive-memory-hooks",
         "phase:archive",
         "source:agent",
         "lesson"
-      ],
-      "last_accessed": "2026-02-15T19:23:50.367919+00:00",
-      "experience_type": "Learning",
-      "is_anomaly": false
+      ]
     },
     {
-      "is_anomaly": false,
-      "last_accessed": "2026-02-15T15:15:48.476313+00:00",
-      "importance": 0.32999998331069946,
-      "access_count": 0,
+      "is_failure": false,
+      "id": "5068c2f9-259f-4a88-a436-852ed249fedd",
+      "metadata": {},
       "compressed": false,
-      "entities": [],
       "tags": [
         "shodh",
         "test"
       ],
-      "content": "Ez egy teszt eml\u00e9k: a shodh-memory 0.1.75-re friss\u00fclt",
-      "id": "5068c2f9-259f-4a88-a436-852ed249fedd",
+      "access_count": 0,
+      "is_anomaly": false,
       "experience_type": "Learning",
-      "metadata": {},
+      "entities": [],
+      "content": "Ez egy teszt eml\u00e9k: a shodh-memory 0.1.75-re friss\u00fclt",
+      "last_accessed": "2026-02-15T15:15:48.476313+00:00",
       "created_at": "2026-02-15T15:15:48.476313+00:00",
-      "is_failure": false
+      "importance": 0.32999998331069946
     },
     {
-      "compressed": false,
-      "is_failure": false,
       "content": "Fix benchmark done-detection: Fix benchmark done-detection: use results files instead of openspec status",
-      "metadata": {},
-      "id": "60cfc775-6dc7-497d-8aca-9eeea4b6a670",
       "tags": [
         "change:Fix benchmark done-detection",
         "phase:apply",
         "source:hook",
         "decisions"
       ],
+      "experience_type": "Decision",
+      "id": "60cfc775-6dc7-497d-8aca-9eeea4b6a670",
+      "is_failure": false,
       "last_accessed": "2026-02-16T10:36:50.332746+00:00",
       "access_count": 0,
       "entities": [],
-      "created_at": "2026-02-16T10:36:50.332746+00:00",
       "is_anomaly": false,
+      "compressed": false,
+      "metadata": {},
+      "importance": 0.3799999952316284,
+      "created_at": "2026-02-16T10:36:50.332746+00:00"
+    },
+    {
       "experience_type": "Decision",
-      "importance": 0.3799999952316284
+      "last_accessed": "2026-02-16T11:45:10.830604+00:00",
+      "access_count": 0,
+      "id": "65640afc-1b45-4e20-9f0f-16e863df09d7",
+      "created_at": "2026-02-16T11:45:10.830604+00:00",
+      "entities": [],
+      "compressed": false,
+      "is_failure": false,
+      "is_anomaly": false,
+      "tags": [
+        "change:memory-branch-tags",
+        "phase:ff",
+        "source:agent",
+        "architecture",
+        "branch-awareness"
+      ],
+      "importance": 0.45000001788139343,
+      "metadata": {},
+      "content": "Memory branch awareness: tag-based approach chosen over branch-level storage separation. Tags preserve cross-branch knowledge sharing (instant visibility across worktrees), while branch-sep would isolate knowledge until merge. Auto-tag in cmd_remember (single entry point), double-query recall for branch boosting."
+    },
+    {
+      "id": "71161227-f64f-46b3-85d5-06f885a55728",
+      "entities": [],
+      "created_at": "2026-02-16T10:39:22.242926+00:00",
+      "compressed": false,
+      "tags": [
+        "change:memory-git-sync",
+        "phase:apply",
+        "source:agent",
+        "implementation"
+      ],
+      "is_anomaly": false,
+      "content": "memory-git-sync: implementation complete \u2014 wt-memory sync push/pull/status commands using orphan branch 'wt-memory' with user/machine namespacing, .sync-state for skip detection (normalized content hash on push, commit hash on pull), temp dir for push, git show for pull. 22 tests covering identity, push, pull, status, graceful degradation. Export hash uses jq -S normalization to strip volatile fields (exported_at, last_accessed, access_count, importance).",
+      "is_failure": false,
+      "metadata": {
+        "original_id": "9f33891b-017c-4c1d-9744-550a87a3b102"
+      },
+      "last_accessed": "2026-02-16T10:39:22.242926+00:00",
+      "access_count": 0,
+      "experience_type": "Context",
+      "importance": 0.3649999797344208
+    },
+    {
+      "is_failure": false,
+      "is_anomaly": false,
+      "compressed": false,
+      "tags": [
+        "change:memory-benchmark-protocol",
+        "phase:apply",
+        "source:agent",
+        "openspec-init",
+        "benchmark"
+      ],
+      "metadata": {
+        "original_id": "93608d75-1c6e-4a34-b890-c96cf3aca0a0"
+      },
+      "entities": [],
+      "experience_type": "Learning",
+      "created_at": "2026-02-16T10:39:22.125551+00:00",
+      "id": "778305d6-4390-47d1-968f-270f7137aec3",
+      "importance": 0.4000000059604645,
+      "last_accessed": "2026-02-16T10:39:22.125551+00:00",
+      "content": "Benchmark init: openspec init --tools claude skips config.yaml in non-interactive mode. Must create it manually. Also must pre-create OpenSpec changes with proposals using 'openspec new change' + copying proposal.md, otherwise openspec list returns empty and the agent has no starting point.",
+      "access_count": 0
+    },
+    {
+      "created_at": "2026-02-16T10:39:22.315417+00:00",
+      "id": "7d4f94be-90ff-4c73-b1fe-d3ddbe5249c9",
+      "compressed": false,
+      "is_anomaly": false,
+      "entities": [],
+      "last_accessed": "2026-02-16T10:39:22.315417+00:00",
+      "importance": 0.2800000011920929,
+      "content": "memory-benchmark-protocol: implementation complete \u2014 created benchmark/ directory with 17 files: project-spec, 6 change definitions (with trap docs + evaluator notes), 2 CLAUDE.md variants (baseline vs with-memory), scoring rubric, diagnostic framework, 3 templates (annotation, metrics JSON, comparison report), run guide with full bootstrap commands, and results collection guide",
+      "is_failure": false,
+      "metadata": {
+        "original_id": "b1cfb7ca-f46e-4541-8ac6-f8836ddadfdf"
+      },
+      "tags": [
+        "change:memory-benchmark-protocol",
+        "phase:apply",
+        "source:agent",
+        "implementation"
+      ],
+      "access_count": 0,
+      "experience_type": "Context"
     },
     {
       "content": "shodh-memory Memory.remember() is a Rust/PyO3 native method that auto-generates UUIDs \u2014 there is no way to insert a record with a specific ID. For import dedup, use the metadata dict to store original_id and build a known-ID set from both record IDs and metadata.original_id values.",
+      "compressed": false,
+      "metadata": {},
+      "experience_type": "Learning",
       "importance": 0.4000000059604645,
       "entities": [],
       "is_failure": false,
-      "experience_type": "Learning",
-      "metadata": {},
+      "id": "7fae5545-0610-4f80-9d77-92ed2012b16f",
+      "is_anomaly": false,
       "tags": [
         "change:memory-export-import",
         "phase:ff",
@@ -321,123 +501,340 @@
         "api-constraint"
       ],
       "last_accessed": "2026-02-15T19:42:53.083246+00:00",
-      "compressed": false,
-      "id": "7fae5545-0610-4f80-9d77-92ed2012b16f",
-      "created_at": "2026-02-15T19:42:53.083246+00:00",
-      "is_anomaly": false,
-      "access_count": 0
+      "access_count": 0,
+      "created_at": "2026-02-15T19:42:53.083246+00:00"
     },
     {
-      "metadata": {},
-      "created_at": "2026-02-15T16:32:27.206264+00:00",
-      "last_accessed": "2026-02-15T16:32:27.206264+00:00",
-      "experience_type": "Decision",
+      "access_count": 0,
+      "experience_type": "Context",
+      "is_anomaly": false,
+      "metadata": {
+        "original_id": "ee01c2ed-e646-4f99-ae5e-9648e3601a8f"
+      },
+      "importance": 0.25,
+      "created_at": "2026-02-16T10:39:23.007541+00:00",
+      "entities": [],
+      "last_accessed": "2026-02-16T10:39:23.007541+00:00",
       "compressed": false,
       "is_failure": false,
-      "is_anomaly": false,
+      "tags": [
+        "change:wire-memory-hooks-deploy",
+        "phase:archive",
+        "source:agent",
+        "completion"
+      ],
+      "content": "wire-memory-hooks-deploy: archived \u2014 wt-deploy-hooks now deploys 4 hooks by default (skill, stop, memory-recall, memory-save). --no-memory flag for baselines. 3 specs synced (auto-memory-hooks-deploy, hook-auto-install, smart-memory-recall). spec-driven schema, completed successfully.",
+      "id": "897e81cf-9892-49ea-a337-5372a44d55ec"
+    },
+    {
+      "last_accessed": "2026-02-15T16:32:27.206264+00:00",
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "decision"
       ],
+      "experience_type": "Decision",
+      "content": "Claude Code hook stdout injection is the only way for shell hooks to communicate back to the agent. Reminders via stdout get injected into the conversation as system messages. Repeated reminders on every Stop event increase compliance vs single reminder.",
+      "metadata": {},
+      "entities": [],
       "id": "8b33bf7d-4882-46d6-a41d-77102ade010b",
       "access_count": 0,
-      "entities": [],
-      "content": "Claude Code hook stdout injection is the only way for shell hooks to communicate back to the agent. Reminders via stdout get injected into the conversation as system messages. Repeated reminders on every Stop event increase compliance vs single reminder.",
-      "importance": 0.45000001788139343
+      "created_at": "2026-02-15T16:32:27.206264+00:00",
+      "importance": 0.45000001788139343,
+      "is_anomaly": false,
+      "is_failure": false,
+      "compressed": false
     },
     {
-      "created_at": "2026-02-15T16:32:36.167592+00:00",
-      "experience_type": "Context",
-      "compressed": false,
+      "id": "8f641ae7-6d9a-469d-ab26-16a546f7275b",
+      "entities": [],
+      "experience_type": "Learning",
+      "created_at": "2026-02-16T10:39:22.788352+00:00",
       "is_failure": false,
-      "access_count": 0,
       "is_anomaly": false,
-      "importance": 0.25,
+      "last_accessed": "2026-02-16T10:39:22.788352+00:00",
+      "metadata": {
+        "original_id": "ea1babff-1955-4c39-9497-5bd980b776d3"
+      },
+      "importance": 0.5,
+      "content": "Benchmark v2 bug: agent stopped after C09 because openspec list shows 'no-tasks' status for changes that only have proposal.md (no artifacts yet). Agent interpreted 'no-tasks' as 'nothing to do' instead of 'not started'. Fix: use results/change-NN.json files as the done-marker instead of openspec list status. Also need explicit wt-loop prompt that says 'do NOT stop until all 12 results files exist'.",
+      "compressed": false,
+      "access_count": 0,
+      "tags": [
+        "change:benchmark-v2",
+        "phase:apply",
+        "source:agent",
+        "openspec",
+        "done-detection"
+      ]
+    },
+    {
+      "is_failure": false,
+      "tags": [
+        "change:fix-agent-memory-discipline",
+        "phase:apply",
+        "source:agent",
+        "implementation"
+      ],
+      "metadata": {
+        "original_id": "6143836b-e7ca-4971-948d-4bcd3db756fa"
+      },
+      "entities": [],
+      "last_accessed": "2026-02-16T10:39:21.986929+00:00",
+      "compressed": false,
+      "experience_type": "Context",
+      "is_anomaly": false,
+      "id": "93a09759-bce1-4ef2-bfb0-81bd40f4d342",
+      "importance": 0.26499998569488525,
+      "access_count": 0,
+      "content": "fix-agent-memory-discipline: implementation complete \u2014 added Discover\u2192Save\u2192Tell ordering pattern to CLAUDE.md and all 5 skill pairs (explore, ff, apply, continue, verify) to ensure agents save non-obvious discoveries before summarizing to user",
+      "created_at": "2026-02-16T10:39:21.986929+00:00"
+    },
+    {
+      "content": "memory-save-reminder-hook: Added .memory marker file to wt-skill-start and reminder output to wt-hook-stop. When a skill has wt-memory hooks, the Stop hook reminds the agent to run recall/remember steps. Schema: spec-driven. All 14 tasks complete. Specs synced: skill-hook-automation (modified), stop-hook-memory-reminder (added).",
+      "experience_type": "Context",
+      "access_count": 0,
+      "id": "9d4450f5-a3e5-41e7-87df-836bf9dc9ea3",
+      "is_failure": false,
+      "compressed": false,
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "completion"
       ],
+      "last_accessed": "2026-02-15T16:32:36.167592+00:00",
+      "importance": 0.25,
       "entities": [],
+      "created_at": "2026-02-15T16:32:36.167592+00:00",
+      "is_anomaly": false,
+      "metadata": {}
+    },
+    {
+      "content": "Benchmark should include a diagnostic/gap analysis dimension: not just measure with/without memory, but also identify WHERE memory failed to help and WHY \u2014 to drive improvements to the memory system itself. This includes: missed recall opportunities, low-quality saves, missing memory types, and timing issues (saved too late to help).",
+      "last_accessed": "2026-02-16T10:39:22.388385+00:00",
+      "importance": 0.45000001788139343,
+      "access_count": 0,
+      "metadata": {
+        "original_id": "c308cf79-dcdd-41d3-a19c-d469f875802b"
+      },
+      "is_failure": false,
+      "compressed": false,
+      "created_at": "2026-02-16T10:39:22.388385+00:00",
+      "is_anomaly": false,
+      "tags": [
+        "change:memory-benchmark-protocol",
+        "phase:ff",
+        "source:user",
+        "benchmark",
+        "diagnostics",
+        "gap-analysis"
+      ],
+      "entities": [],
+      "experience_type": "Decision",
+      "id": "a3740671-d02c-4a80-a85a-6089ccd07439"
+    },
+    {
+      "tags": [
+        "source:user",
+        "cross-platform",
+        "gui",
+        "qt",
+        "design",
+        "implementation"
+      ],
+      "is_failure": false,
+      "compressed": false,
+      "id": "aad3abee-3489-4049-8930-3acd040d07fb",
+      "last_accessed": "2026-02-16T10:39:22.529552+00:00",
+      "is_anomaly": false,
+      "access_count": 0,
+      "metadata": {
+        "original_id": "d84e4b10-9332-4476-a7d4-558a415c1ada"
+      },
+      "created_at": "2026-02-16T10:39:22.529552+00:00",
+      "content": "Cross-platform compatibility must be explicitly considered during both design and implementation of changes. Qt/PySide6 behavior can differ across platforms (e.g., signal-slot argument handling, window management). Always test assumptions about platform-specific behavior (macOS AppleScript, Linux xdotool, Windows). Example: @log_exceptions decorator broke PySide6 signal argument dropping \u2014 worked on macOS but failed on Linux.",
+      "importance": 0.5649999976158142,
+      "experience_type": "Decision",
+      "entities": []
+    },
+    {
+      "is_anomaly": false,
+      "entities": [],
+      "last_accessed": "2026-02-16T16:16:18.952915+00:00",
+      "experience_type": "Decision",
+      "compressed": false,
+      "tags": [
+        "change:transcript-memory-extraction",
+        "phase:apply",
+        "source:hook",
+        "decisions",
+        "branch:change/shodh-memory-integration"
+      ],
       "metadata": {},
-      "id": "9d4450f5-a3e5-41e7-87df-836bf9dc9ea3",
-      "content": "memory-save-reminder-hook: Added .memory marker file to wt-skill-start and reminder output to wt-hook-stop. When a skill has wt-memory hooks, the Stop hook reminds the agent to run recall/remember steps. Schema: spec-driven. All 14 tasks complete. Specs synced: skill-hook-automation (modified), stop-hook-memory-reminder (added).",
-      "last_accessed": "2026-02-15T16:32:36.167592+00:00"
+      "created_at": "2026-02-16T16:16:18.952915+00:00",
+      "importance": 0.45000001788139343,
+      "content": "transcript-memory-extraction: Scan the JSONL file with grep for `\"skill\":\"opsx:` and `\"skill\":\"openspec-` patterns to detect whether skills were used. Use `claude` CLI in print mode with haiku model for cheap, reliable insight extraction. Unset `CLAUDECODE` env var to avoid nesting check. Extract...",
+      "is_failure": false,
+      "access_count": 0,
+      "id": "aaf72dcb-9ead-49db-822b-77b6d92b6992"
+    },
+    {
+      "entities": [],
+      "last_accessed": "2026-02-16T10:39:21.555522+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "tags": [
+        "change:memory-benchmark",
+        "phase:explore",
+        "source:user",
+        "benchmark",
+        "setup",
+        "bootstrap"
+      ],
+      "compressed": false,
+      "created_at": "2026-02-16T10:39:21.555522+00:00",
+      "importance": 0.45000001788139343,
+      "id": "ac8c262e-756d-4ca4-a106-7ee7a18f26fd",
+      "experience_type": "Decision",
+      "metadata": {
+        "original_id": "162ee04d-0d05-4ffb-aa17-d4eb0436e0c0"
+      },
+      "access_count": 0,
+      "content": "Benchmark project (craftbazaar) requires full toolchain bootstrap in run-guide: openspec init, wt-tools init (wt-config init or equivalent), memory hook deploy (wt-deploy-hooks / wt-memory-hooks), and openspec hooks init. Both Run A and Run B need identical setup except for CLAUDE.md content (baseline vs with-memory). The bootstrap sequence matters for reproducibility."
     },
     {
       "experience_type": "Learning",
+      "last_accessed": "2026-02-15T16:32:30.576534+00:00",
       "id": "afa014d0-c220-41b4-b9fe-5897bdfbc08d",
-      "content": "Skill name mapping for SKILL.md lookup: opsx:* \u2192 openspec-* prefix, wt:* \u2192 wt (single skill directory). This mapping is needed when locating .claude/skills/<name>/SKILL.md from the colon-separated skill invocation name.",
-      "entities": [],
-      "access_count": 0,
-      "is_failure": false,
       "metadata": {},
-      "importance": 0.4000000059604645,
-      "is_anomaly": false,
+      "entities": [],
+      "created_at": "2026-02-15T16:32:30.576534+00:00",
+      "access_count": 0,
+      "compressed": false,
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "lesson"
       ],
-      "last_accessed": "2026-02-15T16:32:30.576534+00:00",
-      "created_at": "2026-02-15T16:32:30.576534+00:00",
-      "compressed": false
+      "importance": 0.4000000059604645,
+      "content": "Skill name mapping for SKILL.md lookup: opsx:* \u2192 openspec-* prefix, wt:* \u2192 wt (single skill directory). This mapping is needed when locating .claude/skills/<name>/SKILL.md from the colon-separated skill invocation name.",
+      "is_failure": false,
+      "is_anomaly": false
     },
     {
-      "compressed": false,
+      "importance": 0.5149999856948853,
       "is_failure": false,
+      "last_accessed": "2026-02-16T10:39:22.598944+00:00",
       "is_anomaly": false,
-      "created_at": "2026-02-15T16:42:49.317351+00:00",
+      "id": "b1478c8d-4a99-4072-ba2a-c10b848aff85",
+      "tags": [
+        "change:fix-agent-memory-discipline",
+        "phase:ff",
+        "source:agent",
+        "memory-architecture",
+        "three-layers"
+      ],
       "access_count": 0,
-      "importance": 0.26499998569488525,
+      "experience_type": "Learning",
+      "compressed": false,
+      "content": "The memory hook architecture has 3 layers: CLAUDE.md ambient (covers all contexts), SKILL.md per-skill (covers skill execution), and Stop hook reminder (catches forgotten saves). A behavioral fix like Discover-Save-Tell needs to land in all 3 layers to be effective: CLAUDE.md for the rule, SKILL.md for the reminder, Stop hook already exists as safety net. When adding cross-cutting behavioral patterns, always check all 3 layers.",
+      "entities": [],
+      "metadata": {
+        "original_id": "e2a9e2c8-b45a-478c-9044-a073ea13b670"
+      },
+      "created_at": "2026-02-16T10:39:22.598944+00:00"
+    },
+    {
+      "experience_type": "Context",
+      "entities": [],
       "tags": [
         "change:memory-browse-upgrade",
         "phase:apply",
         "source:agent",
         "implementation"
       ],
-      "experience_type": "Context",
-      "id": "b4370f7c-396d-4856-8d5b-3f5f10f72af5",
-      "entities": [],
-      "metadata": {},
+      "access_count": 0,
       "last_accessed": "2026-02-15T16:42:49.317351+00:00",
-      "content": "memory-browse-upgrade: implementation complete \u2014 added summary/list toggle, paginated card rendering (50/page from cache), search override with mode-aware clear, context summary default view, and updated all documentation"
+      "metadata": {},
+      "created_at": "2026-02-15T16:42:49.317351+00:00",
+      "content": "memory-browse-upgrade: implementation complete \u2014 added summary/list toggle, paginated card rendering (50/page from cache), search override with mode-aware clear, context summary default view, and updated all documentation",
+      "id": "b4370f7c-396d-4856-8d5b-3f5f10f72af5",
+      "importance": 0.26499998569488525,
+      "compressed": false,
+      "is_failure": false,
+      "is_anomaly": false
     },
     {
-      "access_count": 0,
-      "content": "Stop hook memory reminder pattern: wt-skill-start creates .memory marker when SKILL.md contains wt-memory, wt-hook-stop checks for marker and outputs reminder to agent conversation. Repeated reminders are intentional for compliance.",
-      "metadata": {},
-      "importance": 0.4000000059604645,
-      "last_accessed": "2026-02-15T15:52:00.910006+00:00",
-      "entities": [],
-      "is_failure": false,
-      "is_anomaly": false,
+      "created_at": "2026-02-15T15:52:00.910006+00:00",
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "lesson"
       ],
-      "experience_type": "Learning",
-      "id": "b46f3d1d-2c83-4d94-8399-2af5d76c77c2",
       "compressed": false,
-      "created_at": "2026-02-15T15:52:00.910006+00:00"
+      "is_anomaly": false,
+      "access_count": 0,
+      "entities": [],
+      "importance": 0.4000000059604645,
+      "last_accessed": "2026-02-15T15:52:00.910006+00:00",
+      "metadata": {},
+      "is_failure": false,
+      "content": "Stop hook memory reminder pattern: wt-skill-start creates .memory marker when SKILL.md contains wt-memory, wt-hook-stop checks for marker and outputs reminder to agent conversation. Repeated reminders are intentional for compliance.",
+      "experience_type": "Learning",
+      "id": "b46f3d1d-2c83-4d94-8399-2af5d76c77c2"
     },
     {
-      "metadata": {},
-      "importance": 0.3799999952316284,
-      "last_accessed": "2026-02-16T10:36:49.649381+00:00",
       "entities": [],
-      "content": "memory-git-sync: memory-git-sync: Add wt-memory sync push/pull/status commands",
-      "id": "c33ef1ac-0917-43e0-859b-b77bd836e8e2",
-      "created_at": "2026-02-16T10:36:49.649381+00:00",
+      "created_at": "2026-02-16T10:39:21.765556+00:00",
+      "compressed": false,
+      "is_anomaly": false,
+      "experience_type": "Learning",
+      "last_accessed": "2026-02-16T10:39:21.765556+00:00",
+      "tags": [
+        "source:agent",
+        "phase:explore",
+        "self-improvement",
+        "memory-discipline"
+      ],
       "is_failure": false,
       "access_count": 0,
+      "id": "bf9898a7-0d2b-44b4-8de2-320757f4281d",
+      "importance": 0.4000000059604645,
+      "content": "Agent pattern to fix: after discovering a non-obvious technical finding during exploration or verification, IMMEDIATELY save it as memory before summarizing to the user. Don't wait for the summary \u2014 the save should happen at the moment of discovery, not as an afterthought.",
+      "metadata": {
+        "original_id": "198741a4-24a7-4421-bf28-c24b35c8abd5"
+      }
+    },
+    {
+      "created_at": "2026-02-16T13:45:10.928144+00:00",
+      "last_accessed": "2026-02-16T13:45:10.928144+00:00",
+      "tags": [
+        "change:memory-branch-tags",
+        "phase:apply",
+        "source:agent",
+        "shodh-memory",
+        "gotcha",
+        "branch:change/shodh-memory-integration"
+      ],
       "compressed": false,
+      "is_anomaly": false,
+      "content": "shodh-memory has no update_memory method. To modify tags on existing memories, use forget(id) + remember() with the new tags \u2014 a delete-and-recreate pattern. The ID will change but content/metadata are preserved.",
+      "entities": [],
+      "is_failure": false,
+      "experience_type": "Learning",
+      "id": "c0e32f4a-cb96-4f17-93ce-f17ed14a74dc",
+      "metadata": {},
+      "access_count": 0,
+      "importance": 0.4000000059604645
+    },
+    {
+      "compressed": false,
+      "is_failure": false,
+      "last_accessed": "2026-02-16T10:36:49.649381+00:00",
       "is_anomaly": false,
       "tags": [
         "change:memory-git-sync",
@@ -445,38 +842,40 @@
         "source:hook",
         "decisions"
       ],
-      "experience_type": "Decision"
+      "id": "c33ef1ac-0917-43e0-859b-b77bd836e8e2",
+      "metadata": {},
+      "created_at": "2026-02-16T10:36:49.649381+00:00",
+      "access_count": 0,
+      "content": "memory-git-sync: memory-git-sync: Add wt-memory sync push/pull/status commands",
+      "entities": [],
+      "experience_type": "Decision",
+      "importance": 0.3799999952316284
     },
     {
       "is_anomaly": false,
-      "last_accessed": "2026-02-15T15:51:59.418626+00:00",
-      "id": "d3820c0d-e332-462e-a21b-b2eab4bbd4f2",
-      "compressed": false,
-      "experience_type": "Context",
-      "access_count": 0,
-      "metadata": {},
-      "content": "memory-save-reminder-hook: Added .memory marker file to wt-skill-start and memory reminder output to wt-hook-stop. Schema: spec-driven. All artifacts and tasks complete, specs synced.",
-      "entities": [],
-      "is_failure": false,
-      "importance": 0.23619285225868225,
-      "created_at": "2026-02-15T15:51:59.418626+00:00",
       "tags": [
         "change:memory-save-reminder-hook",
         "phase:archive",
         "source:agent",
         "completion"
-      ]
+      ],
+      "importance": 0.23619285225868225,
+      "created_at": "2026-02-15T15:51:59.418626+00:00",
+      "id": "d3820c0d-e332-462e-a21b-b2eab4bbd4f2",
+      "experience_type": "Context",
+      "content": "memory-save-reminder-hook: Added .memory marker file to wt-skill-start and memory reminder output to wt-hook-stop. Schema: spec-driven. All artifacts and tasks complete, specs synced.",
+      "last_accessed": "2026-02-15T15:51:59.418626+00:00",
+      "access_count": 0,
+      "metadata": {},
+      "compressed": false,
+      "entities": [],
+      "is_failure": false
     },
     {
-      "id": "d998db86-3782-416d-96a7-a724a5a5d083",
-      "experience_type": "Learning",
-      "content": "Soft hooks in SKILL.md (prompt instructions for wt-memory recall/remember) are unreliable \u2014 agent can skip them. Solution: wt-hook-stop (hard Claude Code Stop hook) checks for .memory marker file and outputs a reminder to stdout, which gets injected as a system message. wt-skill-start creates the marker by grepping SKILL.md for wt-memory at registration time.",
-      "entities": [],
-      "importance": 0.5,
-      "last_accessed": "2026-02-15T15:42:58.997799+00:00",
-      "created_at": "2026-02-15T15:42:58.997799+00:00",
-      "is_failure": false,
       "is_anomaly": false,
+      "importance": 0.5,
+      "access_count": 0,
+      "last_accessed": "2026-02-15T15:42:58.997799+00:00",
       "compressed": false,
       "metadata": {},
       "tags": [
@@ -486,33 +885,41 @@
         "memory-reminder",
         "stop-hook"
       ],
-      "access_count": 0
+      "id": "d998db86-3782-416d-96a7-a724a5a5d083",
+      "entities": [],
+      "is_failure": false,
+      "experience_type": "Learning",
+      "content": "Soft hooks in SKILL.md (prompt instructions for wt-memory recall/remember) are unreliable \u2014 agent can skip them. Solution: wt-hook-stop (hard Claude Code Stop hook) checks for .memory marker file and outputs a reminder to stdout, which gets injected as a system message. wt-skill-start creates the marker by grepping SKILL.md for wt-memory at registration time.",
+      "created_at": "2026-02-15T15:42:58.997799+00:00"
     },
     {
-      "access_count": 0,
       "tags": [
         "change:bulk-archive-memory-hooks",
         "phase:apply",
         "source:agent",
         "implementation"
       ],
-      "experience_type": "Context",
       "is_anomaly": false,
-      "content": "bulk-archive-memory-hooks: Added wt-memory self-reflection hooks to bulk-archive skill (SKILL.md + command file), matching regular archive pattern. Updated readme-guide coverage matrix to include bulk-archive.",
-      "metadata": {},
       "importance": 0.25,
+      "entities": [],
+      "access_count": 0,
+      "experience_type": "Context",
+      "created_at": "2026-02-15T19:19:26.833222+00:00",
+      "content": "bulk-archive-memory-hooks: Added wt-memory self-reflection hooks to bulk-archive skill (SKILL.md + command file), matching regular archive pattern. Updated readme-guide coverage matrix to include bulk-archive.",
       "last_accessed": "2026-02-15T19:19:26.833222+00:00",
       "compressed": false,
-      "entities": [],
+      "is_failure": false,
       "id": "da38927d-7b87-4279-8c14-f008d45219fe",
-      "created_at": "2026-02-15T19:19:26.833222+00:00",
-      "is_failure": false
+      "metadata": {}
     },
     {
-      "last_accessed": "2026-02-15T16:07:57.964532+00:00",
+      "metadata": {},
+      "created_at": "2026-02-15T16:07:57.964532+00:00",
+      "content": "OpenSpec has TWO separate file types per skill: .claude/skills/<name>/SKILL.md (loaded when LLM calls Skill tool) and .claude/commands/opsx/<id>.md (loaded when user types /opsx:<id>). The npm package generates both from different built-in templates. Custom additions to SKILL.md are NOT reflected in command files \u2014 both must be edited. After openspec update --force, command files are overwritten from npm templates, losing customizations. Always sync memory steps to BOTH files.",
+      "compressed": false,
+      "experience_type": "Learning",
       "importance": 0.5,
-      "is_anomaly": false,
-      "id": "da600f5d-f4e3-47c4-98a4-ad96f0f23727",
+      "last_accessed": "2026-02-15T16:07:57.964532+00:00",
       "tags": [
         "source:agent",
         "openspec",
@@ -522,52 +929,206 @@
       ],
       "entities": [],
       "access_count": 0,
-      "experience_type": "Learning",
-      "metadata": {},
-      "content": "OpenSpec has TWO separate file types per skill: .claude/skills/<name>/SKILL.md (loaded when LLM calls Skill tool) and .claude/commands/opsx/<id>.md (loaded when user types /opsx:<id>). The npm package generates both from different built-in templates. Custom additions to SKILL.md are NOT reflected in command files \u2014 both must be edited. After openspec update --force, command files are overwritten from npm templates, losing customizations. Always sync memory steps to BOTH files.",
+      "id": "da600f5d-f4e3-47c4-98a4-ad96f0f23727",
       "is_failure": false,
-      "created_at": "2026-02-15T16:07:57.964532+00:00",
-      "compressed": false
+      "is_anomaly": false
     },
     {
+      "tags": [
+        "change:memory-branch-tags",
+        "phase:apply",
+        "source:agent",
+        "implementation",
+        "branch:change/shodh-memory-integration"
+      ],
+      "metadata": {},
+      "last_accessed": "2026-02-16T13:45:04.202873+00:00",
+      "created_at": "2026-02-16T13:45:04.202873+00:00",
+      "entities": [],
+      "is_anomaly": false,
+      "content": "memory-branch-tags: implementation complete \u2014 auto-tag branch in cmd_remember, double-query branch-boosted recall in cmd_recall, migration framework with auto-run (.migrations file, --no-migrate flag), migration 001 adds branch:unknown to pre-existing memories (forget+re-remember pattern since shodh-memory lacks update_memory). 11 tests, docs updated.",
+      "compressed": false,
+      "is_failure": false,
+      "experience_type": "Context",
+      "access_count": 0,
+      "id": "dbb939ff-8dcd-45ab-92ce-20ebf439cf5a",
+      "importance": 0.2800000011920929
+    },
+    {
+      "experience_type": "Decision",
+      "id": "dbcd8def-9f8f-453f-ba44-44a22217d312",
+      "access_count": 0,
+      "metadata": {
+        "original_id": "e446c5c7-a1a4-4124-ba82-32a97d651c7b"
+      },
+      "importance": 0.550000011920929,
       "is_failure": false,
       "is_anomaly": false,
+      "compressed": false,
+      "tags": [
+        "change:memory-git-sync",
+        "phase:ff",
+        "source:agent",
+        "architecture",
+        "sync"
+      ],
+      "created_at": "2026-02-16T10:39:22.671923+00:00",
+      "content": "wt-memory sync design: orphan branch 'wt-memory' with user/machine namespacing, full export per push (dedup on import handles duplicates), .sync-state file for skip detection (sha256 on push side, commit hash on pull side), temp dir for push, git show for pull extraction. No LFS needed \u2014 memory exports are small text JSON.",
+      "entities": [],
+      "last_accessed": "2026-02-16T10:39:22.671923+00:00"
+    },
+    {
+      "id": "e76cef31-3825-4c19-ab9e-93f3569b0876",
+      "content": "Memory benchmark design: The 6-change CraftBazaar project is structured so changes 1-3 create knowledge (env quirks, design decisions) and changes 4-6 consume it. The critical trap is Change 3's order architecture (flat vs nested) which cascades into C4 (discount scope), C5 (payout split), and C6 (per-vendor status). This makes C3 the highest-value memory save point and C6 the highest-value recall point.",
+      "importance": 0.5149999856948853,
       "access_count": 0,
+      "last_accessed": "2026-02-16T10:39:21.850993+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "entities": [],
+      "compressed": false,
+      "experience_type": "Learning",
+      "created_at": "2026-02-16T10:39:21.850993+00:00",
+      "tags": [
+        "change:memory-benchmark-protocol",
+        "phase:ff",
+        "source:agent",
+        "benchmark-design",
+        "trap-architecture"
+      ],
+      "metadata": {
+        "original_id": "2fbeac52-c131-4d9e-bfde-4130d5b4f6b4"
+      }
+    },
+    {
+      "experience_type": "Learning",
+      "is_anomaly": false,
+      "id": "ea90ab52-ec69-4ede-a883-f88e64350215",
+      "last_accessed": "2026-02-16T10:39:22.864310+00:00",
+      "content": "Benchmark nested session limitation: wt-loop cannot be started from within a Claude Code session because the CLAUDECODE env var triggers nested session protection. The loops must be started from a regular terminal.",
+      "access_count": 0,
+      "entities": [],
+      "metadata": {
+        "original_id": "eaac3153-1c3d-4558-8565-0825c1b617c2"
+      },
+      "created_at": "2026-02-16T10:39:22.864310+00:00",
+      "compressed": false,
+      "importance": 0.4000000059604645,
+      "is_failure": false,
+      "tags": [
+        "benchmark",
+        "wt-loop",
+        "nested-session",
+        "source:agent"
+      ]
+    },
+    {
+      "last_accessed": "2026-02-16T10:39:21.919733+00:00",
+      "experience_type": "Context",
+      "importance": 0.2671617865562439,
+      "is_anomaly": false,
+      "tags": [
+        "change:wire-memory-hooks-deploy",
+        "phase:apply",
+        "source:agent",
+        "implementation"
+      ],
+      "created_at": "2026-02-16T10:39:21.919733+00:00",
+      "entities": [],
+      "id": "f2ddff72-6017-4252-ac7b-59fe76006407",
+      "metadata": {
+        "original_id": "390c45df-05ba-4b43-a743-83f345274881"
+      },
+      "compressed": false,
+      "is_failure": false,
+      "content": "wire-memory-hooks-deploy: implementation complete \u2014 wt-deploy-hooks now deploys memory hooks by default (wt-hook-memory-recall + wt-hook-memory-save), with --no-memory flag for baselines, upgrade path for existing configs, simplified benchmark scripts, aligned smart-recall spec to git log reality, updated docs with automatic hooks section and architecture diagram",
+      "access_count": 0
+    },
+    {
+      "metadata": {
+        "original_id": "c4148935-1a82-41c8-aed8-2e531a3c53e9"
+      },
+      "content": "wt-loop fixes for benchmark compatibility: (1) claude -p goes into Tl (stopped) state when run through pipe+tee because it loses the controlling terminal - fix: use 'script -f -q' to create a PTY instead of 'tee'. (2) timeout creates new process group causing SIGTTOU - fix: use 'timeout --foreground'. (3) Nested session protection blocks claude -p when launched from within Claude Code - fix: 'env -u CLAUDECODE'. (4) wt-loop default prompt was tasks.md-centric, ignoring CLAUDE.md workflow - fix: prompt now directs agent to read CLAUDE.md first. (5) Claude Code requires project trust acceptance on first run in new directory - must run claude interactively once before wt-loop can work.",
+      "id": "f4276d04-13ef-4efc-8d4d-fa1fda6a0a7b",
+      "is_anomaly": false,
+      "entities": [],
+      "access_count": 0,
+      "experience_type": "Learning",
+      "created_at": "2026-02-16T10:39:22.456614+00:00",
+      "last_accessed": "2026-02-16T10:39:22.456614+00:00",
+      "importance": 0.5,
+      "compressed": false,
+      "is_failure": false,
+      "tags": [
+        "wt-loop",
+        "benchmark",
+        "fix",
+        "claude-cli",
+        "PTY",
+        "source:agent"
+      ]
+    },
+    {
+      "compressed": false,
+      "importance": 0.25,
+      "id": "f7a5db7c-5553-4609-893c-14ededcd7fcf",
+      "experience_type": "Context",
       "tags": [
         "change:bulk-archive-memory-hooks",
         "phase:archive",
         "source:agent",
         "completion"
       ],
-      "created_at": "2026-02-15T19:23:52.637042+00:00",
-      "id": "f7a5db7c-5553-4609-893c-14ededcd7fcf",
-      "last_accessed": "2026-02-15T19:23:52.637042+00:00",
-      "content": "bulk-archive-memory-hooks: Added wt-memory self-reflection hooks to bulk-archive skill (both SKILL.md and command file), matching regular archive pattern. Updated readme-guide coverage matrix. spec-driven schema, completed successfully.",
-      "entities": [],
-      "metadata": {},
-      "experience_type": "Context",
-      "importance": 0.25,
-      "compressed": false
-    },
-    {
-      "importance": 0.550000011920929,
-      "experience_type": "Decision",
       "is_anomaly": false,
-      "content": "Planned but not yet implemented: shodh-memory export/import feature. Design from explore session: project-level export/import that dumps all memory records into a single file with unique IDs. Import reads that file on another machine. Key requirement: unique record IDs must prevent duplication because users will run export/import back-and-forth between machines working on the same project. No change was created \u2014 only explored.",
-      "id": "fe2c41c9-ec23-40ce-bfe8-64b4dce4b8d8",
-      "last_accessed": "2026-02-15T19:26:53.633783+00:00",
-      "entities": [],
-      "compressed": false,
+      "created_at": "2026-02-15T19:23:52.637042+00:00",
+      "last_accessed": "2026-02-15T19:23:52.637042+00:00",
       "metadata": {},
       "is_failure": false,
+      "access_count": 0,
+      "content": "bulk-archive-memory-hooks: Added wt-memory self-reflection hooks to bulk-archive skill (both SKILL.md and command file), matching regular archive pattern. Updated readme-guide coverage matrix. spec-driven schema, completed successfully.",
+      "entities": []
+    },
+    {
+      "entities": [],
+      "experience_type": "Learning",
+      "is_failure": false,
+      "content": "Benchmark v1 finding: sequential non-repeating changes don't test memory well. Memory value shows in requirement reversals (stakeholder changes mind), cross-context consistency (same pattern needed in different sessions), and error recurrence (same bug in different changes). Organic traps (IF agent hits error) are weak; forced contradictions (MUST deal with reversal) are strong.",
+      "id": "f887e0fc-fd9a-40d8-ba8e-64b992c94df0",
+      "is_anomaly": false,
+      "tags": [
+        "change:benchmark-v2-harder-memory-test",
+        "phase:ff",
+        "source:agent",
+        "benchmark-design"
+      ],
+      "last_accessed": "2026-02-16T10:39:22.056744+00:00",
+      "created_at": "2026-02-16T10:39:22.056744+00:00",
+      "importance": 0.5,
+      "compressed": false,
+      "access_count": 0,
+      "metadata": {
+        "original_id": "8857e9a5-a8ea-4f35-ac2d-68bc2ae17aa9"
+      }
+    },
+    {
+      "access_count": 0,
+      "last_accessed": "2026-02-15T19:26:53.633783+00:00",
+      "is_failure": false,
+      "metadata": {},
+      "content": "Planned but not yet implemented: shodh-memory export/import feature. Design from explore session: project-level export/import that dumps all memory records into a single file with unique IDs. Import reads that file on another machine. Key requirement: unique record IDs must prevent duplication because users will run export/import back-and-forth between machines working on the same project. No change was created \u2014 only explored.",
+      "compressed": false,
+      "id": "fe2c41c9-ec23-40ce-bfe8-64b4dce4b8d8",
+      "importance": 0.550000011920929,
       "created_at": "2026-02-15T19:26:53.633783+00:00",
+      "is_anomaly": false,
+      "entities": [],
       "tags": [
         "source:user",
         "shodh-memory",
         "export-import",
         "planned-feature"
       ],
-      "access_count": 0
+      "experience_type": "Decision"
     }
   ]
 }
