@@ -241,7 +241,7 @@ DEFAULT_CONFIG = {
     },
     "team": {
         "enabled": False,
-        "sync_interval_ms": 15000,
+        "sync_interval_ms": 120000,
         "auto_sync": True,
     },
     "usage": {

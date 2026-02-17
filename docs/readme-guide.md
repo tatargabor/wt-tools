@@ -76,7 +76,7 @@ The README MUST contain these sections in this exact order:
 - Categories: Worktree Management, Project Management, Ralph Loop, Team & Sync, Developer Memory, Utilities
 - Internal/hook scripts (wt-common.sh, wt-hook-*) get a brief note, not full table entries
 - Each command: name + one-line description
-- **Developer Memory category must include:** `wt-memory remember`, `wt-memory recall`, `wt-memory list`, `wt-memory status`, `wt-memory forget`, `wt-memory context`, `wt-memory brain`, `wt-memory get`, `wt-memory export`, `wt-memory import`, `wt-memory repair`, `wt-memory-hooks install`, `wt-memory-hooks check`
+- **Developer Memory category must include:** `wt-memory remember`, `wt-memory recall`, `wt-memory list`, `wt-memory status`, `wt-memory forget`, `wt-memory context`, `wt-memory brain`, `wt-memory get`, `wt-memory export`, `wt-memory import`, `wt-memory repair`, `wt-memory sync`, `wt-memory sync push`, `wt-memory sync pull`, `wt-memory sync status`, `wt-memory proactive`, `wt-memory stats`, `wt-memory cleanup`, `wt-memory projects`, `wt-memory-hooks install`, `wt-memory-hooks check`, `wt-memory-hooks remove`
 
 ### 9. Configuration
 - Config file locations table
@@ -172,8 +172,8 @@ wt-tools aims to elevate the Claude Code experience — reducing technical frict
 
 When documenting CLI tools:
 
-- **User-facing commands** (wt-new, wt-work, wt-list, wt-close, wt-merge, wt-status, wt-loop, wt-project, wt-usage, wt-config, wt-control, wt-version, wt-deploy-hooks, wt-focus): Full table entry with description
-- **Internal/hook scripts** (wt-common.sh, wt-hook-skill, wt-hook-stop, wt-skill-start, wt-control-init, wt-control-sync, wt-control-chat, wt-control-gui, wt-completions.*): Mention in an "Internals" note, not in the main CLI table
+- **User-facing commands** (wt-new, wt-work, wt-list, wt-close, wt-merge, wt-status, wt-loop, wt-project, wt-usage, wt-config, wt-control, wt-version, wt-deploy-hooks, wt-focus, wt-openspec, wt-add): Full table entry with description
+- **Internal/hook scripts** (wt-common.sh, wt-hook-skill, wt-hook-stop, wt-hook-memory-recall, wt-hook-memory-save, wt-skill-start, wt-control-init, wt-control-sync, wt-control-chat, wt-control-gui, wt-completions.*): Mention in an "Internals" note, not in the main CLI table
 - **Discovering new commands**: Run `ls bin/wt-*` and cross-reference with the CLI Reference section
 
 ---

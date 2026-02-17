@@ -2,7 +2,7 @@
 
 A toolkit for managing parallel AI agent development with git worktrees, a real-time GUI, and spec-driven workflows.
 
-> **Latest update:** 2026-02-10
+> **Latest update:** 2026-02-17
 
 ---
 
@@ -137,6 +137,8 @@ Autonomous agent execution — runs Claude Code in iterations, checking task com
 
 Cross-machine collaboration **without a central server** — using a `wt-control` git branch for team and machine-level coordination. Each machine syncs agent status automatically. Includes encrypted chat (`wt-control-chat`) and directed agent-to-agent messaging (`/wt:msg`). Note: Claude Code's Teams feature does not replace this — wt-tools team sync operates at the agent level, enabling different remote machines, users, or local agents to coordinate at a higher level. See [docs/agent-messaging.md](docs/agent-messaging.md).
 
+> **Traffic note:** `wt-control-sync` runs git fetch+push on every sync cycle. The default interval is 2 minutes (`sync_interval_ms: 120000`). Lower intervals increase GitHub API traffic — at 15 seconds, that's ~480 git operations/hour per machine. Adjust in Settings → Team Sync interval. For most teams, 2 minutes is a good balance between freshness and API usage.
+
 ### Developer Memory (Experimental)
 
 Per-project cognitive memory powered by [shodh-memory](https://github.com/varun29ankuS/shodh-memory). Agents save decisions, learnings, and context as they work — future agents in different sessions recall relevant past experience before starting. The result: agents that learn from past mistakes, remember architectural decisions, and don't repeat work that's already been done.
@@ -147,8 +149,8 @@ Per-project cognitive memory powered by [shodh-memory](https://github.com/varun2
 - During implementation, the agent recognizes and saves non-obvious constraints you share ("always use absolute imports here")
 
 **How to use it:**
-- **CLI**: `wt-memory remember` to save (auto-tagged with branch), `wt-memory recall` to search (branch-boosted), `wt-memory forget` to clean up, `wt-memory context` for summaries, `wt-memory export/import` to transfer, `wt-memory sync` for git-based team sharing
-- **GUI**: Browse memories via the [M] button — opens with a context summary, toggle to paginated list with "Show All", search semantically, export/import with buttons
+- **CLI**: `wt-memory remember` to save (auto-tagged with branch), `wt-memory recall` to search (modes: semantic, temporal, hybrid, causal, associative; branch-boosted), `wt-memory forget` to clean up, `wt-memory context` for summaries, `wt-memory export/import` to transfer, `wt-memory sync` for git-based team sharing
+- **GUI**: Browse memories via the [M] button — opens with a context summary, toggle to paginated list with "Show All", search semantically, save notes with "Remember Note", export/import with buttons
 - **OpenSpec hooks**: Automatic recall/remember across all 8 skill phases — agent insights captured across the entire lifecycle
 - **Ambient**: Agents recognize and save knowledge during any conversation, not just OpenSpec workflows
 - **Requires**: `pip install shodh-memory` — gracefully degrades if not installed (all commands silently no-op)
@@ -273,6 +275,12 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory export [--output FILE]` | Export all memories to JSON (stdout or file) |
 | `wt-memory import FILE [--dry-run]` | Import memories from JSON (skip duplicates) |
 | `wt-memory sync` | Push + pull memories via git remote |
+| `wt-memory sync push` | Push memories to shared team branch |
+| `wt-memory sync pull` | Pull memories from shared team branch |
+| `wt-memory sync status` | Show sync status (local vs remote counts) |
+| `wt-memory proactive` | Generate proactive context for current session |
+| `wt-memory stats` | Show memory statistics (counts, types, noise ratio) |
+| `wt-memory cleanup` | Delete low-importance and noisy memories |
 | `wt-memory migrate` | Run pending memory storage migrations |
 | `wt-memory migrate --status` | Show migration history |
 | `wt-memory repair` | Repair index integrity |
@@ -280,6 +288,15 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory projects` | List all projects with memory counts |
 | `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |
 | `wt-memory-hooks check` | Check if hooks are installed |
+| `wt-memory-hooks remove` | Remove memory hooks from OpenSpec skills |
+
+### OpenSpec (Spec-Driven Workflow)
+
+| Command | Description |
+|---------|-------------|
+| `wt-openspec status [--json]` | Show OpenSpec change status (filesystem-based, fast) |
+| `wt-openspec init` | Initialize OpenSpec in the project |
+| `wt-openspec update` | Update OpenSpec skills to latest version |
 
 ### Utilities
 
@@ -299,6 +316,8 @@ These are called by other tools or by Claude Code hooks — you don't invoke the
 - `wt-common.sh` — shared shell functions
 - `wt-hook-skill` — Claude Code UserPromptSubmit hook (skill tracking)
 - `wt-hook-stop` — Claude Code Stop hook (timestamp refresh + memory reminder)
+- `wt-hook-memory-recall` — Claude Code hook for automatic memory recall on session start
+- `wt-hook-memory-save` — Claude Code hook for automatic memory save on session end
 - `wt-skill-start` — register active skill for status display
 - `wt-control-gui` — GUI launcher (called by `wt-control`)
 - `wt-completions.bash` / `wt-completions.zsh` — shell completions

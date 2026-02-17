@@ -15,17 +15,19 @@ The README follows the mandatory section order defined in `readme-guide.md`:
 1. Header (title, tagline, date)
 2. Overview (what it is, screenshot)
 3. Platform & Editor Support
-4. Quick Start
-5. Features
-6. Installation
-7. CLI Reference
-8. Configuration
-9. Known Issues & Limitations
-10. Claude Code Integration
-11. Contributing
-12. Architecture
-13. Related Projects
-14. License
+4. How It Works
+5. Quick Start
+6. Features
+7. Installation
+8. CLI Reference
+9. Configuration
+10. Known Issues & Limitations
+11. Claude Code Integration
+12. Contributing
+13. Use Cases
+14. Related Projects
+15. Future Development
+16. License
 
 ## User Requirements / Notes
 
