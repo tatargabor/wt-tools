@@ -104,7 +104,7 @@ Double-click a row → opens editor + focuses the window. Blinking red row → a
 git clone https://github.com/tatargabor/wt-tools.git
 cd wt-tools && ./install.sh
 
-# 2. Register your project
+# 2. Register your project (deploys hooks, commands, and skills to .claude/)
 cd ~/my-project && wt-project init
 
 # 3. Launch the Control Center
@@ -232,7 +232,7 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 
 | Command | Description |
 |---------|-------------|
-| `wt-project init` | Register current directory as a project |
+| `wt-project init` | Register project + deploy hooks, commands, and skills to `.claude/` (re-run to update) |
 | `wt-project list` | List registered projects |
 | `wt-project default <name>` | Set default project |
 
@@ -284,6 +284,8 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory migrate` | Run pending memory storage migrations |
 | `wt-memory migrate --status` | Show migration history |
 | `wt-memory repair` | Repair index integrity |
+| `wt-memory audit [--threshold N] [--json]` | Report duplicate clusters and redundancy stats |
+| `wt-memory dedup [--threshold N] [--dry-run] [--interactive]` | Remove duplicate memories, keeping best per cluster |
 | `wt-memory status [--json]` | Show memory config, health, and count |
 | `wt-memory projects` | List all projects with memory counts |
 | `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |

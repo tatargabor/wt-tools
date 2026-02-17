@@ -24,6 +24,30 @@ That's it. The memory is stored per-project (worktrees of the same repo share me
 
 ---
 
+## How wt-memory Differs from Claude Code Memory
+
+Claude Code has its own [built-in memory system](https://docs.anthropic.com/en/docs/claude-code/memory): `CLAUDE.md` files for team-shared instructions and auto memory (`~/.claude/projects/<project>/memory/MEMORY.md`) for Claude's own notes. wt-memory is **complementary, not a replacement** — they serve different roles.
+
+**CLAUDE.md / auto memory = instructions.** Always loaded at session start, deterministic, tells agents how to behave. "Use pytest", "2-space indent", "run tests with PYTHONPATH=."
+
+**wt-memory = experience.** Searched on demand when relevant, semantic, tells agents what happened before. "RocksDB crashes with concurrent access — use file locking", "We chose SSE over WebSocket because Cloudflare Workers don't support persistent connections."
+
+| Aspect | Claude Code Memory | wt-memory |
+|---|---|---|
+| **Storage** | Markdown files | RocksDB + vector embeddings |
+| **Recall** | Loaded at startup (200-line cap on auto memory) | Semantic search on demand (scales to 1000s) |
+| **Structure** | Freeform text | Typed (Decision / Learning / Context) + tags |
+| **Worktrees** | Separate memory per worktree | Shared across worktrees of the same repo |
+| **Team sharing** | CLAUDE.md in git (manual) | `wt-memory sync push/pull` |
+| **Lifecycle** | Edit files manually | audit, dedup, forget, export/import |
+| **Workflow hooks** | None (always loaded) | OpenSpec hooks at every phase (recall + save) |
+
+The worktree difference is significant: Claude's auto memory gives each worktree its own isolated memory directory. An agent on `feature-a` doesn't see what an agent on `feature-b` learned. wt-memory shares across all worktrees of the same repo by design — knowledge from any branch is available everywhere (with branch-boost for relevance).
+
+> **When to use which:** Put stable rules and conventions in CLAUDE.md. Let wt-memory capture the messy, evolving knowledge — past failures, decisions with rationale, non-obvious gotchas — that accumulates as agents work on the project over time.
+
+---
+
 ## When Is It Useful?
 
 ### 1. Avoiding repeated mistakes
@@ -276,9 +300,18 @@ Two Claude Code hooks run automatically via `.claude/settings.json` — no agent
 
 **`wt-hook-memory-save`** (Stop event, timeout 30s)
 
-Fires after every agent response. Detects new git commits, extracts **Choice** lines from `design.md`, and saves ONE concise Decision memory per change (~300 chars max). Idempotent — won't re-save for the same change.
+Fires after every agent response. Has two paths:
 
-How it works:
+**PATH 1 — Transcript extraction** (via Haiku LLM): Extracts insights from the active Claude session transcript. Uses a staging+debounce pattern to avoid duplicate memories:
+1. Writes extracted insights to a staging file (`.wt-tools/.staged-extract-{transcript-id}`)
+2. Each Stop event overwrites the same staging file — only the latest extraction persists
+3. Skips Haiku extraction if the staging file was written less than 5 minutes ago (debounce)
+4. When a *different* transcript is detected (new session), commits the previous staging file to `wt-memory` and starts staging for the new transcript
+5. Staged files older than 1 hour are auto-committed (handles "last session in project")
+
+**PATH 2 — Design choice extraction**: Detects new git commits, extracts **Choice** lines from `design.md`, and saves ONE concise Decision memory per change (~300 chars max). Idempotent — won't re-save for the same change.
+
+How PATH 2 works:
 1. Compares HEAD against `.wt-tools/.last-memory-commit` marker
 2. For each new commit, extracts change name from message format `change-name: description`
 3. Reads `openspec/changes/<change-name>/design.md`, extracts `**Choice**:` lines
@@ -310,6 +343,10 @@ Both hooks self-degrade gracefully — they exit 0 immediately if `wt-memory` is
 ## GUI
 
 The Control Center GUI provides memory access through the project header's context menu.
+
+![Status badges in the Control Center — M (Memory), O (OpenSpec), R (Ralph)](images/control-center-memory.png)
+
+*The "Extra" column shows per-project status badges: **M** (memory available, blue), **O** (OpenSpec initialized, teal), **R** (Ralph loop running, red).*
 
 ### [M] button tooltip
 
@@ -440,6 +477,13 @@ Export produces a single JSON file with version header, project name, and all re
 | `wt-memory migrate` | Run pending memory migrations |
 | `wt-memory migrate --status` | Show migration history |
 
+**Diagnostics:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory audit [--threshold N] [--json]` | Report memory health: duplicate clusters, redundancy stats, top clusters |
+| `wt-memory dedup [--threshold N] [--dry-run] [--interactive]` | Remove duplicate memories, keeping best per cluster with merged tags |
+
 **Maintenance:**
 
 | Command | Description |
@@ -525,6 +569,39 @@ If you use OpenSpec workflows:
 wt-memory-hooks install
 wt-memory-hooks check   # verify
 ```
+
+### Quick Setup Flows
+
+#### A. Fresh project — OpenSpec + memory from scratch
+
+```bash
+pip install shodh-memory              # 1. Install memory backend
+wt-project init                       # 2. Register project + deploy hooks/commands/skills
+wt-openspec init                      # 3. Initialize OpenSpec
+wt-memory-hooks install               # 4. Patch memory hooks into OpenSpec skills
+wt-memory-hooks check                 # 5. Verify hooks installed
+```
+
+#### B. Existing OpenSpec project — enable memory
+
+```bash
+pip install shodh-memory              # 1. Install memory backend (if not installed)
+wt-project init                       # 2. Re-run to update deployment (adds memory hooks to settings.json)
+wt-memory-hooks install               # 3. Patch memory hooks into OpenSpec skills
+wt-memory-hooks check                 # 4. Verify
+```
+
+#### C. After `wt-openspec update` — re-install memory hooks
+
+`wt-openspec update` overwrites SKILL.md files, removing memory hook patches. Re-install:
+
+```bash
+wt-openspec update                    # 1. Update OpenSpec skills
+wt-memory-hooks install               # 2. Re-patch memory hooks
+wt-memory-hooks check                 # 3. Verify
+```
+
+> **Tip:** The GUI can also reinstall hooks automatically after an OpenSpec update (Menu → Memory → Install Memory Hooks).
 
 ### Graceful degradation
 
