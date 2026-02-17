@@ -359,12 +359,6 @@ Quick way to save a memory from the GUI:
 - Enter content (multi-line)
 - Add tags (optional, comma-separated)
 
-### Install Memory Hooks
-
-**Menu → Memory → Install Memory Hooks**
-
-Runs `wt-memory-hooks install` for the current project. Only appears when OpenSpec is detected and hooks are not yet installed.
-
 ---
 
 ## Emphasis Memory
@@ -487,15 +481,17 @@ wt-memory forget --older-than 180
 wt-memory status --json
 ```
 
-### wt-memory-hooks
+### wt-memory-hooks (Legacy)
 
 | Command | Description |
 |---------|-------------|
-| `wt-memory-hooks install` | Patch memory hooks into OpenSpec SKILL.md files (idempotent) |
-| `wt-memory-hooks check [--json]` | Check whether hooks are installed |
-| `wt-memory-hooks remove` | Remove memory hooks from OpenSpec SKILL.md files |
+| `wt-memory-hooks install` | **Deprecated** — the 5-layer hook system in settings.json handles all memory operations. Use `wt-deploy-hooks` instead. |
+| `wt-memory-hooks check [--json]` | Check whether inline hooks are present in skill files |
+| `wt-memory-hooks remove [--quiet]` | Remove inline memory hooks from OpenSpec skill files |
 
 **Global option:** `--project NAME` — override auto-detected project name.
+
+> **Note:** `wt-project init` now automatically runs `wt-memory-hooks remove` to clean up legacy inline hooks.
 
 ### /wt:memory slash command
 
@@ -526,34 +522,23 @@ wt-memory health
 wt-memory status
 ```
 
-### 3. Install OpenSpec hooks (optional)
-
-If you use OpenSpec workflows:
-
-```bash
-wt-memory-hooks install
-wt-memory-hooks check   # verify
-```
-
 ### Quick Setup Flows
 
 #### A. Fresh project — OpenSpec + memory from scratch
 
 ```bash
 pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend
-wt-project init                       # 2. Register project + deploy hooks/commands/skills
+wt-project init                       # 2. Register project + deploy 5-layer hooks to settings.json
 wt-openspec init                      # 3. Initialize OpenSpec
-wt-memory-hooks install               # 4. Patch memory hooks into OpenSpec skills
-wt-memory-hooks check                 # 5. Verify hooks installed
+wt-memory health                      # 4. Verify shodh-memory is available
 ```
 
 #### B. Existing OpenSpec project — enable memory
 
 ```bash
 pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend (if not installed)
-wt-project init                       # 2. Re-run to update deployment (adds memory hooks to settings.json)
-wt-memory-hooks install               # 3. Patch memory hooks into OpenSpec skills
-wt-memory-hooks check                 # 4. Verify
+wt-project init                       # 2. Re-run to deploy 5-layer hooks + auto-remove legacy inline hooks
+wt-memory health                      # 3. Verify shodh-memory is available
 ```
 
 #### C. Brownfield project — seed memory from existing OpenSpec artifacts
@@ -567,17 +552,13 @@ wt-memory health                      # 2. Verify it works
 
 See the full [Memory Seeding Guide](memory-seeding-guide.md) for step-by-step instructions.
 
-#### D. After `wt-openspec update` — re-install memory hooks
+#### D. After `wt-openspec update` — no action needed
 
-`wt-openspec update` overwrites SKILL.md files, removing memory hook patches. Re-install:
+The 5-layer hook system lives in `settings.json`, not in SKILL.md files. OpenSpec updates don't affect it:
 
 ```bash
-wt-openspec update                    # 1. Update OpenSpec skills
-wt-memory-hooks install               # 2. Re-patch memory hooks
-wt-memory-hooks check                 # 3. Verify
+wt-openspec update                    # Update OpenSpec skills — memory hooks stay active
 ```
-
-> **Tip:** The GUI can also reinstall hooks automatically after an OpenSpec update (Menu → Memory → Install Memory Hooks).
 
 ### Graceful degradation
 

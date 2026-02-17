@@ -26,17 +26,19 @@ usage() {
     cat <<EOF
 Usage: wt-memory-hooks <command> [options]
 
-Install, check, or remove memory hooks in OpenSpec SKILL.md and command files.
+Check or remove inline memory hooks from OpenSpec SKILL.md and command files.
+NOTE: 'install' is deprecated — the 5-layer hook system in settings.json
+handles all memory operations. Use 'wt-deploy-hooks' instead.
 
 Commands:
-  install             Patch memory hooks into OpenSpec files (idempotent)
-  check [--json]      Check whether hooks are installed
-  remove              Remove memory hooks from OpenSpec files
+  check [--json]         Check whether inline hooks are present
+  remove [--quiet]       Remove inline memory hooks from OpenSpec files
+  install                (deprecated — prints warning and exits)
 
 Global options:
   --project NAME      Override project name (default: auto-detect from git root)
 
-Files patched:
+Files managed:
   .claude/skills/<name>/SKILL.md      (Skill tool invocation)
   .claude/commands/opsx/<id>.md       (slash command invocation)
 
@@ -667,81 +669,66 @@ cmd_check() {
 # ─── Command: install ────────────────────────────────────────────────
 
 cmd_install() {
-    local main_repo
-    main_repo=$(resolve_repo_root) || true
-
-    if [[ -z "$main_repo" ]]; then
-        echo "Error: not in a git repository" >&2
-        return 1
-    fi
-
-    local skills_dir="$main_repo/.claude/skills"
-    local found=false
-
-    echo "Installing memory hooks..."
-    echo ""
-
-    for skill in "${HOOK_SKILLS[@]}"; do
-        # Install to SKILL.md
-        local skill_file="$skills_dir/$skill/SKILL.md"
-        if [[ -f "$skill_file" ]]; then
-            found=true
-            install_single "$skill" "$skill_file" "skill"
-        fi
-
-        # Install to command file
-        local cmd_rel
-        cmd_rel=$(get_command_file_rel "$skill")
-        local cmd_file="$main_repo/$cmd_rel"
-        if [[ -n "$cmd_rel" && -f "$cmd_file" ]]; then
-            found=true
-            install_single "$skill" "$cmd_file" "command"
-        fi
-    done
-
-    if [[ "$found" == "false" ]]; then
-        echo "Error: No OpenSpec skill or command files found" >&2
-        return 1
-    fi
-
-    echo ""
-    echo "Done."
+    echo "DEPRECATED: 'wt-memory-hooks install' is no longer needed." >&2
+    echo "" >&2
+    echo "The 5-layer hook system in .claude/settings.json now handles all" >&2
+    echo "memory operations (recall, save, hot-topic matching, error recovery)." >&2
+    echo "Inline memory hooks in SKILL.md and command files are obsolete." >&2
+    echo "" >&2
+    echo "To deploy the hook system:  wt-deploy-hooks <project-dir>" >&2
+    echo "To remove inline hooks:     wt-memory-hooks remove" >&2
+    return 0
 }
 
 # ─── Command: remove ─────────────────────────────────────────────────
 
 cmd_remove() {
+    local quiet=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --quiet|-q) quiet=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
     local main_repo
     main_repo=$(resolve_repo_root) || true
 
     if [[ -z "$main_repo" ]]; then
-        echo "Error: not in a git repository" >&2
+        $quiet || echo "Error: not in a git repository" >&2
         return 1
     fi
 
     local skills_dir="$main_repo/.claude/skills"
+    local removed=0
 
-    echo "Removing memory hooks..."
-    echo ""
+    $quiet || echo "Removing inline memory hooks..."
+    $quiet || echo ""
 
     for skill in "${HOOK_SKILLS[@]}"; do
         # Remove from SKILL.md
         local skill_file="$skills_dir/$skill/SKILL.md"
-        if [[ -f "$skill_file" ]]; then
+        if [[ -f "$skill_file" ]] && has_hooks "$skill_file"; then
             remove_single "$skill" "$skill_file" "skill"
+            removed=$((removed + 1))
         fi
 
         # Remove from command file
         local cmd_rel
         cmd_rel=$(get_command_file_rel "$skill")
         local cmd_file="$main_repo/$cmd_rel"
-        if [[ -n "$cmd_rel" && -f "$cmd_file" ]]; then
+        if [[ -n "$cmd_rel" && -f "$cmd_file" ]] && has_hooks "$cmd_file"; then
             remove_single "$skill" "$cmd_file" "command"
+            removed=$((removed + 1))
         fi
     done
 
-    echo ""
-    echo "Done."
+    if [[ "$removed" -gt 0 ]]; then
+        $quiet || echo ""
+        $quiet || echo "Removed inline hooks from $removed file(s)."
+    else
+        $quiet || echo "No inline hooks found."
+    fi
 }
 
 # ─── Main dispatch ───────────────────────────────────────────────────
@@ -770,7 +757,7 @@ main() {
     shift
 
     case "$command" in
-        install)  cmd_install "$@" ;;
+        install)  cmd_install ;;
         check)    cmd_check "$@" ;;
         remove)   cmd_remove "$@" ;;
         -h|--help|help) usage ;;

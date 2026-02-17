@@ -311,18 +311,6 @@ class MenusMixin:
         remember_action.setEnabled(mem_status["available"])
         remember_action.triggered.connect(lambda: self.show_remember_note_dialog(project))
 
-        # Memory hooks status (from FeatureWorker cache)
-        os_status = self.get_openspec_status(project)
-        if os_status.get("installed") and os_status.get("skills_present"):
-            hooks_installed = mem_status.get("hooks_installed", False)
-            memory_menu.addSeparator()
-            if hooks_installed:
-                reinstall_hooks_action = memory_menu.addAction("Reinstall Memory Hooks...")
-                reinstall_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
-            else:
-                install_hooks_action = memory_menu.addAction("Install Memory Hooks...")
-                install_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
-
         # OpenSpec submenu
         openspec_menu = menu.addMenu("OpenSpec")
         os_status = self.get_openspec_status(project)
@@ -337,15 +325,6 @@ class MenusMixin:
 
             update_action = openspec_menu.addAction("Update Skills...")
             update_action.triggered.connect(lambda: self._run_openspec_action("update", project))
-
-            # Memory hooks (install/reinstall) in OpenSpec menu too
-            hooks_installed = mem_status.get("hooks_installed", False)
-            openspec_menu.addSeparator()
-            if hooks_installed:
-                os_hooks_action = openspec_menu.addAction("Reinstall Memory Hooks...")
-            else:
-                os_hooks_action = openspec_menu.addAction("Install Memory Hooks...")
-            os_hooks_action.triggered.connect(lambda: self._run_memory_hooks_install(project))
         else:
             os_status_action = openspec_menu.addAction("Not initialized")
             os_status_action.setEnabled(False)
@@ -389,19 +368,6 @@ class MenusMixin:
         else:
             menu.exec(self.table.viewport().mapToGlobal(pos))
 
-    def _run_memory_hooks_install(self, project: str):
-        """Run wt-memory-hooks install via CommandOutputDialog, then refresh cache."""
-        first_wt = self._get_first_worktree_for_project(project)
-        if not first_wt:
-            return
-        wt_path = first_wt.get("path", "")
-        main_repo = get_main_repo_path(wt_path)
-        if not main_repo:
-            main_repo = wt_path
-        cmd = [str(SCRIPT_DIR / "wt-memory-hooks"), "install"]
-        self.run_command_dialog("Install Memory Hooks", cmd, cwd=main_repo)
-        self.refresh_feature_cache()
-
     def _get_first_worktree_for_project(self, project: str):
         """Get the first (main) worktree for a project"""
         for wt in getattr(self, 'worktrees', []):
@@ -410,8 +376,7 @@ class MenusMixin:
         return None
 
     def _run_openspec_action(self, action: str, project: str):
-        """Run wt-openspec init or update via CommandOutputDialog, then refresh cache.
-        After 'update', auto-reinstall memory hooks if they were previously installed."""
+        """Run wt-openspec init or update via CommandOutputDialog, then refresh cache."""
         first_wt = self._get_first_worktree_for_project(project)
         if not first_wt:
             return
@@ -420,19 +385,8 @@ class MenusMixin:
         if not main_repo:
             main_repo = wt_path
 
-        # Check if hooks were installed before (for auto-reinstall after update)
-        hooks_were_installed = False
-        if action == "update":
-            mem_status = self.get_memory_status(project)
-            hooks_were_installed = mem_status.get("hooks_installed", False)
-
         cmd = [str(SCRIPT_DIR / "wt-openspec"), action]
         self.run_command_dialog(f"OpenSpec {action}", cmd, cwd=main_repo)
-
-        # Auto-reinstall memory hooks after update (openspec update overwrites SKILL.md)
-        if action == "update" and hooks_were_installed:
-            hooks_cmd = [str(SCRIPT_DIR / "wt-memory-hooks"), "install"]
-            self.run_command_dialog("Reinstall Memory Hooks", hooks_cmd, cwd=main_repo)
 
         self.refresh_feature_cache()
 

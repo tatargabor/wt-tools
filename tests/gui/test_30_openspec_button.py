@@ -152,10 +152,3 @@ def test_feature_worker_instantiation():
     assert hasattr(worker, 'stop')
     # Don't start the thread — just check the interface
     worker._running = False
-
-
-def test_feature_worker_has_memory_hooks_poll():
-    """FeatureWorker should have _poll_memory_hooks method."""
-    worker = FeatureWorker()
-    assert hasattr(worker, '_poll_memory_hooks')
-    worker._running = False

@@ -288,9 +288,8 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory dedup [--threshold N] [--dry-run] [--interactive]` | Remove duplicate memories, keeping best per cluster |
 | `wt-memory status [--json]` | Show memory config, health, and count |
 | `wt-memory projects` | List all projects with memory counts |
-| `wt-memory-hooks install` | Patch memory hooks into OpenSpec skills |
-| `wt-memory-hooks check` | Check if hooks are installed |
-| `wt-memory-hooks remove` | Remove memory hooks from OpenSpec skills |
+| `wt-memory-hooks check` | Check if legacy inline hooks are present |
+| `wt-memory-hooks remove` | Remove legacy inline hooks from OpenSpec skills |
 
 ### OpenSpec (Spec-Driven Workflow)
 

@@ -72,3 +72,31 @@
 - [x] 10.5 Test L5: verify CheatSheet type extraction and cheat-sheet tag promotion
 - [x] 10.6 Test deploy: verify fresh deploy creates all 5 hook entries; verify upgrade from old 2-hook config; verify --no-memory skips all
 - [x] 10.7 Test skill files: verify no remaining `wt-memory` references in skill/command memory hook blocks; verify skills still work without inline memory hooks
+
+## 11. Deprecate `wt-memory-hooks install` & Auto-Remove in Deploy
+
+- [x] 11.1 Update `bin/wt-memory-hooks`: `cmd_install()` → print deprecation warning and exit (no-op); keep `check` and `remove` working
+- [x] 11.2 Update `bin/wt-project`: add `wt-memory-hooks remove --quiet` call in `deploy_wt_tools()` after hooks deploy
+- [x] 11.3 Add `--quiet` flag to `wt-memory-hooks remove` (suppress per-file output, only show summary or nothing)
+
+## 12. GUI Cleanup — Remove Inline Hook Install UI
+
+- [x] 12.1 `gui/control_center/mixins/menus.py`: remove "Install/Reinstall Memory Hooks..." from Memory menu (lines 314-324)
+- [x] 12.2 `gui/control_center/mixins/menus.py`: remove "Install/Reinstall Memory Hooks..." from OpenSpec menu (lines 341-348)
+- [x] 12.3 `gui/control_center/mixins/menus.py`: remove `_run_memory_hooks_install()` method
+- [x] 12.4 `gui/control_center/mixins/menus.py`: remove auto-reinstall logic from `_run_openspec_action()` (lines 423-435)
+- [x] 12.5 `gui/control_center/mixins/table.py`: remove `hooks_installed` tooltip (line 208-209) and warning emoji (line 316-317)
+- [x] 12.6 `gui/workers/feature.py`: remove `_poll_memory_hooks()` method and hooks check from `_poll_project()` (lines 79-82)
+
+## 13. Test Updates
+
+- [x] 13.1 Delete `tests/gui/test_26_hooks_indicator.py` (entire file — tests inline hook install/warning UI that no longer exists)
+- [x] 13.2 Update `tests/gui/test_29_memory.py`: remove `hooks_installed` from test data and update `test_memory_button_hooks_installed_tooltip` test
+- [x] 13.3 Update `tests/gui/test_30_openspec_button.py`: remove `test_feature_worker_has_memory_hooks_poll` test
+
+## 14. Documentation & Spec Updates
+
+- [x] 14.1 Update `docs/developer-memory.md`: remove `wt-memory-hooks install` from CLI reference and setup flows; document that deploy handles inline removal automatically
+- [x] 14.2 Update `README.md`: update CLI table — remove install row, update check/remove descriptions
+- [x] 14.3 Update `docs/readme-guide.md`: update CLI list reference
+- [x] 14.4 Update main specs: mark `openspec/specs/memory-hooks-cli/spec.md` and `openspec/specs/memory-hooks-gui/spec.md` as deprecated (install command superseded by 5-layer hooks)

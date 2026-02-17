@@ -76,10 +76,6 @@ class FeatureWorker(QThread):
         """Poll memory and openspec status for a single project."""
         memory = self._poll_memory(project)
         openspec = self._poll_openspec(main_repo_path)
-        # Check memory hooks status if openspec is installed
-        if openspec.get("installed") and openspec.get("skills_present"):
-            hooks = self._poll_memory_hooks(main_repo_path)
-            memory["hooks_installed"] = hooks.get("installed", False)
         return {"memory": memory, "openspec": openspec}
 
     def _poll_memory(self, project: str) -> dict:
@@ -95,22 +91,6 @@ class FeatureWorker(QThread):
         except Exception:
             pass
         return {"available": False, "count": 0}
-
-    def _poll_memory_hooks(self, main_repo_path: str) -> dict:
-        """Run wt-memory-hooks check --json with cwd=main_repo"""
-        if not main_repo_path:
-            return {"installed": False, "files_total": 0, "files_patched": 0}
-        try:
-            result = subprocess.run(
-                [str(SCRIPT_DIR / "wt-memory-hooks"), "check", "--json"],
-                capture_output=True, text=True, timeout=5,
-                cwd=main_repo_path
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return json.loads(result.stdout.strip())
-        except Exception:
-            pass
-        return {"installed": False, "files_total": 0, "files_patched": 0}
 
     def _poll_openspec(self, main_repo_path: str) -> dict:
         """Run wt-openspec status --json with cwd=main_repo"""

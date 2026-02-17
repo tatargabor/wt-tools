@@ -43,6 +43,11 @@ deploy_wt_tools() {
     else
         warn "  Source skills not found: $src_skills"
     fi
+
+    # 4. Remove deprecated inline memory hooks from OpenSpec skill/command files
+    if command -v wt-memory-hooks &>/dev/null; then
+        (cd "$project_path" && wt-memory-hooks remove --quiet) 2>/dev/null || true
+    fi
 }
 
 usage() {

@@ -1,7 +1,7 @@
-# memory-hooks-cli Specification
+# memory-hooks-cli Specification (Deprecated)
 
 ## Purpose
-TBD - created by archiving change shodh-openspec-hooks. Update Purpose after archive.
+**DEPRECATED** — The 5-layer hook system in `settings.json` (deployed by `wt-deploy-hooks`) now handles all memory operations. The `wt-memory-hooks install` command is deprecated. `check` and `remove` still work for cleaning up legacy inline hooks.
 ## Requirements
 ### Requirement: wt-memory-hooks install command
 The `wt-memory-hooks install` command SHALL patch memory recall/remember steps into all OpenSpec SKILL.md files in the project's `.claude/skills/openspec-*/SKILL.md`. The patching SHALL be idempotent — running install twice SHALL produce the same result as running it once. The command SHALL accept a `--project` flag or auto-detect the project from `git rev-parse --show-toplevel`.
