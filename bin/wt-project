@@ -4,6 +4,47 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/wt-common.sh"
 
+# Resolve wt-tools repo root (follow symlinks to find the real bin dir)
+_wt_project_script="${BASH_SOURCE[0]}"
+while [[ -L "$_wt_project_script" ]]; do
+    _link=$(readlink "$_wt_project_script")
+    if [[ "$_link" == /* ]]; then _wt_project_script="$_link"; else _wt_project_script="$(dirname "$_wt_project_script")/$_link"; fi
+done
+WT_TOOLS_ROOT="$(cd "$(dirname "$_wt_project_script")/.." && pwd)"
+
+# Deploy wt-tools hooks, commands, and skills to a project's .claude/ directory.
+# Usage: deploy_wt_tools <project-path>
+deploy_wt_tools() {
+    local project_path="$1"
+    local claude_dir="$project_path/.claude"
+
+    # 1. Deploy hooks via wt-deploy-hooks
+    "$SCRIPT_DIR/wt-deploy-hooks" --quiet "$project_path"
+    success "  Deployed hooks to .claude/settings.json"
+
+    # 2. Deploy /wt:* commands
+    local src_commands="$WT_TOOLS_ROOT/.claude/commands/wt"
+    if [[ -d "$src_commands" ]]; then
+        mkdir -p "$claude_dir/commands/wt"
+        cp -r "$src_commands"/* "$claude_dir/commands/wt/"
+        local cmd_count
+        cmd_count=$(ls -1 "$src_commands"/*.md 2>/dev/null | wc -l)
+        success "  Deployed $cmd_count command(s) to .claude/commands/wt/"
+    else
+        warn "  Source commands not found: $src_commands"
+    fi
+
+    # 3. Deploy wt skills
+    local src_skills="$WT_TOOLS_ROOT/.claude/skills/wt"
+    if [[ -d "$src_skills" ]]; then
+        mkdir -p "$claude_dir/skills/wt"
+        cp -r "$src_skills"/* "$claude_dir/skills/wt/"
+        success "  Deployed skills to .claude/skills/wt/"
+    else
+        warn "  Source skills not found: $src_skills"
+    fi
+}
+
 usage() {
     cat <<EOF
 Usage: wt-project <command> [options]
@@ -75,41 +116,44 @@ cmd_init() {
     if [[ -n "$existing_path" ]]; then
         if [[ "$existing_path" == "$git_root" ]]; then
             if $in_worktree; then
-                info "You're in a worktree of already registered project '$name'"
+                info "Project '$name' already registered. Updating wt-tools deployment..."
                 echo "  Main repo: $git_root"
-                echo "  Current worktree: $current_dir"
-                echo ""
-                echo "Use 'wt-project list' to see all worktrees."
             else
-                info "Project '$name' is already registered at $git_root"
+                info "Project '$name' already registered. Updating wt-tools deployment..."
             fi
-            exit 0
+            # Skip registration, proceed to deploy
         else
             error "Project name '$name' is already used for: $existing_path"
             echo "Use --name to specify a different name."
             exit 1
         fi
-    fi
-
-    # Add project to registry
-    local timestamp
-    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local tmp
-    tmp=$(mktemp)
-    jq --arg name "$name" --arg path "$git_root" --arg ts "$timestamp" \
-        '.projects[$name] = {"path": $path, "addedAt": $ts}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-
-    # Set as default if no default exists
-    local current_default
-    current_default=$(get_default_project)
-    if [[ -z "$current_default" || "$current_default" == "null" ]]; then
-        json_set "$CONFIG_FILE" ".default" "\"$name\""
-        success "Project '$name' registered and set as default"
     else
-        success "Project '$name' registered"
+        # Add project to registry
+        local timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        local tmp
+        tmp=$(mktemp)
+        jq --arg name "$name" --arg path "$git_root" --arg ts "$timestamp" \
+            '.projects[$name] = {"path": $path, "addedAt": $ts}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+
+        # Set as default if no default exists
+        local current_default
+        current_default=$(get_default_project)
+        if [[ -z "$current_default" || "$current_default" == "null" ]]; then
+            json_set "$CONFIG_FILE" ".default" "\"$name\""
+            success "Project '$name' registered and set as default"
+        else
+            success "Project '$name' registered"
+        fi
+        echo "  Path: $git_root"
     fi
 
-    echo "  Path: $git_root"
+    # Deploy wt-tools to project
+    echo ""
+    info "Deploying wt-tools to $git_root..."
+    deploy_wt_tools "$git_root"
+    echo ""
+    success "wt-tools deployment complete for '$name'"
 }
 
 cmd_list() {

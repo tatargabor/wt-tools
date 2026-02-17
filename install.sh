@@ -519,49 +519,29 @@ verify_gui_startup() {
 }
 
 # Install Claude Code skills and commands
+# Note: wt commands/skills are deployed per-project by wt-project init.
+# No global symlinks needed — per-project deployment enables version pinning.
 install_skills() {
-    info "Installing Claude Code skills and commands..."
+    info "Claude Code skills and commands..."
+    info "  wt commands/skills deployed per-project via wt-project init"
 
-    # Link wt skill directory
-    local skills_dir="$HOME/.claude/skills"
-    mkdir -p "$skills_dir"
-
-    local src="$SCRIPT_DIR/.claude/skills/wt"
-    local dst="$skills_dir/wt"
-
-    if [[ -d "$src" ]]; then
-        ln -sfn "$src" "$dst"
-        success "  Linked: skills/wt/ (auto-discovery)"
-    else
-        warn "  Not found: $src"
+    # Clean up legacy global symlinks if present
+    local legacy_wt_commands="$HOME/.claude/commands/wt"
+    local legacy_wt_skills="$HOME/.claude/skills/wt"
+    if [[ -L "$legacy_wt_commands" ]]; then
+        rm "$legacy_wt_commands"
+        info "  Removed legacy global symlink: $legacy_wt_commands"
     fi
-
-    # Link wt commands directory
-    local commands_dir="$HOME/.claude/commands"
-    mkdir -p "$commands_dir"
-
-    src="$SCRIPT_DIR/.claude/commands/wt"
-    dst="$commands_dir/wt"
-
-    if [[ -d "$src" ]]; then
-        ln -sfn "$src" "$dst"
-        success "  Linked: commands/wt/ (/wt:list, /wt:new, etc.)"
-    else
-        warn "  Not found: $src"
+    if [[ -L "$legacy_wt_skills" ]]; then
+        rm "$legacy_wt_skills"
+        info "  Removed legacy global symlink: $legacy_wt_skills"
     fi
-
 }
 
-# Deploy Claude Code hooks to a project's .claude/settings.json
-# Usage: deploy_project_hooks <project_path>
-deploy_project_hooks() {
-    local project_path="$1"
-    "$SCRIPT_DIR/bin/wt-deploy-hooks" "$project_path"
-}
-
-# Install Claude Code hooks to all registered projects
-install_project_hooks() {
-    info "Deploying Claude Code hooks to registered projects..."
+# Deploy wt-tools (hooks, commands, skills) to all registered projects
+# Uses wt-project init which handles both registration and deployment
+install_projects() {
+    info "Deploying wt-tools to registered projects..."
 
     local projects_file="$HOME/.config/wt-tools/projects.json"
     if [[ ! -f "$projects_file" ]]; then
@@ -579,7 +559,8 @@ install_project_hooks() {
 
     while IFS= read -r project_path; do
         if [[ -d "$project_path" ]]; then
-            deploy_project_hooks "$project_path"
+            info "  Updating: $project_path"
+            (cd "$project_path" && "$SCRIPT_DIR/bin/wt-project" init) || warn "  Failed: $project_path"
         else
             warn "  Project path not found: $project_path"
         fi
@@ -881,7 +862,7 @@ main() {
     install_mcp_statusline
     echo ""
 
-    install_project_hooks
+    install_projects
     echo ""
 
     install_gui_dependencies

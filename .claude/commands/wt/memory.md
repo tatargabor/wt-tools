@@ -8,6 +8,8 @@ Interact with the project's cognitive memory system (shodh-memory).
 - `remember <content>` — Save a new memory
 - `list` — List all memories for the current project
 - `browse` (default) — Show summary of all memories grouped by type
+- `audit [--threshold F] [--json]` — Report duplicate clusters and memory health
+- `dedup [--threshold F] [--dry-run] [--interactive]` — Remove duplicate memories
 
 **What to do**:
 
@@ -61,6 +63,18 @@ Interact with the project's cognitive memory system (shodh-memory).
    wt-memory list
    ```
    Display status summary, then group memories by type (Decision, Learning, Observation, Event) and show counts + recent entries.
+
+   **audit** (pass all remaining args through):
+   ```bash
+   wt-memory audit [--threshold F] [--json]
+   ```
+   Display the output directly. If `--json` is not present, the output is already human-readable.
+
+   **dedup** (pass all remaining args through):
+   ```bash
+   wt-memory dedup [--threshold F] [--dry-run] [--interactive]
+   ```
+   Display the output directly. Warn the user if neither `--dry-run` nor `--interactive` is specified (destructive operation).
 
 **Important**:
 - All `wt-memory` commands auto-detect the project from git root
