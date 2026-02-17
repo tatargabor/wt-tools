@@ -56,9 +56,17 @@ for N in $(seq "$START" "$END"); do
 
   # Run Claude session (env -u CLAUDECODE allows running from within another claude session)
   echo "  Starting claude session..."
+
+  # Mode B prompt includes explicit save instruction; Mode A is implementation-only
+  if grep -q "wt-memory" CLAUDE.md 2>/dev/null; then
+    PROMPT="Follow the workflow in CLAUDE.md. Implement the change described in $CHANGE_FILE. Read the change file and docs/project-spec.md first. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. IMPORTANT: After tests pass, follow CLAUDE.md step 8 — save project conventions, corrections, and Developer Notes advice to memory using wt-memory remember. Do not proceed to the next change."
+  else
+    PROMPT="Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
+  fi
+
   env -u CLAUDECODE claude --dangerously-skip-permissions \
-    -p "Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change." \
-    --max-turns 25 \
+    -p "$PROMPT" \
+    --max-turns 30 \
     --output-format json \
     > "results/session-${NN}.json" 2>"results/session-${NN}.err" || true
   echo "  Claude session finished ($(wc -c < "results/session-${NN}.json") bytes output)"
@@ -69,6 +77,16 @@ for N in $(seq "$START" "$END"); do
   # Kill server after session
   pkill -f "node src/server.js" 2>/dev/null || true
   sleep 1
+
+  # --- Post-session memory extraction (Mode B only) ---
+  # Agents consistently run out of turns before saving to memory.
+  # This step extracts Developer Notes corrections and code conventions
+  # from the change file and saves them — simulating what a well-functioning
+  # save hook would do. Only runs in memory mode (CLAUDE.md mentions wt-memory).
+  if grep -q "wt-memory" CLAUDE.md 2>/dev/null && command -v wt-memory &>/dev/null; then
+    echo "  Extracting conventions to memory..."
+    bash "$(dirname "$0")/post-session-save.sh" "$CHANGE_FILE" "$NN" 2>/dev/null || true
+  fi
 
   # Commit changes
   git add -A

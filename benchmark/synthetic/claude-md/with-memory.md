@@ -39,20 +39,29 @@ For each change you are given:
 5. **Start/restart the server**: `pkill -f "node src/server.js" 2>/dev/null; sleep 1; PORT=4001 node src/server.js &`
 6. **Run the test script**: `bash tests/test-0N.sh 4001`
 7. **Fix any failures** and re-run until all tests pass
-8. **Save what you learned** — after implementation, save important patterns:
+8. **Save what you learned** — after tests pass, you MUST save to memory before stopping:
    ```bash
-   # Save project conventions you encountered
+   # Save project conventions you discovered in existing code
    echo "<convention description>" | wt-memory remember --type Decision --tags "convention,<topic>"
+
+   # Save corrections/advice from Developer Notes (if the change file has a Developer Notes section)
+   echo "<correction or advice for future changes>" | wt-memory remember --type Decision --tags "convention,correction,<topic>"
 
    # Save any gotchas or errors you hit
    echo "<error and fix>" | wt-memory remember --type Learning --tags "change:0N,<topic>"
    ```
+   **This step is mandatory.** Save at least 2-3 memories per session. Pay special attention to:
+   - Developer Notes corrections (these override project-spec.md and existing code)
+   - Advice for future changes (batch operation patterns, sort/order conventions, etc.)
+   - Non-obvious conventions that differ from common defaults
 9. **Stop** — do NOT proceed to the next change
 
 ## Memory Guidelines
 
 **What to save** (would help a future agent in a fresh session):
 - Project conventions (API format, error format, naming patterns, utility functions)
+- **Developer Notes corrections** — these are critical! They override project-spec.md and existing code patterns
+- **Advice for future changes** — batch operation patterns, sort/order conventions, response nesting rules
 - Gotchas encountered (SQLite quirks, import issues, test expectations)
 - Architecture decisions (where things live, how they connect)
 
@@ -61,7 +70,7 @@ For each change you are given:
 - Session-specific details ("edited line 42")
 - Duplicate information already saved
 
-**Quality bar**: Would a future agent in a fresh session materially benefit from knowing this?
+**Quality bar**: Would a future agent in a fresh session materially benefit from knowing this? Developer Notes corrections ALWAYS pass this bar — save them even if you don't apply them in the current change.
 
 ## Project Structure
 
