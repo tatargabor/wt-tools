@@ -1,0 +1,103 @@
+#!/bin/bash
+# run.sh — Run MemoryProbe benchmark sessions
+# Usage: ./run.sh <project-dir> [--start N] [--end N]
+
+set -euo pipefail
+
+PROJECT="${1:?Usage: ./run.sh <project-dir> [--start N] [--end N]}"
+shift
+
+START=1
+END=5
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --start) START="$2"; shift 2 ;;
+    --end) END="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+cd "$PROJECT"
+
+# Detect port from CLAUDE.md
+PORT=3000
+if grep -q "3001" CLAUDE.md 2>/dev/null; then
+  PORT=3001
+fi
+
+echo "=== MemoryProbe Runner ==="
+echo "  Project: $PROJECT"
+echo "  Port:    $PORT"
+echo "  Changes: $START → $END"
+echo ""
+
+TOTAL_START=$(date +%s)
+
+for N in $(seq "$START" "$END"); do
+  NN=$(printf "%02d" "$N")
+  CHANGE_FILE="docs/changes/$(ls docs/changes/ | grep "^${NN}-" | head -1)"
+
+  if [[ ! -f "$CHANGE_FILE" ]]; then
+    echo "WARNING: No change file for C$NN — skipping"
+    continue
+  fi
+
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Session $NN: $CHANGE_FILE"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  SESSION_START=$(date +%s)
+
+  # Kill any running server
+  pkill -f "node src/server.js" 2>/dev/null || true
+  sleep 1
+
+  # Run Claude session
+  claude --dangerously-skip-permissions \
+    -p "Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change." \
+    --max-turns 25 \
+    --output-format json \
+    > "results/session-${NN}.json" 2>&1 || true
+
+  SESSION_END=$(date +%s)
+  SESSION_TIME=$(( SESSION_END - SESSION_START ))
+
+  # Kill server after session
+  pkill -f "node src/server.js" 2>/dev/null || true
+  sleep 1
+
+  # Commit changes
+  git add -A
+  git commit -m "Change $NN complete (${SESSION_TIME}s)" --allow-empty > /dev/null 2>&1 || true
+
+  # Run test independently to get results
+  node src/server.js &
+  SERVER_PID=$!
+  sleep 2
+
+  if bash "tests/test-${NN}.sh" "$PORT"; then
+    echo "  >> Test $NN: ALL PASSED"
+  else
+    echo "  >> Test $NN: SOME FAILURES"
+  fi
+
+  kill $SERVER_PID 2>/dev/null || true
+  wait $SERVER_PID 2>/dev/null || true
+
+  echo "  >> Session time: ${SESSION_TIME}s"
+  echo ""
+
+  # Brief pause for memory flush
+  sleep 5
+done
+
+TOTAL_END=$(date +%s)
+TOTAL_TIME=$(( TOTAL_END - TOTAL_START ))
+
+echo "=== MemoryProbe Complete ==="
+echo "  Total time: ${TOTAL_TIME}s ($(( TOTAL_TIME / 60 ))m)"
+echo "  Results: $(ls results/change-*.json 2>/dev/null | wc -l)/$(( END - START + 1 )) changes passed"
+echo ""
+echo "Run scoring:"
+echo "  bash scripts/score.sh ."
