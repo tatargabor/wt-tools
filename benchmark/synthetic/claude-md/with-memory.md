@@ -10,10 +10,10 @@ npm install
 node src/server.js &
 
 # Run tests for change N
-bash tests/test-0N.sh 3001
+bash tests/test-0N.sh 4001
 ```
 
-- Dev server port: **3001**
+- Dev server port: **4001**
 - Database: `data/logbook.db` (SQLite, auto-created on first start)
 - If server is already running, kill it first: `pkill -f "node src/server.js"`
 
@@ -35,8 +35,8 @@ For each change you are given:
 2. **Read the change file** in `docs/changes/` — understand all requirements
 3. **Read `docs/project-spec.md`** — understand domain context and conventions
 4. **Implement** the requirements, applying recalled conventions
-5. **Start/restart the server**: `pkill -f "node src/server.js" 2>/dev/null; sleep 1; PORT=3001 node src/server.js &`
-6. **Run the test script**: `bash tests/test-0N.sh 3001`
+5. **Start/restart the server**: `pkill -f "node src/server.js" 2>/dev/null; sleep 1; PORT=4001 node src/server.js &`
+6. **Run the test script**: `bash tests/test-0N.sh 4001`
 7. **Fix any failures** and re-run until all tests pass
 8. **Save what you learned** — after implementation, save important patterns:
    ```bash

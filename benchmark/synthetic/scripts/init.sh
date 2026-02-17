@@ -93,9 +93,9 @@ fi
 
 # --- Set port in CLAUDE.md based on mode ---
 if [[ "$MODE" == "a" ]]; then
-  PORT=3000
+  PORT=4000
 else
-  PORT=3001
+  PORT=4001
 fi
 
 # --- Mode-specific setup ---

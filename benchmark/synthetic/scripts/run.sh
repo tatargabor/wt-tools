@@ -21,9 +21,9 @@ done
 cd "$PROJECT"
 
 # Detect port from CLAUDE.md
-PORT=3000
-if grep -q "3001" CLAUDE.md 2>/dev/null; then
-  PORT=3001
+PORT=4000
+if grep -q "4001" CLAUDE.md 2>/dev/null; then
+  PORT=4001
 fi
 
 echo "=== MemoryProbe Runner ==="
@@ -53,12 +53,14 @@ for N in $(seq "$START" "$END"); do
   pkill -f "node src/server.js" 2>/dev/null || true
   sleep 1
 
-  # Run Claude session
-  claude --dangerously-skip-permissions \
+  # Run Claude session (env -u CLAUDECODE allows running from within another claude session)
+  echo "  Starting claude session..."
+  env -u CLAUDECODE claude --dangerously-skip-permissions \
     -p "Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change." \
     --max-turns 25 \
     --output-format json \
-    > "results/session-${NN}.json" 2>&1 || true
+    > "results/session-${NN}.json" 2>"results/session-${NN}.err" || true
+  echo "  Claude session finished ($(wc -c < "results/session-${NN}.json") bytes output)"
 
   SESSION_END=$(date +%s)
   SESSION_TIME=$(( SESSION_END - SESSION_START ))
