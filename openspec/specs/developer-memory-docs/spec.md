@@ -1,7 +1,7 @@
 # developer-memory-docs Specification
 
 ## Purpose
-TBD - created by archiving change developer-memory-docs. Update Purpose after archive.
+Documents the developer memory system across README, docs/developer-memory.md, and GUI, ensuring all CLI commands, features, and integration points are covered.
 ## Requirements
 ### Requirement: Developer Memory User Guide
 The project SHALL have a `docs/developer-memory.md` file that serves as the comprehensive user-facing guide for the developer memory system.
@@ -88,4 +88,29 @@ The guide SHALL end with a technical architecture appendix containing an ASCII d
 #### Scenario: Architecture diagram
 - **WHEN** a user reads the Architecture appendix
 - **THEN** they see a diagram showing three input paths (CLAUDE.md ambient, OpenSpec hooks, /wt:memory manual) feeding into `wt-memory` CLI, which uses `shodh-memory` with per-project RocksDB storage
+
+### Requirement: Developer Memory CLI documentation in README
+The README CLI Reference SHALL document all user-facing `wt-memory` subcommands including sync, proactive, stats, and cleanup.
+
+#### Scenario: All wt-memory subcommands listed
+- **WHEN** a user reads the Developer Memory CLI table in README
+- **THEN** they SHALL see entries for: remember, recall, list, status, forget, context, brain, get, export, import, repair, sync, sync push, sync pull, sync status, proactive, stats, cleanup
+
+#### Scenario: wt-memory-hooks commands listed
+- **WHEN** a user reads the Developer Memory CLI table
+- **THEN** they SHALL see entries for: wt-memory-hooks install, wt-memory-hooks check, wt-memory-hooks remove
+
+### Requirement: GUI memory features documented in README
+The README Features section SHALL describe the GUI memory capabilities.
+
+#### Scenario: GUI memory features visible in README
+- **WHEN** a user reads the Developer Memory feature section
+- **THEN** they SHALL see mention of: [M] button, Browse Memories dialog (summary/list modes), Remember Note, Export/Import buttons, semantic search
+
+### Requirement: Memory hooks in internal scripts note
+The README internal scripts note SHALL list `wt-hook-memory-recall` and `wt-hook-memory-save` alongside the existing `wt-hook-skill` and `wt-hook-stop`.
+
+#### Scenario: All hook scripts listed
+- **WHEN** a user expands the internal scripts section
+- **THEN** they SHALL see all 4 hook scripts: wt-hook-skill, wt-hook-stop, wt-hook-memory-recall, wt-hook-memory-save
 
