@@ -34,6 +34,10 @@ mkdir -p .wt-tools
 
 extract_from_transcript() {
     local transcript="$1"
+    local transcript_id
+    transcript_id=$(basename "$transcript" .jsonl)
+    local staged_file=".wt-tools/.staged-extract-${transcript_id}"
+    local ts_file="${staged_file}.ts"
 
     # --- Task 2.1: Detect opsx/openspec skills in transcript ---
     if [[ ! -f "$transcript" ]]; then
@@ -78,6 +82,18 @@ print(','.join(sorted(names)[:5]) if names else '')
             | head -3 \
             | tr '\n' ',' \
             | sed 's/,$//')
+    fi
+
+    # --- Debounce: skip if extracted recently ---
+    if [[ -f "$ts_file" ]]; then
+        local last_extract_ts
+        last_extract_ts=$(cat "$ts_file" 2>/dev/null)
+        local now_ts
+        now_ts=$(date +%s)
+        if [[ -n "$last_extract_ts" ]] && (( now_ts - last_extract_ts < 300 )); then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBOUNCE] Skipped extraction for $transcript_id ($(( now_ts - last_extract_ts ))s since last)" >> "$LOG_FILE"
+            return 0
+        fi
     fi
 
     # --- Pre-process transcript: extract meaningful content, check dedup ---
@@ -231,61 +247,128 @@ Session summary:"
         return 0
     fi
 
-    # --- Task 5.1 + 5.2 + 5.3: Parse and save insights ---
-    local count=0
-    local conv_count=0
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        [[ "$line" == "NONE" ]] && continue
+    # --- Write to staging file (atomic) ---
+    local staging_tmp
+    staging_tmp=$(mktemp)
+    # Header line with change name for commit-time tagging
+    echo "#CHANGE:${first_change}" > "$staging_tmp"
+    echo "$llm_output" >> "$staging_tmp"
+    mv "$staging_tmp" "$staged_file"
 
-        # Validate format: Type|tags|content
-        if [[ "$line" != *"|"*"|"* ]]; then
-            continue
-        fi
+    # Write debounce timestamp
+    date +%s > "$ts_file"
 
-        local mem_type="${line%%|*}"
-        local rest="${line#*|}"
-        local tags="${rest%%|*}"
-        local content="${rest#*|}"
-
-        # Handle Convention type: save as Learning with convention tag, cap at 2
-        if [[ "$mem_type" == "Convention" ]]; then
-            (( conv_count >= 2 )) && continue
-            mem_type="Learning"
-            tags="convention,$tags"
-            (( conv_count++ ))
-        else
-            # Cap regular insights at 5
-            (( count >= 5 )) && continue
-
-            # Validate type
-            case "$mem_type" in
-                Learning|Decision|Context) ;;
-                *) continue ;;
-            esac
-
-            (( count++ ))
-        fi
-
-        # Skip empty content
-        [[ -z "$content" ]] && continue
-
-        # Build tag string with change: prefix if available
-        local full_tags="phase:auto-extract,source:hook,$tags"
-        if [[ -n "$first_change" ]]; then
-            full_tags="change:$first_change,$full_tags"
-        fi
-
-        # Save to wt-memory
-        echo "$content" | \
-            wt-memory remember \
-                --type "$mem_type" \
-                --tags "$full_tags" \
-                2>/dev/null || true
-
-    done <<< "$llm_output"
+    # Cleanup preprocessed tmpfile
+    rm -f "$tmpfile"
 
     return 0
+}
+
+# ============================================================
+# Commit staged extractions from previous sessions
+# ============================================================
+
+commit_staged_files() {
+    local current_transcript_id="$1"
+    local now
+    now=$(date +%s)
+    local stale_threshold=3600  # 1 hour
+
+    for staged in .wt-tools/.staged-extract-*; do
+        [[ -f "$staged" ]] || continue
+        [[ "$staged" == *.ts ]] && continue  # Skip timestamp files
+
+        local staged_id
+        staged_id=$(basename "$staged" | sed 's/^\.staged-extract-//')
+        local ts_file="${staged}.ts"
+
+        # Skip current transcript UNLESS stale
+        if [[ "$staged_id" == "$current_transcript_id" ]]; then
+            local file_age=0
+            if [[ -f "$ts_file" ]]; then
+                local last_ts
+                last_ts=$(cat "$ts_file" 2>/dev/null)
+                [[ -n "$last_ts" ]] && file_age=$(( now - last_ts ))
+            else
+                # Fallback to file mtime (Linux stat -c, macOS stat -f)
+                local mtime
+                mtime=$(stat -c %Y "$staged" 2>/dev/null || stat -f %m "$staged" 2>/dev/null)
+                [[ -n "$mtime" ]] && file_age=$(( now - mtime ))
+            fi
+
+            if (( file_age < stale_threshold )); then
+                continue  # Not stale, skip current session's file
+            fi
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STALE] Committing stale staged file: $staged_id (${file_age}s old)" >> "$LOG_FILE"
+        fi
+
+        # Read change name from header
+        local first_change=""
+        local first_line
+        first_line=$(head -1 "$staged")
+        if [[ "$first_line" == "#CHANGE:"* ]]; then
+            first_change="${first_line#\#CHANGE:}"
+        fi
+
+        # Parse and commit insights to wt-memory
+        local count=0
+        local conv_count=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ "$line" == "NONE" ]] && continue
+            [[ "$line" == "#CHANGE:"* ]] && continue  # Skip header
+
+            # Validate format: Type|tags|content
+            if [[ "$line" != *"|"*"|"* ]]; then
+                continue
+            fi
+
+            local mem_type="${line%%|*}"
+            local rest="${line#*|}"
+            local tags="${rest%%|*}"
+            local content="${rest#*|}"
+
+            # Handle Convention type: save as Learning with convention tag, cap at 2
+            if [[ "$mem_type" == "Convention" ]]; then
+                (( conv_count >= 2 )) && continue
+                mem_type="Learning"
+                tags="convention,$tags"
+                (( conv_count++ ))
+            else
+                # Cap regular insights at 5
+                (( count >= 5 )) && continue
+
+                # Validate type
+                case "$mem_type" in
+                    Learning|Decision|Context) ;;
+                    *) continue ;;
+                esac
+
+                (( count++ ))
+            fi
+
+            # Skip empty content
+            [[ -z "$content" ]] && continue
+
+            # Build tag string with change: prefix if available
+            local full_tags="phase:auto-extract,source:hook,$tags"
+            if [[ -n "$first_change" ]]; then
+                full_tags="change:$first_change,$full_tags"
+            fi
+
+            # Save to wt-memory
+            echo "$content" | \
+                wt-memory remember \
+                    --type "$mem_type" \
+                    --tags "$full_tags" \
+                    2>/dev/null || true
+
+        done < "$staged"
+
+        # Cleanup
+        rm -f "$staged" "$ts_file"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Committed staged extraction: $staged_id ($count insights, $conv_count conventions)" >> "$LOG_FILE"
+    done
 }
 
 # ============================================================
@@ -297,6 +380,8 @@ LOG_FILE=".wt-tools/transcript-extraction.log"
 
 run_extraction_background() {
     local transcript="$1"
+    local transcript_id
+    transcript_id=$(basename "$transcript" .jsonl)
 
     # --- Lockfile: check for concurrent extraction ---
     if [[ -f "$LOCK_FILE" ]]; then
@@ -315,6 +400,9 @@ run_extraction_background() {
 
     # Cleanup trap for background process (lock + any temp files)
     trap 'rm -f "$LOCK_FILE" /tmp/tmp.wt-extract.* 2>/dev/null' EXIT
+
+    # Commit staged extractions from previous sessions
+    commit_staged_files "$transcript_id"
 
     # Run extraction, log errors with timestamp
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting extraction for: $transcript" >> "$LOG_FILE"
