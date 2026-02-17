@@ -56,6 +56,9 @@ Diagnostics:
   stats [--json]                  Memory quality diagnostics (types, tags, importance)
   cleanup [--threshold F] [--dry-run]
                                   Remove low-value memories (default threshold 0.2)
+  audit [--threshold F] [--json]  Duplicate detection report (default threshold 0.75)
+  dedup [--threshold F] [--dry-run] [--interactive]
+                                  Remove duplicate memories (keeps best per cluster)
 
 Introspection:
   get <id>                        Get a single memory by ID (JSON stdout)
@@ -978,6 +981,331 @@ else:
                 pass
         print(json.dumps({'deleted_count': deleted}))
 " || echo '{"deleted_count": 0}'
+
+    return 0
+}
+
+# Shared Python dedup engine — used by both audit and dedup commands.
+# Outputs JSON with cluster analysis to stdout.
+# Env vars: _SHODH_STORAGE, _SHODH_THRESHOLD, _SHODH_MODE (audit|dedup|interactive),
+#           _SHODH_DRY_RUN
+_DEDUP_PYTHON='
+import sys; sys._shodh_star_shown = True
+import json, os
+from difflib import SequenceMatcher
+from collections import defaultdict
+from shodh_memory import Memory
+
+storage = os.environ["_SHODH_STORAGE"]
+threshold = float(os.environ.get("_SHODH_THRESHOLD", "0.75"))
+mode = os.environ.get("_SHODH_MODE", "audit")
+dry_run = os.environ.get("_SHODH_DRY_RUN", "false") == "true"
+
+m = Memory(storage_path=storage)
+memories = m.list_memories()
+
+if not memories:
+    if mode == "audit":
+        print(json.dumps({"total": 0, "clusters": 0, "redundant": 0, "unique": 0, "dedup_ratio": 0.0, "top_clusters": []}))
+    else:
+        print(json.dumps({"deleted_count": 0, "merged_count": 0}))
+    sys.exit(0)
+
+# Union-find
+parents = list(range(len(memories)))
+def find(x):
+    while parents[x] != x:
+        parents[x] = parents[parents[x]]
+        x = parents[x]
+    return x
+def union(a, b):
+    pa, pb = find(a), find(b)
+    if pa != pb:
+        parents[pa] = pb
+
+# Pairwise similarity
+for i in range(len(memories)):
+    for j in range(i + 1, len(memories)):
+        ratio = SequenceMatcher(None, memories[i]["content"], memories[j]["content"]).ratio()
+        if ratio > threshold:
+            union(i, j)
+
+# Build clusters
+clusters = defaultdict(list)
+for i in range(len(memories)):
+    clusters[find(i)].append(i)
+dup_clusters = {k: v for k, v in clusters.items() if len(v) > 1}
+
+total = len(memories)
+num_clusters = len(dup_clusters)
+redundant = sum(len(v) - 1 for v in dup_clusters.values())
+unique = total - redundant
+dedup_ratio = (redundant / total * 100) if total > 0 else 0.0
+
+# Survivor selection: composite score
+def score(mem):
+    return (
+        mem.get("access_count", 0) * 10
+        + float(mem.get("importance", 0.5)) * 5
+        + len(mem.get("content", "")) / 100
+    )
+
+# Build cluster info sorted by size
+sorted_clusters = sorted(dup_clusters.values(), key=lambda v: -len(v))
+top_clusters = []
+for indices in sorted_clusters[:10]:
+    cluster_mems = [memories[i] for i in indices]
+    scored = sorted(cluster_mems, key=lambda mem: (-score(mem), mem.get("created_at", "")))
+    survivor = scored[0]
+    victims = scored[1:]
+    top_clusters.append({
+        "count": len(cluster_mems),
+        "preview": survivor["content"][:120],
+        "survivor_id": survivor["id"],
+        "ids": [mem["id"] for mem in cluster_mems],
+        "victim_ids": [mem["id"] for mem in victims],
+        "all_tags": list(set(t for mem in cluster_mems for t in mem.get("tags", []))),
+        "survivor_tags": survivor.get("tags", []),
+    })
+
+result = {
+    "total": total,
+    "clusters": num_clusters,
+    "redundant": redundant,
+    "unique": unique,
+    "dedup_ratio": round(dedup_ratio, 1),
+    "top_clusters": top_clusters,
+}
+
+if mode == "audit":
+    print(json.dumps(result, default=str))
+    sys.exit(0)
+
+# --- Dedup / Interactive mode ---
+if dry_run:
+    print(json.dumps({"dry_run": True, "clusters": num_clusters, "would_delete": redundant, "top_clusters": top_clusters}, default=str))
+    sys.exit(0)
+
+if mode == "interactive":
+    # Interactive: print clusters as numbered items to stderr, read decisions from stdin
+    import select
+    if not sys.stdin.isatty():
+        sys.stderr.write("Warning: stdin is not a TTY, falling back to dry-run\n")
+        print(json.dumps({"dry_run": True, "clusters": num_clusters, "would_delete": redundant, "top_clusters": top_clusters}, default=str))
+        sys.exit(0)
+
+    deleted_count = 0
+    merged_count = 0
+    for ci, cluster_info in enumerate(top_clusters):
+        cluster_mems = [mem for mem in memories if mem["id"] in cluster_info["ids"]]
+        scored = sorted(cluster_mems, key=lambda mem: (-score(mem), mem.get("created_at", "")))
+        survivor = scored[0]
+        victims = scored[1:]
+
+        sys.stderr.write(f"\n--- Cluster {ci+1}/{len(top_clusters)} ({len(cluster_mems)} entries) ---\n")
+        for mi, mem in enumerate(scored):
+            marker = " *BEST*" if mem["id"] == survivor["id"] else ""
+            mid = mem["id"][:8]
+            acc = mem.get("access_count", 0)
+            imp = float(mem.get("importance", 0.5))
+            preview = mem["content"][:80]
+            sys.stderr.write(f"  [{mi+1}] {mid}.. | acc={acc} imp={imp:.2f} | {preview}{marker}\n")
+        sys.stderr.write("  [k]eep best / [s]kip / [q]uit: ")
+        sys.stderr.flush()
+
+        choice = input().strip().lower()
+        if choice == "q":
+            break
+        elif choice == "s":
+            continue
+        else:
+            # Keep best (default)
+            merged_tags = list(set(t for mem in cluster_mems for t in mem.get("tags", [])))
+            needs_merge = set(merged_tags) != set(survivor.get("tags", []))
+
+            for v in victims:
+                try:
+                    m.forget(v["id"])
+                    deleted_count += 1
+                except Exception:
+                    pass
+
+            if needs_merge:
+                try:
+                    m.forget(survivor["id"])
+                    m.remember(
+                        content=survivor["content"],
+                        memory_type=survivor.get("experience_type", "Learning"),
+                        tags=merged_tags,
+                        importance=float(survivor.get("importance", 0.5)),
+                        metadata=survivor.get("metadata", {}),
+                        is_failure=survivor.get("is_failure", False),
+                        is_anomaly=survivor.get("is_anomaly", False),
+                    )
+                    merged_count += 1
+                except Exception as e:
+                    sys.stderr.write(f"  Warning: tag merge failed: {e}\n")
+
+    print(json.dumps({"deleted_count": deleted_count, "merged_count": merged_count}))
+    sys.exit(0)
+
+# --- Execute mode (non-interactive) ---
+deleted_count = 0
+merged_count = 0
+for cluster_info in top_clusters:
+    cluster_mems = [mem for mem in memories if mem["id"] in cluster_info["ids"]]
+    scored = sorted(cluster_mems, key=lambda mem: (-score(mem), mem.get("created_at", "")))
+    survivor = scored[0]
+    victims = scored[1:]
+
+    merged_tags = list(set(t for mem in cluster_mems for t in mem.get("tags", [])))
+    needs_merge = set(merged_tags) != set(survivor.get("tags", []))
+
+    for v in victims:
+        try:
+            m.forget(v["id"])
+            deleted_count += 1
+        except Exception:
+            pass
+
+    if needs_merge:
+        try:
+            m.forget(survivor["id"])
+            m.remember(
+                content=survivor["content"],
+                memory_type=survivor.get("experience_type", "Learning"),
+                tags=merged_tags,
+                importance=float(survivor.get("importance", 0.5)),
+                metadata=survivor.get("metadata", {}),
+                is_failure=survivor.get("is_failure", False),
+                is_anomaly=survivor.get("is_anomaly", False),
+            )
+            merged_count += 1
+        except Exception:
+            pass
+
+print(json.dumps({"deleted_count": deleted_count, "merged_count": merged_count}))
+'
+
+# Memory audit — report duplicate clusters and memory health
+# Usage: wt-memory audit [--threshold F] [--json]
+cmd_audit() {
+    local threshold=0.75
+    local json_mode=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --threshold) threshold="$2"; shift 2 ;;
+            --json) json_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        if [[ "$json_mode" == "true" ]]; then
+            echo '{"total": 0, "clusters": 0, "redundant": 0, "unique": 0, "dedup_ratio": 0.0, "top_clusters": []}'
+        else
+            echo "No memories to audit (shodh-memory not available)."
+        fi
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    if [[ ! -d "$storage_path" ]]; then
+        if [[ "$json_mode" == "true" ]]; then
+            echo '{"total": 0, "clusters": 0, "redundant": 0, "unique": 0, "dedup_ratio": 0.0, "top_clusters": []}'
+        else
+            echo "No memories to audit (empty store)."
+        fi
+        return 0
+    fi
+
+    local raw_json
+    raw_json=$(_SHODH_STORAGE="$storage_path" \
+        _SHODH_THRESHOLD="$threshold" \
+        _SHODH_MODE="audit" \
+        run_with_lock run_shodh_python -c "$_DEDUP_PYTHON") || {
+        [[ "$json_mode" == "true" ]] && echo '{"total": 0, "clusters": 0, "redundant": 0, "unique": 0, "dedup_ratio": 0.0, "top_clusters": []}'
+        return 0
+    }
+
+    if [[ "$json_mode" == "true" ]]; then
+        echo "$raw_json"
+    else
+        # Human-readable report
+        echo "$raw_json" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print('Memory Audit Report')
+print('=' * 40)
+print(f'Total memories:    {d[\"total\"]}')
+print(f'Duplicate clusters: {d[\"clusters\"]}')
+print(f'Redundant entries:  {d[\"redundant\"]}')
+print(f'Unique (estimated): {d[\"unique\"]}')
+print(f'Dedup ratio:        {d[\"dedup_ratio\"]}%')
+if d['top_clusters']:
+    print()
+    print('Top duplicate clusters:')
+    for c in d['top_clusters']:
+        print(f'  [{c[\"count\"]}x] {c[\"preview\"]}')
+else:
+    print()
+    print('No duplicates found.')
+if d['redundant'] > 0:
+    print()
+    print('Run \`wt-memory dedup --dry-run\` to preview cleanup.')
+"
+    fi
+
+    return 0
+}
+
+# Memory dedup — remove duplicate memories
+# Usage: wt-memory dedup [--threshold F] [--dry-run] [--interactive]
+cmd_dedup() {
+    local threshold=0.75
+    local dry_run=false
+    local interactive=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --threshold) threshold="$2"; shift 2 ;;
+            --dry-run) dry_run=true; shift ;;
+            --interactive|-i) interactive=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        echo '{"deleted_count": 0, "merged_count": 0}'
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    if [[ ! -d "$storage_path" ]]; then
+        echo '{"deleted_count": 0, "merged_count": 0}'
+        return 0
+    fi
+
+    local mode="dedup"
+    if [[ "$interactive" == "true" ]]; then
+        mode="interactive"
+    fi
+
+    local shodh_dry_run="false"
+    if [[ "$dry_run" == "true" ]]; then
+        shodh_dry_run="true"
+    fi
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_THRESHOLD="$threshold" \
+    _SHODH_MODE="$mode" \
+    _SHODH_DRY_RUN="$shodh_dry_run" \
+    run_with_lock run_shodh_python -c "$_DEDUP_PYTHON" || echo '{"deleted_count": 0, "merged_count": 0}'
 
     return 0
 }
@@ -1959,6 +2287,8 @@ main() {
         brain)    cmd_brain "$@" ;;
         stats)    cmd_stats "$@" ;;
         cleanup)  cmd_cleanup "$@" ;;
+        audit)    cmd_audit "$@" ;;
+        dedup)    cmd_dedup "$@" ;;
         get|inspect) cmd_get "$@" ;;
         export)   cmd_export "$@" ;;
         import)   cmd_import "$@" ;;
