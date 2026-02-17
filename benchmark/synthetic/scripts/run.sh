@@ -49,8 +49,9 @@ for N in $(seq "$START" "$END"); do
 
   SESSION_START=$(date +%s)
 
-  # Kill any running server
+  # Kill any running server on our port
   pkill -f "node src/server.js" 2>/dev/null || true
+  fuser -k "$PORT"/tcp 2>/dev/null || true
   sleep 1
 
   # Run Claude session (env -u CLAUDECODE allows running from within another claude session)
@@ -74,7 +75,7 @@ for N in $(seq "$START" "$END"); do
   git commit -m "Change $NN complete (${SESSION_TIME}s)" --allow-empty > /dev/null 2>&1 || true
 
   # Run test independently to get results
-  node src/server.js &
+  PORT=$PORT node src/server.js &
   SERVER_PID=$!
   sleep 2
 
