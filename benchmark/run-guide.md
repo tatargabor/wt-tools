@@ -18,7 +18,7 @@ Two init scripts handle all setup. Each creates a fresh CraftBazaar repo with th
 
 ```bash
 ./benchmark/init-baseline.sh [target-dir]
-# Default: ~/benchmark/run-a/craftbazaar
+# Default: ~/benchmark/run-a/craftbazaar-baseline
 ```
 
 What it does: `git init` → `npm init` → `openspec init --tools claude` → `wt-deploy-hooks` → copies `baseline.md` as CLAUDE.md (PORT=4000) → extracts 12 change files (agent-only, no evaluator notes) → copies test scripts to `tests/` → initial commit.
@@ -29,7 +29,7 @@ What it does: `git init` → `npm init` → `openspec init --tools claude` → `
 
 ```bash
 ./benchmark/init-with-memory.sh [target-dir]
-# Default: ~/benchmark/run-b/craftbazaar
+# Default: ~/benchmark/run-b/craftbazaar-memory
 ```
 
 Same as Run A plus: `wt-memory-hooks install` → copies `with-memory.md` as CLAUDE.md (PORT=4001) → verifies `wt-memory health`.
@@ -46,13 +46,13 @@ Open two terminals, each running Claude Code interactively:
 
 **Terminal 1 (Run A):**
 ```bash
-cd ~/benchmark/run-a/craftbazaar
+cd ~/benchmark/run-a/craftbazaar-baseline
 claude --dangerously-skip-permissions
 ```
 
 **Terminal 2 (Run B):**
 ```bash
-cd ~/benchmark/run-b/craftbazaar
+cd ~/benchmark/run-b/craftbazaar-memory
 claude --dangerously-skip-permissions
 ```
 
@@ -70,11 +70,11 @@ Follow the Benchmark Task workflow in CLAUDE.md exactly — work through all 12 
 
 ```bash
 # Terminal 1 (Run A)
-cd ~/benchmark/run-a/craftbazaar
+cd ~/benchmark/run-a/craftbazaar-baseline
 wt-loop start "Build CraftBazaar changes 01-12" --max 30 --stall-threshold 3 --done manual
 
 # Terminal 2 (Run B)
-cd ~/benchmark/run-b/craftbazaar
+cd ~/benchmark/run-b/craftbazaar-memory
 wt-loop start "Build CraftBazaar changes 01-12" --max 30 --stall-threshold 3 --done manual
 ```
 
@@ -91,10 +91,10 @@ wt-loop start "Build CraftBazaar changes 01-12" --max 30 --stall-threshold 3 --d
 Before starting the loop, open Claude interactively once in each directory to accept the trust prompt:
 
 ```bash
-cd ~/benchmark/run-a/craftbazaar && claude --dangerously-skip-permissions
+cd ~/benchmark/run-a/craftbazaar-baseline && claude --dangerously-skip-permissions
 # Type "hello", wait for response, Ctrl+C to exit
 
-cd ~/benchmark/run-b/craftbazaar && claude --dangerously-skip-permissions
+cd ~/benchmark/run-b/craftbazaar-memory && claude --dangerously-skip-permissions
 # Same — accept trust, then exit
 ```
 
@@ -103,8 +103,8 @@ cd ~/benchmark/run-b/craftbazaar && claude --dangerously-skip-permissions
 From a third terminal:
 ```bash
 # Check status
-cd ~/benchmark/run-a/craftbazaar && wt-loop status
-cd ~/benchmark/run-b/craftbazaar && wt-loop status
+cd ~/benchmark/run-a/craftbazaar-baseline && wt-loop status
+cd ~/benchmark/run-b/craftbazaar-memory && wt-loop status
 ```
 
 ## 3. No-Intervention Policy
@@ -126,7 +126,7 @@ After both runs complete, run the test suite against each project:
 
 ```bash
 # Start the dev server
-cd ~/benchmark/run-a/craftbazaar
+cd ~/benchmark/run-a/craftbazaar-baseline
 PORT=4000 npm run dev &
 sleep 5
 
@@ -148,7 +148,7 @@ The evaluator scripts in `benchmark/evaluator/` provide automated checks:
 EVAL_DIR="/path/to/wt-tools/benchmark/evaluator"
 
 # For each run:
-cd ~/benchmark/run-a/craftbazaar
+cd ~/benchmark/run-a/craftbazaar-baseline
 
 # Schema checks (Image table, Int money, CartReservation, indexes)
 bash "$EVAL_DIR/eval-schema.sh" .
@@ -166,16 +166,16 @@ bash "$EVAL_DIR/eval-coherence.sh" .
 ### Collecting all results
 
 ```bash
-bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-a/craftbazaar "Run A (baseline)"
-bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-b/craftbazaar "Run B (memory)"
+bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-a/craftbazaar-baseline "Run A (baseline)"
+bash "$EVAL_DIR/collect-results.sh" ~/benchmark/run-b/craftbazaar-memory "Run B (memory)"
 ```
 
 ### Generating comparison
 
 ```bash
 bash "$EVAL_DIR/compare.sh" \
-  ~/benchmark/run-a/craftbazaar/results-run-a--baseline-.json \
-  ~/benchmark/run-b/craftbazaar/results-run-b--memory-.json
+  ~/benchmark/run-a/craftbazaar-baseline/results-run-a--baseline-.json \
+  ~/benchmark/run-b/craftbazaar-memory/results-run-b--memory-.json
 ```
 
 ## 6. Results Collection
@@ -186,7 +186,7 @@ After both runs complete, gather data:
 
 ```bash
 # For each run (run-a and run-b):
-cd ~/benchmark/<run>/craftbazaar
+cd ~/benchmark/<run>/craftbazaar-<label>
 
 # Iteration history
 wt-loop history
@@ -207,7 +207,7 @@ cat .claude/ralph-loop.log
 ### Run B additional data
 
 ```bash
-cd ~/benchmark/run-b/craftbazaar
+cd ~/benchmark/run-b/craftbazaar-memory
 
 # All saved memories
 wt-memory list --json

@@ -47,9 +47,9 @@ The sprint retrospective identified 12 bugs across the codebase. Fix all of them
 - [ ] `npx prisma db seed` produces consistent data
 - [ ] All UI pages use `<ResponsiveContainer>` and custom Tailwind breakpoints
 - [ ] No `xl:` or `2xl:` Tailwind classes in src/
-- [ ] `src/components/Pagination.tsx` exists and is used on all list pages
+- [ ] `src/components/Pagination.tsx` exists and is rendered (`<Pagination .../>`) on all list pages — importing without rendering does not count
 - [ ] No ad-hoc pagination markup outside the Pagination component
-- [ ] `src/components/Toast.tsx` exists as a shared notification system
+- [ ] `src/components/Toast.tsx` exists as a shared notification system, mounted once in `src/app/layout.tsx` for global availability
 - [ ] No `window.alert()` or `window.confirm()` calls remain in src/
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->

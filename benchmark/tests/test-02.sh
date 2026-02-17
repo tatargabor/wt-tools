@@ -116,6 +116,12 @@ check "No confirm() dialog in cart code" '[ -z "$CONFIRM_FOUND" ]'
 EMPTY_CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-02-empty")
 check "Empty cart has link to /products" 'echo "$EMPTY_CART_HTML" | grep -qi "href=.*/products"'
 
+# --- TRAP-G: Checkout navigation ---
+
+# Check: Cart page has a "Proceed to Checkout" link to /checkout
+CART_HTML=$(curl -s "$BASE/cart" -H "Cookie: sessionId=test-session-02")
+check "TRAP-G: Cart page has checkout link" 'echo "$CART_HTML" | grep -qi "href=.*/checkout"'
+
 # --- TRAP-L: Responsive convention checks ---
 
 # Check: Cart page imports ResponsiveContainer

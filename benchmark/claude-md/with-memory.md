@@ -58,6 +58,10 @@ wt-memory recall "<change-name> <key-topics>" --limit 5 --mode hybrid
 ```
 Use the results to inform your approach — avoid past errors, reuse working patterns.
 
+### Recall-then-verify
+
+After recalling code maps or implementation details from memory, ALWAYS verify against the current codebase before acting. Memory may be outdated — files may have been renamed, moved, or refactored by later changes. Run `grep` or check file existence before trusting recalled paths or patterns. Treat recalled memories as search hints, not ground truth.
+
 ### Save on discoveries
 
 When you discover something non-obvious (environment quirks, gotchas, design decisions), save it immediately:

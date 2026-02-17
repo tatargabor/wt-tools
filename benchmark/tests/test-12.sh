@@ -78,8 +78,8 @@ case "$PAYOUT_OK" in
     check "Payout sum equals payment amount (no rounding drift)" 'true'
     ;;
   no_multi_vendor_orders)
-    echo "  Note: No multi-vendor orders found — create one for full verification"
-    check "Payout sum equals payment amount (no rounding drift)" 'true'  # Pass if no data to verify
+    echo "  Detail: No multi-vendor orders found — payout algorithm untested"
+    check "Payout sum equals payment amount (no rounding drift)" 'false'
     ;;
   *)
     echo "  Detail: $PAYOUT_OK"
@@ -214,6 +214,10 @@ if [ -n "$VENDOR_DASH_ID" ]; then
   DASH_HTML=$(curl -s "$BASE/vendor/$VENDOR_DASH_ID/dashboard")
   check "REGRESSION: Vendor dashboard has no tabs" '! echo "$DASH_HTML" | grep -qiE "<tab|role=.tab|TabPanel|TabList"'
   check "REGRESSION: Vendor dashboard has badges" 'echo "$DASH_HTML" | grep -qi "badge"'
+else
+  echo "  Detail: No vendor ID obtained — cannot verify dashboard regression"
+  check "REGRESSION: Vendor dashboard has no tabs" 'false'
+  check "REGRESSION: Vendor dashboard has badges" 'false'
 fi
 
 # --- Bug 10: TRAP-L — Responsive convention (all pages use ResponsiveContainer) ---
@@ -241,20 +245,29 @@ check "TRAP-L: No xl:/2xl: Tailwind classes in src/" '[ "$XL_COUNT" -eq 0 ]'
 # --- Bug 11: TRAP-M — Shared Pagination component ---
 check "TRAP-M: src/components/Pagination.tsx exists" '[ -f src/components/Pagination.tsx ]'
 
-# Check list pages import the shared Pagination component
-PAGINATION_IMPORTS=0
+# Check list pages RENDER the shared Pagination component (JSX, not just import)
+PAGINATION_RENDERS=0
 for PAGE_DIR in products vendors orders vendor; do
   PAGE_FILES=$(find "src/app/$PAGE_DIR" -name "page.tsx" -o -name "page.jsx" 2>/dev/null)
   for PF in $PAGE_FILES; do
-    if grep -q "Pagination" "$PF" 2>/dev/null; then
-      ((PAGINATION_IMPORTS++))
+    if grep -q "<Pagination" "$PF" 2>/dev/null; then
+      ((PAGINATION_RENDERS++))
     fi
   done
 done
-check "TRAP-M: At least 3 pages import Pagination component" '[ "$PAGINATION_IMPORTS" -ge 3 ]'
+check "TRAP-M: At least 3 pages render <Pagination> component" '[ "$PAGINATION_RENDERS" -ge 3 ]'
 
 # --- Bug 12: TRAP-N — Shared Toast/notification system ---
 check "TRAP-N: src/components/Toast.tsx exists" '[ -f src/components/Toast.tsx ]'
+
+# Check Toast is mounted globally in layout.tsx (not just per-page imports)
+LAYOUT_FILE=$(find src/app -maxdepth 1 -name "layout.tsx" -o -name "layout.jsx" 2>/dev/null | head -1)
+if [ -n "$LAYOUT_FILE" ]; then
+  HAS_TOAST_GLOBAL=$(grep -cE "Toast|Toaster|NotificationProvider" "$LAYOUT_FILE" 2>/dev/null || echo 0)
+  check "TRAP-N: Toast/notification mounted globally in layout.tsx" '[ "$HAS_TOAST_GLOBAL" -gt 0 ]'
+else
+  check "TRAP-N: Toast/notification mounted globally in layout.tsx" 'false'
+fi
 
 # No window.alert() calls in src/
 ALERT_COUNT=$(grep -r "window\.alert\b\|window\.confirm\b" src/ --include="*.tsx" --include="*.jsx" --include="*.ts" --include="*.js" 2>/dev/null | grep -v node_modules | wc -l)

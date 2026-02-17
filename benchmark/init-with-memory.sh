@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WT_ROOT="$(dirname "$SCRIPT_DIR")"
-TARGET="${1:-$HOME/benchmark/run-b/craftbazaar}"
+TARGET="${1:-$HOME/benchmark/run-b/craftbazaar-memory}"
 
 # --- Prerequisites ---
 missing=()

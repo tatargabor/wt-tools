@@ -56,6 +56,7 @@ Add a shopping cart system with variant-level stock tracking. Buyers can add spe
 - [ ] Stock validation prevents adding more than available inventory
 - [ ] Concurrent cart operations don't cause stock inconsistencies
 - [ ] Cart persists across page refreshes (session-based)
+- [ ] Cart page includes a "Proceed to Checkout" button/link that navigates to `/checkout`
 - [ ] `src/lib/errors.ts` exists with error code constants
 - [ ] All cart error responses include `code` field using constants from errors.ts
 
