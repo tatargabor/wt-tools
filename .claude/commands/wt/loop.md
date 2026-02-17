@@ -27,8 +27,13 @@ This will output iteration updates and report the final status (done/stuck/stopp
 ## Options
 
 - `--max N` - Maximum iterations (default: 10)
-- `--done criteria` - Done detection: `tasks` or `manual` (default: tasks)
+- `--done criteria` - Done detection: `tasks`, `openspec`, or `manual` (default: tasks, auto-detects openspec)
 - `--capacity-limit PCT` - Stop if capacity exceeds threshold (default: 80%)
+- `--stall-threshold N` - Stall after N commit-less iterations (default: 2)
+- `--iteration-timeout N` - Per-iteration timeout in minutes (default: 45)
+- `--permission-mode MODE` - Claude permission mode: `auto-accept`, `allowedTools`, `plan` (default: config)
+- `--label TEXT` - Label for this loop instance (shown in banner and terminal title)
+- `--force` - Force start even with incompatible permission mode (e.g. plan)
 
 ## Examples
 

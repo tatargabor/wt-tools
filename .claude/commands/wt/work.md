@@ -1,14 +1,18 @@
 # Open Worktree for Work
 
-Open the worktree in Zed editor with Claude Code: $ARGUMENTS
+Open the worktree in editor with Claude Code: $ARGUMENTS
 
 ```bash
 wt-work $ARGUMENTS
 ```
 
-This opens the worktree in Zed and starts Claude Code in that context.
+This opens the worktree in the configured editor and starts Claude Code in that context.
+Creates the worktree if it doesn't exist (use `--no-create` to prevent this).
 
-For terminal mode:
-```bash
-wt-work $ARGUMENTS --terminal
-```
+Options:
+- `-e, --editor <name>` - Use specific editor (zed, vscode, cursor, windsurf, kitty, alacritty, etc.)
+- `-p, --project <name>` - Use specific project (default: auto-detect)
+- `--no-create` - Don't create worktree if it doesn't exist
+- `--terminal` - Open in terminal mode instead of editor
+
+ARGUMENTS: $ARGUMENTS

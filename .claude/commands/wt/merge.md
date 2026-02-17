@@ -7,5 +7,9 @@ wt-merge $ARGUMENTS
 ```
 
 Options:
-- `--target <branch>` - Merge to specific branch (default: main/master)
+- `--to <branch>` - Merge to specific branch (default: auto-detect main/master)
+- `--squash` - Squash commits into one
 - `--no-delete` - Keep branch after merge
+- `--no-push` - Don't push after merge (default: push)
+
+ARGUMENTS: $ARGUMENTS
