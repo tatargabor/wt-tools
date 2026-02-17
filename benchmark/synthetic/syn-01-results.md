@@ -1,4 +1,4 @@
-# MemoryProbe v7 Results — Synthetic Benchmark
+# SYN-01 Results — MemoryProbe Synthetic Benchmark (6 traps, flat scoring)
 
 **Date**: 2026-02-17
 **Benchmark**: MemoryProbe (LogBook API) — 5 sequential changes, 6 convention traps

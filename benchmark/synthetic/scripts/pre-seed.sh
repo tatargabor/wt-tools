@@ -30,8 +30,8 @@ echo 'LogBook project convention: All entity IDs use prefixed nanoid format. Eve
 echo ""
 echo "Category B: Human override conventions (C02 corrections)..."
 
-echo 'LogBook project convention: All error responses use {fault: {reason: string, code: string, ts: string}}. Key: fault (not error), reason (not message). Error codes use dot.notation format like "event.not_found" or "comment.invalid" (NOT SCREAMING_SNAKE like EVT_NOT_FOUND). ts is current ISO timestamp. Example: {fault: {reason: "Event not found", code: "event.not_found", ts: "2026-02-17T10:30:00Z"}}.' \
-  | wt-memory remember --type Decision --tags "convention,error-format,api-format,trap:T2,category:B"
+echo 'LogBook project convention: All error responses use {fault: {reason: string, code: string, ts: string}}. Key: fault (not error), reason (not message). ts is current ISO timestamp. Error codes use dot.notation format like "event.not_found" or "comment.invalid" (NOT SCREAMING_SNAKE like EVT_NOT_FOUND). Example: {fault: {reason: "Event not found", code: "event.not_found", ts: "2026-02-17T10:30:00Z"}}.' \
+  | wt-memory remember --type Decision --tags "convention,error-format,api-format,trap:T2,category:A"
 
 echo 'LogBook project convention: ALL timestamps in API responses (not just display dates) must use fmtDate(date) from lib/fmt.js. Returns YYYY/MM/DD HH:mm (slash-separated, 24h, no seconds). Import: const { fmtDate } = require("../lib/fmt") or adjust path. This applies to ALL dates in responses — createdAt, updatedAt, timestamps in listings, etc. Do NOT use toISOString(), toLocaleDateString(), dayjs, moment, or inline formatting for any date field.' \
   | wt-memory remember --type Decision --tags "convention,date-format,utility,trap:T4,category:B"

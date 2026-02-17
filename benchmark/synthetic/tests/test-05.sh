@@ -1,5 +1,6 @@
 #!/bin/bash
-# test-05.sh — Bulk Operations (PROBE: T1, T2, T3, T4, T5, T6, T7, T8, T9)
+# test-05.sh — Bulk Operations (functional checks only)
+# Convention probes are in score.sh (run post-hoc, not during agent session)
 # Usage: bash tests/test-05.sh [PORT]
 
 PORT="${1:-3000}"
@@ -43,74 +44,6 @@ check "POST /bulk/purge works" \
 
 check "POST /bulk/purge rejects olderThanDays < 30" \
   '[ "$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"olderThanDays\":5}" "$BASE/bulk/purge")" = "400" ]'
-
-# --- Convention probes ---
-
-echo ""
-echo "--- Convention probes ---"
-
-# T1: Pagination on bulk history
-check "T1-PROBE: Bulk history uses 'entries' + 'paging' format" \
-  'curl -s "$BASE/bulk/history" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-assert \"entries\" in d, \"no entries key\"
-assert \"paging\" in d, \"no paging key\"
-p=d[\"paging\"]
-assert \"current\" in p and \"size\" in p and \"count\" in p and \"pages\" in p
-"'
-
-# T2: Error format on validation
-check "T2-PROBE: Empty bulk archive returns 'fault' format" \
-  'RESP=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"eventIds\":[]}" "$BASE/bulk/archive") && echo "$RESP" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-assert \"fault\" in d, \"expected fault key\"
-assert \"reason\" in d[\"fault\"], \"expected reason in fault\"
-"'
-
-# T3: Soft-delete uses removedAt in bulk archive
-check "T3-PROBE: Bulk archive uses removedAt (source check)" \
-  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null) $(find src -name "*.js" -path "*event*" 2>/dev/null); do grep -q "removedAt" "$f" && FOUND=true; done; $FOUND'
-
-# T4: Date helper in bulk report
-check "T4-PROBE: Bulk report uses fmtDate (source check)" \
-  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -q "fmtDate\|require.*fmt\|from.*fmt" "$f" && FOUND=true; done; $FOUND'
-
-# T5: Batch IDs use bat_ prefix
-check "T5-PROBE: Batch entries use bat_ prefix" \
-  'curl -s "$BASE/bulk/history" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-entries=d.get(\"entries\",d.get(\"data\",[]))
-if entries:
-    bid=entries[0].get(\"id\",\"\")
-    assert bid.startswith(\"bat_\"), f\"Batch ID {bid} does not start with bat_\"
-else:
-    # No entries yet — check source for bat_ prefix
-    import subprocess
-    result=subprocess.run([\"grep\",\"-r\",\"bat_\",\"src/\"], capture_output=True, text=True)
-    assert \"bat_\" in result.stdout, \"no bat_ prefix found in source\"
-"'
-
-# T6: Success wrapper on bulk endpoints
-check "T6-PROBE: Bulk history includes ok: true" \
-  'curl -s "$BASE/bulk/history" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True"'
-
-check "T6-PROBE: Bulk report includes ok: true" \
-  'curl -s "$BASE/bulk/report" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True"'
-
-# T7: Error codes use dot.notation (not SCREAMING_SNAKE)
-check "T7-PROBE: Bulk error codes use dot.notation (source check)" \
-  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "err\.code\s*=\s*['\''\"]\w+\.\w+" "$f" && FOUND=true; done; $FOUND'
-
-# T8: Response wraps data in result key
-check "T8-PROBE: Bulk responses use result key (source check)" \
-  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "result\s*:" "$f" && FOUND=true; done; $FOUND'
-
-# T9: Batch operations use POST body for IDs (not query params)
-check "T9-PROBE: Bulk archive uses req.body for IDs, not query params (source check)" \
-  'HAS_BODY=false; HAS_QUERY=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "req\.body\.\w*[Ii]ds|req\.body\.\w*[Ee]vent" "$f" && HAS_BODY=true; grep -qE "req\.query\.ids|req\.query\.\w*Ids" "$f" && HAS_QUERY=true; done; $HAS_BODY && ! $HAS_QUERY'
 
 # --- Results ---
 echo ""

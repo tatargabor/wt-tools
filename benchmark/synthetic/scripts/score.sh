@@ -25,13 +25,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Trap category definitions ---
-# Category A: code-readable (weight 1)
-# Category B: human override (weight 2)
-# Category C: forward-looking (weight 3)
+# Category A: code-readable (weight 1) — visible in C01/C02 code
+# Category B: code + memory nuance (weight 2) — base pattern in code, nuance in memory
+# Category C: memory-only (weight 3) — only C02 Developer Notes carry this, code shows OLD pattern
 declare -A TRAP_CAT
-TRAP_CAT[T1]=A; TRAP_CAT[T3]=A; TRAP_CAT[T5]=A
-TRAP_CAT[T2]=B; TRAP_CAT[T4]=B; TRAP_CAT[T6]=B; TRAP_CAT[T7]=B; TRAP_CAT[T8]=B; TRAP_CAT[T10]=B
-TRAP_CAT[T9]=C
+TRAP_CAT[T1]=A; TRAP_CAT[T2]=A; TRAP_CAT[T3]=A; TRAP_CAT[T5]=A; TRAP_CAT[T6]=A
+TRAP_CAT[T4]=B
+TRAP_CAT[T7]=C; TRAP_CAT[T8]=C; TRAP_CAT[T9]=C; TRAP_CAT[T10]=C
 
 declare -A CAT_WEIGHT
 CAT_WEIGHT[A]=1; CAT_WEIGHT[B]=2; CAT_WEIGHT[C]=3
@@ -48,15 +48,15 @@ a = json.loads('''$SCORE_A''')
 b = json.loads('''$SCORE_B''')
 
 cats = {
-    'A': {'label': 'Code-readable', 'traps': ['T1','T3','T5'], 'weight': 1},
-    'B': {'label': 'Human override', 'traps': ['T2','T4','T6','T7','T8','T10'], 'weight': 2},
-    'C': {'label': 'Forward-looking', 'traps': ['T9'], 'weight': 3},
+    'A': {'label': 'Code-readable', 'traps': ['T1','T2','T3','T5','T6'], 'weight': 1},
+    'B': {'label': 'Code + memory nuance', 'traps': ['T4'], 'weight': 2},
+    'C': {'label': 'Memory-only', 'traps': ['T7','T8','T9','T10'], 'weight': 3},
 }
 
 labels = {'T1':'paging','T2':'errors','T3':'remove','T4':'dates','T5':'IDs','T6':'ok wrap',
           'T7':'err.code','T8':'result-key','T9':'batch-POST','T10':'order'}
 
-print('MemoryProbe v8 Comparison')
+print('MemoryProbe v9 Comparison')
 print('=' * 50)
 
 for cat_id, cat in cats.items():
@@ -175,7 +175,7 @@ probe() {
 
 if ! $JSON_MODE; then
   echo ""
-  echo "MemoryProbe v8 Convention Scoring"
+  echo "MemoryProbe v9 Convention Scoring"
   echo "================================="
   echo "Project: $PROJECT"
   echo ""
@@ -193,56 +193,57 @@ probe T1 C05 "bulk pagination"      'paging[[:space:]]*[:{]|"paging"'    'total[
 probe T3 C04 "notification remove"  'removedAt'   'deletedAt|isDeleted|is_deleted'   "dashboard\|notification"
 probe T3 C05 "bulk soft-delete"     'removedAt'   'deletedAt|isDeleted|is_deleted'   "bulk\|event"
 
-# T5 probes (prefixed IDs)
-probe T5 C03 "comment ID prefix"    "cmt_|makeId.*['\"]cmt['\"]"   'AUTO_INCREMENT|autoincrement|\.uuid'   "comment\|id"
-probe T5 C05 "batch ID prefix"      "bat_|makeId.*['\"]bat['\"]"   'AUTO_INCREMENT|autoincrement|\.uuid'   "bulk\|batch\|id"
-
-# ===== CATEGORY B: Human override (weight 2) =====
-
-if ! $JSON_MODE; then
-  echo ""
-  echo "=== Category B: Human override (weight x2) ==="
-  echo ""
-fi
-
-# T2 probes (error format: fault — still valid, but now with dot.notation codes)
+# T2 probes (error format: fault wrapper — visible in C01 code)
 probe T2 C03 "comment errors"       'fault[[:space:]]*[:{]|"fault"'     'error[[:space:]]*[:=].*message|"error"[[:space:]]*:|"message"[[:space:]]*:'  "comment\|error"
 probe T2 C04 "export errors"        'fault[[:space:]]*[:{]|"fault"'     'error[[:space:]]*[:=].*message|"error"[[:space:]]*:|"message"[[:space:]]*:'  "export\|dashboard\|error"
 probe T2 C05 "bulk errors"          'fault[[:space:]]*[:{]|"fault"'     'error[[:space:]]*[:=].*message|"error"[[:space:]]*:|"message"[[:space:]]*:'  "bulk\|error"
 
-# T4 probes (date format: fmtDate)
-probe T4 C04 "export date format"   'fmtDate'     'toISOString\|formatDate\|dayjs\|moment'   "export"
-probe T4 C05 "bulk report dates"    'fmtDate'     'toISOString\|formatDate\|dayjs\|moment'   "bulk"
+# T5 probes (prefixed IDs)
+probe T5 C03 "comment ID prefix"    "cmt_|makeId.*['\"]cmt['\"]"   'AUTO_INCREMENT|autoincrement|\.uuid'   "comment\|id"
+probe T5 C05 "batch ID prefix"      "bat_|makeId.*['\"]bat['\"]"   'AUTO_INCREMENT|autoincrement|\.uuid'   "bulk\|batch\|id"
 
-# T6 probes (ok wrapper)
+# T6 probes (ok wrapper — visible in C01 code)
 probe T6 C03 "comment ok wrapper"   'ok[[:space:]]*:[[:space:]]*true|"ok"[[:space:]]*:'   ''   "comment"
 probe T6 C04 "dashboard ok wrapper" 'ok[[:space:]]*:[[:space:]]*true|"ok"[[:space:]]*:'   ''   "dashboard\|export"
 probe T6 C05 "bulk ok wrapper"      'ok[[:space:]]*:[[:space:]]*true|"ok"[[:space:]]*:'   ''   "bulk"
 
-# T7 probes (error codes: dot.notation, NOT SCREAMING_SNAKE)
+# ===== CATEGORY B: Code + memory nuance (weight 2) =====
+
+if ! $JSON_MODE; then
+  echo ""
+  echo "=== Category B: Code + memory nuance (weight x2) ==="
+  echo ""
+fi
+
+# T4 probes (date format: fmtDate — base pattern in code, "ALL dates" nuance in memory)
+probe T4 C04 "export date format"   'fmtDate'     'toISOString\|formatDate\|dayjs\|moment'   "export"
+probe T4 C05 "bulk report dates"    'fmtDate'     'toISOString\|formatDate\|dayjs\|moment'   "bulk"
+
+# ===== CATEGORY C: Memory-only (weight 3) =====
+
+if ! $JSON_MODE; then
+  echo ""
+  echo "=== Category C: Memory-only (weight x3) ==="
+  echo ""
+fi
+
+# T7 probes (error codes: dot.notation — C02 says "starting C03", code shows SCREAMING_SNAKE)
 probe T7 C03 "comment err.code dot" "err\.code.*['\"][a-z]+\.[a-z_]+['\"]|code.*['\"][a-z]+\.[a-z_]+['\"]"   "err\.code.*['\"][A-Z]{2,}_[A-Z]"   "comment"
 probe T7 C04 "export err.code dot"  "err\.code.*['\"][a-z]+\.[a-z_]+['\"]|code.*['\"][a-z]+\.[a-z_]+['\"]"   "err\.code.*['\"][A-Z]{2,}_[A-Z]"   "export\|dashboard"
 probe T7 C05 "bulk err.code dot"    "err\.code.*['\"][a-z]+\.[a-z_]+['\"]|code.*['\"][a-z]+\.[a-z_]+['\"]"   "err\.code.*['\"][A-Z]{2,}_[A-Z]"   "bulk"
 
-# T8 probes (response nesting: result key)
+# T8 probes (response nesting: result key — C02 says "starting C03", code uses flat format)
 probe T8 C03 "comment result key"   'result[[:space:]]*:[[:space:]]*\{'   ''   "comment"
 probe T8 C04 "dashboard result key" 'result[[:space:]]*:[[:space:]]*\{'   ''   "dashboard"
 probe T8 C05 "bulk result key"      'result[[:space:]]*:[[:space:]]*\{'   ''   "bulk"
 
-# T10 probes (order parameter, not sort)
+# T9 probes (batch ops: POST body for IDs — forward-looking advice from C02)
+# Handles both dot access (req.body.eventIds) and destructuring ({ eventIds } = req.body)
+probe T9 C05 "batch POST body"    'req\.body\.\w*[Ii]ds|req\.body\.\w*[Ee]vent|\w*[Ii]ds.*=.*req\.body|=\s*req\.body'   'req\.query\.ids|req\.query\.\w*[Ii]ds'   "bulk"
+
+# T10 probes (order parameter — C02 says use ?order=, no code implements this before C04)
 probe T10 C04 "dashboard order param" 'req\.query\.order\b|order.*newest|order.*oldest'   'req\.query\.sort\b'   "dashboard\|activity"
 probe T10 C05 "bulk order param"      'req\.query\.order\b|order.*newest|order.*oldest'   'req\.query\.sort\b'   "bulk"
-
-# ===== CATEGORY C: Forward-looking (weight 3) =====
-
-if ! $JSON_MODE; then
-  echo ""
-  echo "=== Category C: Forward-looking (weight x3) ==="
-  echo ""
-fi
-
-# T9 probes (batch ops: POST body for IDs, not query params)
-probe T9 C05 "batch POST body"    'req\.body\.\w*[Ii]ds\|req\.body\.\w*[Ee]vent'   'req\.query\.ids\|req\.query\.\w*Ids'   "bulk"
 
 # --- Calculate per-trap and per-category scores ---
 ALL_TRAPS="T1 T2 T3 T4 T5 T6 T7 T8 T9 T10"

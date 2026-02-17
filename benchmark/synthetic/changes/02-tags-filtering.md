@@ -32,19 +32,19 @@ Add a tagging system to LogBook. Events can have multiple tags, and users can fi
 
 ### Developer Notes (from code review of C01)
 
-We reviewed the C01 implementation and have some corrections for going forward. **Apply these conventions in this change and all future changes:**
+We reviewed the C01 implementation and have some corrections. **These apply to FUTURE changes (C03 onward) — do NOT apply them in this change (C02).** We don't want to expand the scope of this already-reviewed PR.
 
-1. **Error code format change**: We're switching from SCREAMING_SNAKE error codes (like `EVT_NOT_FOUND`) to **dot.notation** format. Use lowercase with dots: `event.not_found`, `tag.duplicate_name`, `tag.not_found`. Update any error codes you write in this change to use dot.notation. All future changes must use this format.
+1. **Error code format change**: Starting in C03, switch from SCREAMING_SNAKE error codes (like `EVT_NOT_FOUND`) to **dot.notation** format. Use lowercase with dots: `event.not_found`, `comment.invalid_body`, `export.unsupported_format`. Don't change C02 error codes — keep them SCREAMING_SNAKE to match C01.
 
-2. **Response nesting**: Wrap entity data in a `result` key. This helps the frontend team distinguish payload from metadata.
+2. **Response nesting**: Starting in C03, wrap entity data in a `result` key. This helps the frontend team distinguish payload from metadata.
    - List responses: `{"ok": true, "result": {"entries": [...], "paging": {...}}}`
-   - Single-item responses: `{"ok": true, "result": {"tag": {...}}}`
+   - Single-item responses: `{"ok": true, "result": {"comment": {...}}}`
    - Action responses: `{"ok": true, "result": {"removed": true}}`
-   Apply this to new endpoints in this change. (Don't refactor C01 endpoints — we'll migrate those later.)
+   Don't apply to C02 — the tags API spec is finalized with the flat format.
 
 3. **Batch operations advice**: When we add bulk endpoints in a future change, always use **POST with body `{"ids": [...]}`** for operations on multiple items. Express doesn't parse array query params (`?ids=1,2,3`) reliably. Keep this in mind for later.
 
-4. **Sort/order convention**: For any endpoint that supports ordering, use a `?order=newest|oldest` query parameter — **not** `?sort=desc|asc`. Our frontend expects the `order` param name with human-readable values. Apply this whenever you add ordering support.
+4. **Sort/order convention**: For any endpoint that supports ordering, use a `?order=newest|oldest` query parameter — **not** `?sort=desc|asc`. Our frontend expects the `order` param name with human-readable values. Apply this whenever you add ordering support in future changes.
 
 ### Acceptance Criteria
 
@@ -58,8 +58,6 @@ We reviewed the C01 implementation and have some corrections for going forward. 
 - [ ] Filters combine with AND logic
 - [ ] Pagination works with filters applied
 - [ ] Seed script includes tags and event-tag associations
-- [ ] Error codes use dot.notation format (e.g., `tag.not_found`)
-- [ ] Responses use `result` key wrapping
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
