@@ -18,10 +18,12 @@ loop-state.json
 # Team sync worktree (wt-control branch)
 .wt-control/
 
-# Runtime state (agent tracking, memory markers, extraction logs)
+# Runtime state (agent tracking, memory markers, extraction logs, orphan detection)
 .wt-tools/agents/
+.wt-tools/orphan-detect/
 .wt-tools/.last-memory-commit
 .wt-tools/.saved-designs
+.wt-tools/.saved-codemaps
 .wt-tools/.transcript-extraction.lock
 .wt-tools/transcript-extraction.log
 
@@ -35,6 +37,12 @@ loop-state.json
 # Python virtual environments
 .venv/
 mcp-server/.venv/
+
+# Shodh memory local data
+shodh_data/
+
+# Nested .wt-tools runtime state
+benchmark/synthetic/.wt-tools/
 
 # Test results
 test-results/
