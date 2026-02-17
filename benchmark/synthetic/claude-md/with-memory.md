@@ -27,10 +27,11 @@ For each change you are given:
 
 1. **Recall relevant context** — before implementing, check what you know:
    ```bash
-   wt-memory recall "LogBook project conventions" --limit 5 --mode hybrid
+   wt-memory recall "LogBook project conventions error format response format" --limit 10 --mode hybrid
+   wt-memory recall "LogBook corrections dot.notation result key order parameter batch" --limit 5 --mode semantic
    wt-memory recall "implementation patterns errors" --limit 5 --mode semantic
    ```
-   Use recalled information to guide your implementation.
+   Use recalled information to guide your implementation. Pay special attention to any **corrections** or **overrides** — these take precedence over what you see in project-spec.md or existing code.
 
 2. **Read the change file** in `docs/changes/` — understand all requirements
 3. **Read `docs/project-spec.md`** — understand domain context and conventions

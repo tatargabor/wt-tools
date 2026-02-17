@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-03.sh — Comments & Activity (PROBE: T1, T2, T5, T6)
+# test-03.sh — Comments & Activity (PROBE: T1, T2, T5, T6, T7, T8)
 # Usage: bash tests/test-03.sh [PORT]
 
 PORT="${1:-3000}"
@@ -90,6 +90,17 @@ check "T6-PROBE: Comment list includes ok: true" \
 
 check "T6-PROBE: Activity list includes ok: true" \
   'curl -s "$BASE/activity" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True, \"missing ok: true\""'
+
+# T7: Error codes use dot.notation (not SCREAMING_SNAKE)
+check "T7-PROBE: Comment error codes use dot.notation (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*comment*" 2>/dev/null); do grep -qE "['\''\"]\w+\.\w+['\''\"]\s*;?\s*$|code.*['\''\"]\w+\.\w+['\''\"]\s*|err\.code\s*=\s*['\''\"]\w+\.\w+['\''\"]\s*" "$f" && FOUND=true; done; $FOUND'
+
+check "T7-PROBE: Comment error codes NOT SCREAMING_SNAKE (source check)" \
+  'FAIL=false; for f in $(find src -name "*.js" -path "*comment*" 2>/dev/null); do grep -qE "err\.code\s*=\s*['\''\"]\s*[A-Z]{2,}_[A-Z]{2,}" "$f" && FAIL=true; done; ! $FAIL'
+
+# T8: Response wraps data in result key
+check "T8-PROBE: Comment list response uses result key (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*comment*" 2>/dev/null); do grep -qE "result\s*:" "$f" && FOUND=true; done; $FOUND'
 
 # --- Results ---
 echo ""

@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-05.sh — Bulk Operations (PROBE: T1, T2, T3, T4, T5, T6)
+# test-05.sh — Bulk Operations (PROBE: T1, T2, T3, T4, T5, T6, T7, T8, T9)
 # Usage: bash tests/test-05.sh [PORT]
 
 PORT="${1:-3000}"
@@ -99,6 +99,18 @@ check "T6-PROBE: Bulk history includes ok: true" \
 
 check "T6-PROBE: Bulk report includes ok: true" \
   'curl -s "$BASE/bulk/report" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True"'
+
+# T7: Error codes use dot.notation (not SCREAMING_SNAKE)
+check "T7-PROBE: Bulk error codes use dot.notation (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "err\.code\s*=\s*['\''\"]\w+\.\w+" "$f" && FOUND=true; done; $FOUND'
+
+# T8: Response wraps data in result key
+check "T8-PROBE: Bulk responses use result key (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "result\s*:" "$f" && FOUND=true; done; $FOUND'
+
+# T9: Batch operations use POST body for IDs (not query params)
+check "T9-PROBE: Bulk archive uses req.body for IDs, not query params (source check)" \
+  'HAS_BODY=false; HAS_QUERY=false; for f in $(find src -name "*.js" -path "*bulk*" 2>/dev/null); do grep -qE "req\.body\.\w*[Ii]ds|req\.body\.\w*[Ee]vent" "$f" && HAS_BODY=true; grep -qE "req\.query\.ids|req\.query\.\w*Ids" "$f" && HAS_QUERY=true; done; $HAS_BODY && ! $HAS_QUERY'
 
 # --- Results ---
 echo ""

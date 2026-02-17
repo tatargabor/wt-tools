@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-04.sh — Dashboard & Export (PROBE: T1, T2, T3, T4, T6)
+# test-04.sh — Dashboard & Export (PROBE: T1, T2, T3, T4, T6, T7, T8, T10)
 # Usage: bash tests/test-04.sh [PORT]
 
 PORT="${1:-3000}"
@@ -99,6 +99,18 @@ check "T6-PROBE: Dashboard summary includes ok: true" \
 
 check "T6-PROBE: Dashboard recent includes ok: true" \
   'curl -s "$BASE/dashboard/recent" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True"'
+
+# T7: Error codes use dot.notation (not SCREAMING_SNAKE)
+check "T7-PROBE: Dashboard/export error codes use dot.notation (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*export*" -o -name "*.js" -path "*dashboard*" 2>/dev/null); do grep -qE "err\.code\s*=\s*['\''\"]\w+\.\w+" "$f" && FOUND=true; done; $FOUND'
+
+# T8: Response wraps data in result key
+check "T8-PROBE: Dashboard responses use result key (source check)" \
+  'FOUND=false; for f in $(find src -name "*.js" -path "*dashboard*" 2>/dev/null); do grep -qE "result\s*:" "$f" && FOUND=true; done; $FOUND'
+
+# T10: Sort uses ?order= not ?sort=
+check "T10-PROBE: Dashboard uses order parameter, not sort (source check)" \
+  'HAS_ORDER=false; HAS_SORT=false; for f in $(find src -name "*.js" -path "*dashboard*" -o -name "*.js" -path "*activity*" 2>/dev/null); do grep -qE "req\.query\.order|order.*newest|order.*oldest" "$f" && HAS_ORDER=true; grep -qE "req\.query\.sort\b" "$f" && HAS_SORT=true; done; $HAS_ORDER && ! $HAS_SORT'
 
 # --- Results ---
 echo ""

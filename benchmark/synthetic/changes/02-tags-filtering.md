@@ -30,6 +30,22 @@ Add a tagging system to LogBook. Events can have multiple tags, and users can fi
 
 5. **Seed tags**: Add 5 tags to the seed script (`deployment`, `incident`, `release`, `maintenance`, `security`) and assign 2-3 tags to each existing event.
 
+### Developer Notes (from code review of C01)
+
+We reviewed the C01 implementation and have some corrections for going forward. **Apply these conventions in this change and all future changes:**
+
+1. **Error code format change**: We're switching from SCREAMING_SNAKE error codes (like `EVT_NOT_FOUND`) to **dot.notation** format. Use lowercase with dots: `event.not_found`, `tag.duplicate_name`, `tag.not_found`. Update any error codes you write in this change to use dot.notation. All future changes must use this format.
+
+2. **Response nesting**: Wrap entity data in a `result` key. This helps the frontend team distinguish payload from metadata.
+   - List responses: `{"ok": true, "result": {"entries": [...], "paging": {...}}}`
+   - Single-item responses: `{"ok": true, "result": {"tag": {...}}}`
+   - Action responses: `{"ok": true, "result": {"removed": true}}`
+   Apply this to new endpoints in this change. (Don't refactor C01 endpoints — we'll migrate those later.)
+
+3. **Batch operations advice**: When we add bulk endpoints in a future change, always use **POST with body `{"ids": [...]}`** for operations on multiple items. Express doesn't parse array query params (`?ids=1,2,3`) reliably. Keep this in mind for later.
+
+4. **Sort/order convention**: For any endpoint that supports ordering, use a `?order=newest|oldest` query parameter — **not** `?sort=desc|asc`. Our frontend expects the `order` param name with human-readable values. Apply this whenever you add ordering support.
+
 ### Acceptance Criteria
 
 - [ ] Tag CRUD works (create, list, delete)
@@ -42,6 +58,8 @@ Add a tagging system to LogBook. Events can have multiple tags, and users can fi
 - [ ] Filters combine with AND logic
 - [ ] Pagination works with filters applied
 - [ ] Seed script includes tags and event-tag associations
+- [ ] Error codes use dot.notation format (e.g., `tag.not_found`)
+- [ ] Responses use `result` key wrapping
 
 <!-- EVALUATOR NOTES BELOW — NOT INCLUDED IN AGENT INPUT -->
 
@@ -49,18 +67,29 @@ Add a tagging system to LogBook. Events can have multiple tags, and users can fi
 
 ### Purpose
 
-This is the GAP change — intentionally no new convention probes. Its purpose is to push C01's conventions out of the agent's immediate focus before C03 starts probing.
+C02 is now the **CORRECTION** change — it introduces human feedback that overrides C01 conventions. This is the core mechanism for creating memory-unique knowledge.
 
-### Conventions Expected
+### Developer Notes → Trap Mapping
 
-Even though this is a gap change, the agent should still follow existing conventions:
-- Tag IDs should use `tag_` prefix (T5)
-- Tag listing response should use `ok: true` wrapper (T6)
-- Error responses should use `{fault}` format (T2)
-
-These are NOT scored as probes (C01 code is still fresh in context). They're just baseline consistency checks.
+| Dev Note | Trap | Category | What it overrides |
+|----------|------|----------|-------------------|
+| 1. dot.notation error codes | T7 | B (human override) | C01's SCREAMING_SNAKE + project-spec.md |
+| 2. result key wrapper | T8 | B (human override) | C01's flat format + project-spec.md |
+| 3. POST body for batch | T9 | C (forward-looking) | No code exists — memory-only |
+| 4. order parameter | T10 | B (human override) | No code exists — memory-only |
 
 ### Memory Predictions (Run B)
 
-- **Save**: Agent may save tagging patterns or filter implementation details
-- **Recall**: Agent may recall C01 conventions (useful but not decisive — C01 is recent)
+- **Save**: Agent should save all 4 Developer Notes as Decision/Learning memories
+  - T7: "Error codes switched from SCREAMING_SNAKE to dot.notation"
+  - T8: "Wrap responses in result key"
+  - T9: "Use POST body for batch ops, not query params"
+  - T10: "Use ?order=newest|oldest, not ?sort=desc|asc"
+- **Recall**: Agent may recall C01 conventions (useful but C02 now overrides some)
+
+### Scoring Notes
+
+C02 itself is NOT probed in scoring. The probes are in C03-C05. C02's job is to:
+1. Establish the correction knowledge (via Developer Notes)
+2. Let the agent save it to memory (Mode B)
+3. Create conflicting signals for no-memory agents (C01 code + stale spec ≠ C02 corrections)

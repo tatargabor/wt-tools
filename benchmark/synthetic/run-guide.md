@@ -1,4 +1,4 @@
-# MemoryProbe Run Guide
+# MemoryProbe v8 Run Guide
 
 ## Prerequisites
 
@@ -27,6 +27,44 @@ wait
 
 Total time: ~30-35 minutes (parallel) or ~60-70 minutes (sequential).
 
+## n=3 Run Protocol (Recommended for Publication)
+
+For publishable results, run each mode **3 times** and use **median** scoring.
+
+```bash
+cd benchmark/synthetic
+
+# Mode A: 3 runs
+for i in 1 2 3; do
+  ./scripts/init.sh --mode a --target ~/bench/probe-a-$i
+  ./scripts/run.sh ~/bench/probe-a-$i
+done
+
+# Mode B: 3 runs
+for i in 1 2 3; do
+  ./scripts/init.sh --mode b --target ~/bench/probe-b-$i
+  ./scripts/run.sh ~/bench/probe-b-$i
+done
+
+# Score all runs
+for i in 1 2 3; do
+  echo "=== Mode A Run $i ==="
+  ./scripts/score.sh ~/bench/probe-a-$i --json > ~/bench/score-a-$i.json
+  ./scripts/score.sh ~/bench/probe-a-$i
+
+  echo "=== Mode B Run $i ==="
+  ./scripts/score.sh ~/bench/probe-b-$i --json > ~/bench/score-b-$i.json
+  ./scripts/score.sh ~/bench/probe-b-$i
+done
+
+# Compare best median pair
+./scripts/score.sh --compare ~/bench/probe-a-2 ~/bench/probe-b-2
+```
+
+**Median selection**: Sort each mode's 3 weighted scores. Use the middle run (run 2 after sorting) for the comparison.
+
+Total time: ~3-3.5 hours (sequential). Can parallelize runs across terminals.
+
 ## Mode A: Baseline (No Memory)
 
 ```bash
@@ -40,7 +78,7 @@ What happens:
 2. Runs 5 Claude sessions (C01-C05), each in fresh context
 3. Scores convention compliance on C03-C05
 
-Expected score: ~20-35% (3-5/15 probes pass)
+Expected weighted score: 40-65% (Category A passes + some B from code reading)
 
 ## Mode B: Full Memory (Save + Recall)
 
@@ -52,10 +90,10 @@ Expected score: ~20-35% (3-5/15 probes pass)
 
 What happens:
 1. Same as Mode A, but with `wt-memory` enabled
-2. C01-C02 sessions save conventions to memory
+2. C01-C02 sessions save conventions to memory (C02 includes corrections)
 3. C03-C05 sessions recall conventions before implementing
 
-Expected score: ~80-93% (12-14/15 probes pass)
+Expected weighted score: 85-100% (all categories, depends on save quality)
 
 ## Mode C: Pre-Seeded (Recall Only)
 
@@ -66,11 +104,11 @@ Expected score: ~80-93% (12-14/15 probes pass)
 ```
 
 What happens:
-1. Bootstraps project with 6 convention memories pre-seeded
+1. Bootstraps project with 10 convention memories pre-seeded (T1-T10)
 2. Skips C01-C02 (conventions already in memory)
 3. Runs only C03-C05 — tests pure recall
 
-Expected score: ~87-95% (13-14/15 probes pass)
+Expected weighted score: 90-100% (perfect memories, tests recall fidelity)
 
 Time: ~15-20 minutes.
 
@@ -115,19 +153,39 @@ git add -A && git commit -m "Change 02 complete"
 
 ### What Gets Scored
 
-15 convention probes across C03-C05:
+24 convention probes across C03-C05, organized into 3 weighted categories:
+
+| Category | Weight | Traps | Signal |
+|----------|--------|-------|--------|
+| A: Code-readable | x1 | T1, T3, T5 | Conventions visible in C01 code |
+| B: Human override | x2 | T2, T4, T6, T7, T8, T10 | C02 corrections that override C01/spec |
+| C: Forward-looking | x3 | T9 | Advice for features that don't exist yet |
 
 | Change | Probes | Traps Tested |
 |--------|--------|-------------|
-| C03 | 4 | T1, T2, T5, T6 |
-| C04 | 5 | T1, T2, T3, T4, T6 |
-| C05 | 6 | T1, T2, T3, T4, T5, T6 |
+| C03 | 6 | T1, T2, T5, T6, T7, T8 |
+| C04 | 8 | T1, T2, T3, T4, T6, T7, T8, T10 |
+| C05 | 10 | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10 |
 
-Each probe checks:
-1. **Project convention present** (e.g., `"paging"` in response handler)
-2. **Standard pattern absent** (e.g., no `"total"` or `"limit"` in response)
+### Weighted Scoring
 
-Both conditions must be true for PASS.
+```
+Raw    = Cat_A_pass * 1 + Cat_B_pass * 2 + Cat_C_pass * 3
+Max    = Cat_A_total * 1 + Cat_B_total * 2 + Cat_C_total * 3
+Score  = Raw / Max * 100%
+
+Max = 7*1 + 16*2 + 1*3 = 42
+```
+
+### Expected Scores
+
+| Mode | Cat A (x1) | Cat B (x2) | Cat C (x3) | Weighted |
+|------|-----------|-----------|-----------|----------|
+| A (no memory) | 5-7/7 | 6-10/16 | 0/1 | 40-65% |
+| B (full memory) | 7/7 | 14-16/16 | 1/1 | 85-100% |
+| Delta | +0-2 | +4-10 | +1 | +25-50% |
+
+Category B provides the strongest signal (spec-vs-memory conflict). Category C provides a clean binary signal.
 
 ## Troubleshooting
 
@@ -145,4 +203,6 @@ Both conditions must be true for PASS.
 
 ```bash
 rm -rf ~/bench/probe-a ~/bench/probe-b ~/bench/probe-c
+# For n=3 runs:
+rm -rf ~/bench/probe-a-{1,2,3} ~/bench/probe-b-{1,2,3} ~/bench/score-*.json
 ```
