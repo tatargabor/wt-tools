@@ -9,20 +9,20 @@
       "id": "master",
       "remote_url": "git@github.com:tatargabor/wt-tools",
       "agent_status": null,
-      "last_activity": "2026-02-10T23:04:04Z",
+      "last_activity": "2026-02-17T14:38:22Z",
       "activity": {
         "skill": "opsx:ff",
-        "skill_args": "editor-detection-overhaul",
+        "skill_args": "multi-layer-memory-hooks",
         "broadcast": null,
         "modified_files": [],
-        "updated_at": "2026-02-09T17:04:41Z"
+        "updated_at": "2026-02-17T18:51:10Z"
       }
     },
     {
       "id": "shodh-memory-integration",
       "remote_url": "git@github.com:tatargabor/wt-tools",
       "agent_status": null,
-      "last_activity": "2026-02-12T19:38:57Z",
+      "last_activity": "2026-02-17T13:12:56Z",
       "activity": {
         "skill": "opsx:archive",
         "skill_args": "fix-memory-lock-contention",
@@ -32,7 +32,7 @@
       }
     }
   ],
-  "last_seen": "2026-02-12T19:41:31Z",
+  "last_seen": "2026-02-17T18:52:31Z",
   "chat_public_key": "420TbtCbIz++T/zRl2Jky/6QlkidXWHZyWsKXXaV3gI=",
   "chat_key_fingerprint": "edb975b8"
 }
