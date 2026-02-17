@@ -216,11 +216,18 @@ Do NOT extract:
 - Things that are obvious from reading the code
 
 Output format: one insight per line, format: Type|tags|content
-- Type: Learning, Decision, or Context
+- Type: Learning, Decision, Context, or CheatSheet
 - tags: comma-separated (e.g., error,change-name or preference,workflow)
 - content: concise description (max 200 chars)
 
-Maximum 5 insights. If nothing is worth saving, output exactly: NONE
+Use CheatSheet type for reusable operational patterns that should be loaded at every session start:
+- Recurring commands with non-obvious flags or gotchas
+- Project-specific test/build/deploy procedures
+- Environment setup requirements
+- Common error→fix patterns that apply broadly
+Maximum 2 CheatSheet entries per session.
+
+Maximum 5 insights (Learning/Decision/Context). If nothing is worth saving, output exactly: NONE
 
 ALSO extract cross-cutting conventions established in this session — patterns that ALL future changes must follow.
 Examples: 'use formatPrice() for all price display', 'all list endpoints return { data, total, page, limit }', 'filter deletedAt IS NULL in all product queries'.
@@ -231,6 +238,7 @@ Example output:
 Learning|error,shopping-cart|Stock decrement failed silently when variant.stockQuantity was null — added null check
 Decision|preference,workflow|User prefers Hungarian commit messages with English code comments
 Convention|product-catalog,formatting|All price display must use formatPrice() from src/lib/formatPrice.ts — never use inline .toFixed()
+CheatSheet|testing,pytest|Always run GUI tests with PYTHONPATH=. python -m pytest tests/gui/ -v --tb=short
 
 Session summary:"
 
@@ -313,6 +321,7 @@ commit_staged_files() {
         # Parse and commit insights to wt-memory
         local count=0
         local conv_count=0
+        local cheat_count=0
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             [[ "$line" == "NONE" ]] && continue
@@ -328,12 +337,18 @@ commit_staged_files() {
             local tags="${rest%%|*}"
             local content="${rest#*|}"
 
-            # Handle Convention type: save as Learning with convention tag, cap at 2
+            # Handle Convention type: save as Learning with convention + cheat-sheet tags, cap at 2
             if [[ "$mem_type" == "Convention" ]]; then
                 (( conv_count >= 2 )) && continue
                 mem_type="Learning"
-                tags="convention,$tags"
+                tags="convention,cheat-sheet,$tags"
                 (( conv_count++ ))
+            # Handle CheatSheet type: save as Learning with cheat-sheet tag, cap at 2
+            elif [[ "$mem_type" == "CheatSheet" ]]; then
+                (( cheat_count >= 2 )) && continue
+                mem_type="Learning"
+                tags="cheat-sheet,$tags"
+                (( cheat_count++ ))
             else
                 # Cap regular insights at 5
                 (( count >= 5 )) && continue
@@ -367,7 +382,7 @@ commit_staged_files() {
 
         # Cleanup
         rm -f "$staged" "$ts_file"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Committed staged extraction: $staged_id ($count insights, $conv_count conventions)" >> "$LOG_FILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Committed staged extraction: $staged_id ($count insights, $conv_count conventions, $cheat_count cheat-sheet)" >> "$LOG_FILE"
     done
 }
 

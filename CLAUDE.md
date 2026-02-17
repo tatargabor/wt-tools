@@ -1,39 +1,19 @@
 
-## Proactive Memory
+## Persistent Memory
 
-This project uses `wt-memory` (shodh-memory) for persistent developer memory across sessions. During ANY conversation — not just inside OpenSpec skills — recognize and save valuable knowledge.
+This project uses persistent memory (shodh-memory) across sessions. Hooks handle memory automatically — you don't need to manage it.
 
-### When to save
+**Automatic (invisible to you):**
+- Session start → relevant memories and operational cheat sheet loaded
+- Every prompt → topic-based recall injected as context
+- Hot-topic commands → proactive context before execution
+- Tool errors → past fixes surfaced automatically
+- Session end → insights extracted and saved
 
-Save when the user shares something a **future agent in a different session** would benefit from knowing:
-- **Negative past experience**: something was tried and didn't work
-- **Decision or preference**: a rule, constraint, or workflow preference for this project
-- **Technical learning**: a discovered pattern, gotcha, or non-obvious behavior
-
-### When NOT to save
-
-- Simple confirmations, task instructions, or questions
-- General knowledge any developer would know
-- Session-specific context ("fix this typo", "run the test")
-
-### How to save
-
-1. Run `wt-memory health` — if it fails, skip silently
-2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>`
-3. Confirm in one line: `[Memory saved: <Type> — <summary>]`
-4. Continue with current work
-
-### Recall before major work
-
-Before starting significant work (new feature, debugging session, architecture discussion), consider running `wt-memory recall "<topic>" --limit 5 --mode hybrid` to check for relevant past experience. Use results silently to inform your approach — don't announce the recall unless directly relevant results are found.
-
-### Agent discovery saving
-
-When you discover something non-obvious during investigation (running commands, reading code, testing behavior), save it BEFORE summarizing to the user. Order: **Discover → Save → Tell**. Not: Discover → Tell → (forget to save). What counts: gotchas, unexpected behavior, architecture findings, environment quirks — things a future agent would hit. What doesn't: routine observations, things already in docs/specs.
-
-### Deduplication
-
-If you are currently executing an OpenSpec skill that has its own memory hooks (check for `wt-memory` steps in the active skill), defer to those hooks — do not save duplicates from this ambient instruction.
+**Emphasis (use sparingly):**
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>` — mark something as HIGH IMPORTANCE (critical decisions, user-stated preferences, non-obvious gotchas)
+- `wt-memory forget <id>` — suppress or correct a wrong memory
+- Most things are remembered automatically. Only use `remember` for emphasis.
 
 ## GUI Testing
 

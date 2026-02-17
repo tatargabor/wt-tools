@@ -3,11 +3,16 @@
 #
 # Usage: wt-deploy-hooks [--quiet] [--no-memory] <target-dir>
 #
-# Deploys UserPromptSubmit and Stop hooks to <target-dir>/.claude/settings.json.
-# By default includes memory hooks (wt-hook-memory-recall, wt-hook-memory-save).
+# Deploys 5 hook events to <target-dir>/.claude/settings.json:
+#   - SessionStart: memory warmstart (L1)
+#   - UserPromptSubmit: skill detection + memory recall (L2)
+#   - PreToolUse[Bash]: hot-topic memory recall (L3)
+#   - PostToolUseFailure[Bash]: error recovery recall (L4)
+#   - Stop: stop hook + memory save (L5)
+#
 # Use --no-memory to deploy only base hooks (for benchmark baseline).
 # Idempotent: skips if all hooks are already present.
-# Upgrades existing configs: adds memory hooks if missing.
+# Upgrades existing configs: adds new hooks while preserving existing entries.
 # Creates backup before modifying existing settings.
 
 set -e
@@ -50,10 +55,22 @@ settings_file="$TARGET_DIR/.claude/settings.json"
 
 mkdir -p "$TARGET_DIR/.claude"
 
-# Full hook config (with memory hooks)
+# Full hook config (with all 5 memory layers)
 hook_json=$(cat << 'HOOKJSON'
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-memory-warmstart",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "matcher": "",
@@ -67,6 +84,30 @@ hook_json=$(cat << 'HOOKJSON'
             "type": "command",
             "command": "wt-hook-memory-recall",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-memory-pretool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wt-hook-memory-posttool",
+            "timeout": 5
           }
         ]
       }
@@ -134,41 +175,58 @@ else
 fi
 
 if [[ -f "$settings_file" ]]; then
-    # Check if all required hooks are already configured
+    # Check what hooks are already configured
     has_base=false
-    has_memory=false
+    has_memory_old=false
+    has_memory_new=false
 
     if jq -e '.hooks.Stop[0].hooks[] | select(.command == "wt-hook-stop")' "$settings_file" &>/dev/null \
         && jq -e '.hooks.UserPromptSubmit[0].hooks[] | select(.command == "wt-hook-skill")' "$settings_file" &>/dev/null; then
         has_base=true
     fi
 
+    # Old memory hooks (L2 + L5)
     if jq -e '.hooks.Stop[0].hooks[] | select(.command == "wt-hook-memory-save")' "$settings_file" &>/dev/null \
         && jq -e '.hooks.UserPromptSubmit[0].hooks[] | select(.command == "wt-hook-memory-recall")' "$settings_file" &>/dev/null; then
-        has_memory=true
+        has_memory_old=true
+    fi
+
+    # New memory hooks (L1 + L3 + L4)
+    if jq -e '.hooks.SessionStart[0].hooks[] | select(.command == "wt-hook-memory-warmstart")' "$settings_file" &>/dev/null \
+        && jq -e '.hooks.PreToolUse[] | select(.hooks[] | .command == "wt-hook-memory-pretool")' "$settings_file" &>/dev/null \
+        && jq -e '.hooks.PostToolUseFailure[] | select(.hooks[] | .command == "wt-hook-memory-posttool")' "$settings_file" &>/dev/null; then
+        has_memory_new=true
     fi
 
     # Already complete?
     if $has_base; then
-        if $NO_MEMORY || $has_memory; then
+        if $NO_MEMORY || ($has_memory_old && $has_memory_new); then
             return 0 2>/dev/null || exit 0
         fi
-    fi
-
-    # Remove stale PreToolUse/Skill hook if present (replaced by UserPromptSubmit)
-    if jq -e '.hooks.PreToolUse' "$settings_file" &>/dev/null; then
-        jq 'del(.hooks.PreToolUse)' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
     fi
 
     # Backup before modification
     cp "$settings_file" "$settings_file.bak"
 
-    if $has_base && ! $has_memory && ! $NO_MEMORY; then
-        # Upgrade path: base hooks exist, add memory hooks to existing arrays
-        jq '.hooks.UserPromptSubmit[0].hooks += [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]
-          | .hooks.Stop[0].hooks += [{"type": "command", "command": "wt-hook-memory-save", "timeout": 30}]' \
-            "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
-        _success "Updated: $settings_file (added memory hooks)"
+    if $has_base && $has_memory_old && ! $has_memory_new && ! $NO_MEMORY; then
+        # Upgrade path: old 2-hook memory exists, add new 3 hooks (L1, L3, L4)
+        jq '
+          .hooks.SessionStart = [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-warmstart", "timeout": 10}]}]
+          | .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wt-hook-memory-pretool", "timeout": 5}]}])
+          | .hooks.PostToolUseFailure = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wt-hook-memory-posttool", "timeout": 5}]}]
+        ' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Updated: $settings_file (added L1/L3/L4 memory hooks)"
+
+    elif $has_base && ! $has_memory_old && ! $NO_MEMORY; then
+        # Upgrade path: base hooks exist, add ALL memory hooks
+        jq '
+          .hooks.SessionStart = [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-warmstart", "timeout": 10}]}]
+          | .hooks.UserPromptSubmit[0].hooks += [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]
+          | .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wt-hook-memory-pretool", "timeout": 5}]}])
+          | .hooks.PostToolUseFailure = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wt-hook-memory-posttool", "timeout": 5}]}]
+          | .hooks.Stop[0].hooks += [{"type": "command", "command": "wt-hook-memory-save", "timeout": 30}]
+        ' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Updated: $settings_file (added all memory hooks)"
     else
         # Fresh merge: deploy full config
         jq --argjson hooks "$(echo "$deploy_json" | jq '.hooks')" \

@@ -56,31 +56,6 @@ Implement tasks from an OpenSpec change.
    - **spec-driven**: proposal, specs, design, tasks
    - Other schemas: follow the contextFiles from CLI output
 
-4b. **Use injected memories**
-
-   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform implementation (avoid past errors, reuse working patterns).
-
-4c. **Recognize knowledge mid-flow (ongoing)**
-
-   **Agent discoveries**: When you discover something non-obvious during implementation (unexpected errors, environment quirks, workarounds), save it BEFORE continuing. Order: **Discover → Save → Tell**. Don't defer to step 7.
-
-   **User-shared knowledge**: The user may also share corrections, warnings, or contextual knowledge between tasks. When you recognize such knowledge, save it immediately — don't wait for step 7.
-
-   **Recognize by intent** (works in any language):
-   - User corrects your approach or shares a better alternative
-   - User warns about a dependency, API behavior, or known issue
-   - User shares a project constraint or preference
-
-   **Do NOT save**: simple confirmations ("ok", "jó", "continue"), task-specific instructions ("edit that line"), or questions.
-
-   **When recognized**:
-   1. Run `wt-memory health` — if it fails, skip silently
-   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning> --tags change:<change-name>,phase:apply,source:user,<topic>`
-   3. Confirm: `[Memory saved: <Type> — <summary>]`
-   4. Adjust implementation if needed, then continue
-
-   Step 7's remember block handles implementation-level learnings (errors, patterns). This mid-flow save covers user-provided knowledge.
-
 5. **Show current progress**
 
    Display:
@@ -111,26 +86,6 @@ Implement tasks from an OpenSpec change.
    - Overall progress: "N/M tasks complete"
    - If all done: suggest archive
    - If paused: explain why and wait for guidance
-
-   After showing status, if `wt-memory health` succeeds:
-   - If errors were encountered during this session, save each:
-     ```bash
-     echo "<error description and workaround/fix>" | wt-memory remember --type Learning --tags change:<change-name>,phase:apply,source:agent,error
-     ```
-   - If useful patterns were discovered, save each:
-     ```bash
-     echo "<pattern description>" | wt-memory remember --type Learning --tags change:<change-name>,phase:apply,source:agent,pattern
-     ```
-   - If all tasks are complete, save a completion event:
-     ```bash
-     echo "<change-name>: implementation complete — <brief summary>" | wt-memory remember --type Context --tags change:<change-name>,phase:apply,source:agent,implementation
-     ```
-   - **Code map** (MANDATORY when all tasks complete): Save a structural map of key files this change created or modified. Format: `<change-name> code map: <path> (<role>), ...` — list the 3-8 most important files with their semantic role. This helps future changes find where things live.
-     ```bash
-     echo "<change-name> code map: prisma/schema.prisma (Product+Category models), src/app/api/products/route.ts (GET list, POST create), src/app/products/page.tsx (product listing page)" | wt-memory remember --type Context --tags change:<change-name>,phase:apply,source:agent,code-map
-     ```
-     Focus on: models/schema, API routes, pages/components, utility functions. Skip: config files, package.json, test files.
-   If health fails, skip silently.
 
 **Output During Implementation**
 

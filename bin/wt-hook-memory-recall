@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # wt-hook-memory-recall - Claude Code UserPromptSubmit hook for memory recall
 #
-# Called by Claude Code on every user prompt submission.
-# Only fires on CHANGE BOUNDARIES — when the agent starts working on a new change.
-# Compares the currently detected change action with `.claude/last-recall-change`.
-# For revision/feedback changes (07-12), also recalls the original change being revised.
+# L2: Topic-based recall from prompt text. Fires on EVERY user prompt.
+# No change-boundary detection, no debounce, no benchmark-specific code.
+# Uses additionalContext JSON output for automatic injection.
 #
 # Designed to be referenced by name in .claude/settings.json:
 #   "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-recall", "timeout": 15}]}]
-# The script is on PATH via install.sh symlink.
 
-# Read hook input from stdin
 INPUT=$(cat)
 
 # Only run if wt-memory is available and healthy
@@ -21,174 +18,47 @@ wt-memory health &>/dev/null || exit 0
 MEMORY_COUNT=$(wt-memory status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null)
 [[ -z "$MEMORY_COUNT" || "$MEMORY_COUNT" == "0" ]] && exit 0
 
-# --- Detect current change action ---
-# Look at what the agent is about to work on by checking:
-# 1. The prompt text for change names (opsx:ff, opsx:apply mentions)
-# 2. Git log for the most recent committed change
-# 3. OpenSpec change list for pending changes
-
-CURRENT_CHANGE=""
-
-# Try to extract change name from prompt
+# Extract prompt text from hook input
 PROMPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))" 2>/dev/null)
+[[ -z "$PROMPT" ]] && exit 0
 
-if [[ -n "$PROMPT" ]]; then
-    # Look for opsx:ff or opsx:apply with a change name
-    CURRENT_CHANGE=$(echo "$PROMPT" | grep -oP '(?:opsx:ff|opsx:apply)\s+(\S+)' | head -1 | awk '{print $2}')
-fi
+# --- Build recall query ---
+QUERY=""
+CHANGE_NAME=""
 
-# Fallback: detect from recent git commits and OpenSpec
-if [[ -z "$CURRENT_CHANGE" ]] && command -v openspec &>/dev/null && [[ -d "openspec" ]]; then
-    # Get last committed change name
-    LAST_COMMIT_CHANGE=$(git log --oneline -1 2>/dev/null | grep -oP '^[a-f0-9]+ \K[^:]+(?=:)' || true)
-
-    # Get all change names from docs/benchmark
-    if [[ -d "docs/benchmark" ]]; then
-        # Find the next change after the last committed one
-        CURRENT_CHANGE=$(python3 -c "
-import os, re, glob
-
-# Get change files sorted by number
-files = sorted(glob.glob('docs/benchmark/[0-9]*.md'))
-changes = []
-for f in files:
-    basename = os.path.basename(f).replace('.md', '')
-    # Extract change name (e.g., '01-product-catalog' -> 'product-catalog')
-    name = re.sub(r'^\d+-', '', basename)
-    changes.append(name)
-
-last = '$LAST_COMMIT_CHANGE'
-
-if not last or last not in changes:
-    # Start from beginning
-    print(changes[0] if changes else '')
-else:
-    idx = changes.index(last)
-    if idx + 1 < len(changes):
-        print(changes[idx + 1])
-    else:
-        print(last)  # Still on last change
+# Check for opsx/openspec skill invocation → extract change name
+CHANGE_NAME=$(echo "$PROMPT" | python3 -c "
+import sys, re
+prompt = sys.stdin.read()
+# Match opsx:xxx or openspec-xxx skill invocation followed by a change name
+m = re.search(r'(?:opsx:\w+|openspec-[\w-]+)\s+(\S+)', prompt)
+if m:
+    print(m.group(1))
 " 2>/dev/null)
-    fi
+
+if [[ -n "$CHANGE_NAME" ]]; then
+    # Use change name + prompt text for targeted recall
+    QUERY="$CHANGE_NAME $(echo "$PROMPT" | head -c 200)"
+else
+    # Use first 200 chars of prompt as recall query
+    QUERY=$(echo "$PROMPT" | head -c 200)
 fi
 
-# If we still can't determine the change, exit silently
-[[ -z "$CURRENT_CHANGE" ]] && exit 0
-
-# --- Change boundary check ---
-# Compare with last recalled change
-MARKER_DIR=".claude"
-MARKER_FILE="$MARKER_DIR/last-recall-change"
-mkdir -p "$MARKER_DIR"
-
-LAST_RECALLED=""
-if [[ -f "$MARKER_FILE" ]]; then
-    LAST_RECALLED=$(cat "$MARKER_FILE" 2>/dev/null)
-fi
-
-# If same change as last recall, skip (no output)
-if [[ "$CURRENT_CHANGE" == "$LAST_RECALLED" ]]; then
-    exit 0
-fi
-
-# Update marker
-echo "$CURRENT_CHANGE" > "$MARKER_FILE"
-
-# --- Build proactive context ---
-# Build a descriptive context string for proactive_context() retrieval.
-# Also keep QUERY as fallback for wt-memory recall if proactive is unavailable.
-QUERY="$CURRENT_CHANGE"
-PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE."
-REVISION_NOTE=""
-
-REREAD_FILES=""
-
-case "$CURRENT_CHANGE" in
-    stock-rethink)
-        QUERY="$CURRENT_CHANGE shopping-cart cart stock variant checkout"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising shopping-cart (C02). Focus on cart, stock management, variant handling, and checkout transaction flow."
-        REVISION_NOTE="This change revises C02 (shopping-cart). Recall cart and stock implementation details."
-        REREAD_FILES="BEFORE implementing, RE-READ these files (do NOT rely on memory alone):
-  - src/app/api/cart/items/route.ts (where stock is currently decremented on cart add)
-  - src/app/api/cart/items/[id]/route.ts (where stock is restored on cart remove)
-  - src/app/api/checkout/route.ts or src/app/api/orders/route.ts (checkout transaction)
-  - prisma/schema.prisma (Variant.stockQuantity field)"
-        ;;
-    images-table)
-        QUERY="$CURRENT_CHANGE product-catalog images product model"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising product-catalog (C01). Focus on images storage, product model, and image references across all pages and APIs."
-        REVISION_NOTE="This change revises C01 (product-catalog). Recall how images are stored."
-        REREAD_FILES="BEFORE implementing, RE-READ these files to find ALL image references:
-  - prisma/schema.prisma (Product model — current images field type)
-  - src/app/products/page.tsx (product list — image display)
-  - src/app/products/[id]/page.tsx (product detail — image display)
-  - src/app/vendors/[id]/page.tsx (vendor page — may display product images)
-  - prisma/seed.ts (seed data — image format)
-  - src/app/api/products/route.ts and [id]/route.ts (API — image serialization)
-  Update EVERY file that references images. Missing one causes runtime crashes."
-        ;;
-    integer-cents)
-        QUERY="$CURRENT_CHANGE discounts checkout money price decimal payout"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Revising discounts and checkout (C04+C05). Focus on money fields, price storage as integer cents, payout calculations, and display formatting."
-        REVISION_NOTE="This change revises C04+C05. Recall all money fields and calculation locations."
-        REREAD_FILES="BEFORE implementing, RE-READ these files to find ALL money fields:
-  - prisma/schema.prisma (EVERY Float/Decimal field must become Int)
-  - prisma/seed.ts (ALL prices must be in cents, e.g. 2999 not 29.99)
-  - src/app/api/checkout/route.ts (payment amount — Stripe expects cents)
-  - src/app/api/cart/coupon/route.ts (discount calculation)
-  - src/app/api/orders/route.ts (payout calculation — must sum correctly)
-  - ALL pages that display prices (must divide by 100 for display)
-  Missing even one field causes dollars/cents mixing in the database."
-        ;;
-    cart-ux-correction)
-        QUERY="$CURRENT_CHANGE shopping-cart cart page confirm update button"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Correcting shopping-cart (C02) UX. Focus on cart page components, confirm dialogs, update buttons, real-time totals."
-        REVISION_NOTE="This change corrects C02 cart page UX. Recall cart component structure."
-        REREAD_FILES="BEFORE implementing, RE-READ the cart page:
-  - src/app/cart/ (all files — understand current cart UI structure)
-  Requirements: NO confirm() dialogs, NO 'Update' button, real-time totals, empty cart must link to /products"
-        ;;
-    vendor-dashboard-redesign)
-        QUERY="$CURRENT_CHANGE order-workflow vendor dashboard tabs status"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Correcting order-workflow (C06) dashboard. Focus on vendor dashboard, removing tabs, status badges, and dropdowns."
-        REVISION_NOTE="This change corrects C06 dashboard. Recall vendor dashboard component (MUST remove tabs)."
-        REREAD_FILES="BEFORE implementing, RE-READ the vendor dashboard:
-  - src/app/vendor/ or src/app/vendors/ (dashboard components)
-  Requirement: REMOVE tabs entirely — use flat list with status badges and dropdowns. Do NOT enhance existing tabs."
-        ;;
-    sprint-retro)
-        QUERY="$CURRENT_CHANGE product-catalog multi-vendor discounts checkout order-workflow API payout seed"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Sprint retro fixing 5 cross-cutting bugs: API format inconsistency, payout rounding, expired reservation handling, missing database index, and seed data cents."
-        REVISION_NOTE="Sprint retro: 5 cross-cutting bugs. Recall all API endpoints, payout logic, seed script, and schema."
-        REREAD_FILES="CRITICAL: This change fixes 5 cross-cutting bugs. You MUST re-read actual code, not rely on memory.
-  RE-READ these files BEFORE implementing ANY fix:
-  Bug 1 (API format): src/app/api/products/route.ts, src/app/api/vendors/route.ts, src/app/api/orders/route.ts — check what format each returns
-  Bug 2 (Payout rounding): src/app/api/checkout/ or src/app/api/orders/ — find where payout split happens, implement largest-remainder method
-  Bug 3 (Expired reservation): src/app/api/checkout/ — find reservation validation, return 400 not 500
-  Bug 4 (Missing index): prisma/schema.prisma — add @@index([vendorId]) to SubOrder
-  Bug 5 (Seed cents): prisma/seed.ts — verify ALL money values are in cents (not dollars)"
-        ;;
-    *)
-        QUERY="$CURRENT_CHANGE implementation"
-        PROACTIVE_CONTEXT="Working on change: $CURRENT_CHANGE. Implementation in progress."
-        ;;
-esac
-
-# Retrieve relevant memories using proactive context (with recall fallback)
+# --- Retrieve relevant memories ---
 TMPFILE=$(mktemp)
 trap "rm -f $TMPFILE" EXIT
 
 # Try proactive first (context-aware with relevance scores)
-if ! wt-memory proactive "$PROACTIVE_CONTEXT" --limit 8 2>/dev/null > "$TMPFILE"; then
+if ! wt-memory proactive "$QUERY" --limit 5 2>/dev/null > "$TMPFILE"; then
     # Fallback to recall if proactive fails
-    wt-memory recall "$QUERY" --limit 8 --mode hybrid 2>/dev/null > "$TMPFILE" || exit 0
+    wt-memory recall "$QUERY" --limit 5 --mode hybrid 2>/dev/null > "$TMPFILE" || exit 0
 fi
 
 # If no memories or empty array, exit silently
 CONTENT=$(cat "$TMPFILE")
 [[ -z "$CONTENT" || "$CONTENT" == "[]" ]] && exit 0
 
-# Format output: actionable bulleted list with relevance filtering
+# Format output: bulleted list with relevance filtering
 FORMATTED=$(python3 -c "
 import sys, json
 try:
@@ -198,7 +68,7 @@ except:
 if not memories:
     sys.exit(0)
 
-# Filter out low-relevance results (proactive returns relevance_score)
+# Filter out low-relevance results
 filtered = []
 for m in memories:
     score = m.get('relevance_score')
@@ -226,19 +96,24 @@ for m in filtered:
 
 [[ -z "$FORMATTED" ]] && exit 0
 
-echo ""
-echo "=== PROJECT MEMORY ==="
-echo "Starting change: $CURRENT_CHANGE"
-if [[ -n "$REVISION_NOTE" ]]; then
-    echo "NOTE: $REVISION_NOTE"
+# Build additionalContext text
+CONTEXT_TEXT="=== PROJECT MEMORY ==="
+if [[ -n "$CHANGE_NAME" ]]; then
+    CONTEXT_TEXT="$CONTEXT_TEXT\nChange: $CHANGE_NAME"
 fi
-if [[ -n "$REREAD_FILES" ]]; then
-    echo ""
-    echo "$REREAD_FILES"
-    echo ""
-fi
-echo "Relevant past experience — maintain consistency:"
-echo "$FORMATTED"
-echo "=== END ==="
+CONTEXT_TEXT="$CONTEXT_TEXT\nRelevant past experience:\n$FORMATTED\n=== END ==="
+
+# Output as additionalContext JSON
+python3 -c "
+import json, sys
+text = sys.argv[1]
+output = {
+    'hookSpecificOutput': {
+        'hookEventName': 'UserPromptSubmit',
+        'additionalContext': text
+    }
+}
+print(json.dumps(output))
+" "$CONTEXT_TEXT" 2>/dev/null
 
 exit 0

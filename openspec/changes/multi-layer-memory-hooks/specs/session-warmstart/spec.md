@@ -22,6 +22,17 @@ A new hook script `wt-hook-memory-warmstart` SHALL run on the `SessionStart` eve
 - **AND** `wt-memory health` fails or wt-memory is not installed
 - **THEN** the hook SHALL exit 0 silently with no output
 
+### Requirement: Hot-topic discovery at session start
+The SessionStart hook SHALL discover project-specific hot topics by scanning project structure and memory tags, and write the results to `.claude/hot-topics.json` for L3 (PreToolUse) to consume. See `hot-topic-recall` spec for discovery sources and cache format.
+
+#### Scenario: First session in a project
+- **WHEN** a session starts and `.claude/hot-topics.json` does not exist
+- **THEN** the hook SHALL run discovery and create the cache file
+
+#### Scenario: Subsequent sessions
+- **WHEN** a session starts and `.claude/hot-topics.json` already exists
+- **THEN** the hook SHALL regenerate the cache (discovery is fast, always refresh)
+
 ### Requirement: Cheat sheet includes project context
 The SessionStart hook SHALL also run `wt-memory proactive` with the project name and recent git activity as context, appending relevant non-cheat-sheet memories separately.
 

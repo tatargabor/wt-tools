@@ -38,29 +38,6 @@ Continue working on a change by creating the next artifact.
    - `artifacts`: Array of artifacts with their status ("done", "ready", "blocked")
    - `isComplete`: Boolean indicating if all artifacts are complete
 
-2b. **Use injected memories**
-
-   The memory recall hook automatically injects relevant past experience into the prompt on change boundaries. If you see a `=== PROJECT MEMORY ===` block above, use those memories to inform artifact creation (avoid past errors, reuse working patterns).
-
-2c. **Recognize knowledge mid-flow (ongoing)**
-
-   **Agent discoveries**: When you discover something non-obvious during codebase research, save it BEFORE summarizing. Order: **Discover → Save → Tell**.
-
-   **User-shared knowledge**: The user may also share corrections, constraints, or contextual knowledge. When you recognize such knowledge, save it immediately.
-
-   **Recognize by intent** (works in any language):
-   - User corrects your approach or shares a better alternative
-   - User warns about a dependency, API behavior, or known issue
-   - User shares a project constraint or preference
-
-   **Do NOT save**: simple confirmations ("ok", "jó", "continue"), task-specific instructions, or questions.
-
-   **When recognized**:
-   1. Run `wt-memory health` — if it fails, skip silently
-   2. Save: `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags change:<change-name>,phase:continue,source:user,<topic>`
-   3. Confirm: `[Memory saved: <Type> — <summary>]`
-   4. Adjust the artifact being created if needed, then continue
-
 3. **Act based on status**:
 
    ---
@@ -104,31 +81,6 @@ Continue working on a change by creating the next artifact.
    ```bash
    openspec status --change "<name>"
    ```
-
-5. **Agent self-reflection (automatic, after artifact creation)**
-
-   Before showing the final output, review the session for your own insights — things you discovered while creating the artifact that a future agent would benefit from knowing.
-
-   **What to look for:**
-   - Decision rationale (why you chose approach X over Y in the artifact)
-   - Codebase patterns discovered during research (non-obvious architecture, conventions)
-   - Surprises or gotchas found while exploring the code
-   - Connections between this change and other parts of the system
-
-   **What NOT to save:**
-   - Routine observations ("the codebase uses TypeScript")
-   - Things already saved by the mid-flow user-knowledge hook (step 2c)
-   - Session-specific context (file paths read, commands run)
-
-   If `wt-memory health` succeeds and you have insights worth saving:
-   - Save each insight:
-     ```bash
-     echo "<insight description>" | wt-memory remember --type <Learning|Decision> --tags change:<change-name>,phase:continue,source:agent,<topic>
-     ```
-   - Confirm: `[Agent insights saved: N items]`
-
-   If no insights worth saving: `[Agent insights saved: 0 items]`
-   If health fails, skip silently.
 
 **Output**
 

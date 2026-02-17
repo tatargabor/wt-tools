@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# wt-hook-memory-warmstart - Claude Code SessionStart hook
+#
+# L1: Loads operational cheat-sheet memories + discovers project hot topics.
+# Fires once at session start. Writes hot-topics cache for L3 (PreToolUse).
+#
+# Designed to be referenced by name in .claude/settings.json:
+#   "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "wt-hook-memory-warmstart", "timeout": 10}]}]
+
+INPUT=$(cat)
+
+# Only run if wt-memory is available and healthy
+command -v wt-memory &>/dev/null || exit 0
+wt-memory health &>/dev/null || exit 0
+
+# --- Cheat sheet recall ---
+CHEAT_SHEET=""
+TMPFILE=$(mktemp)
+trap "rm -f $TMPFILE" EXIT
+
+if wt-memory search --tags "cheat-sheet" --limit 5 2>/dev/null > "$TMPFILE"; then
+    CHEAT_SHEET=$(python3 -c "
+import sys, json
+try:
+    memories = json.load(sys.stdin)
+except: sys.exit(0)
+if not memories: sys.exit(0)
+seen = set()
+for m in memories:
+    c = m.get('content','').replace('\n',' ')[:200]
+    key = c[:50]
+    if key in seen: continue
+    seen.add(key)
+    print(f'  - {c}')
+" < "$TMPFILE" 2>/dev/null)
+fi
+
+# --- Proactive project context ---
+PROJECT_CONTEXT=""
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_NAME=$(basename "$PROJECT_DIR")
+
+# Build context from project name + recent git activity
+RECENT_FILES=""
+if git rev-parse --is-inside-work-tree &>/dev/null; then
+    RECENT_FILES=$(git log --oneline -5 --format="%s" 2>/dev/null | head -5 | tr '\n' '; ')
+fi
+
+PROACTIVE_QUERY="Project: $PROJECT_NAME. Recent: $RECENT_FILES"
+if wt-memory proactive "$PROACTIVE_QUERY" --limit 5 2>/dev/null > "$TMPFILE"; then
+    PROJECT_CONTEXT=$(python3 -c "
+import sys, json
+try:
+    memories = json.load(sys.stdin)
+except: sys.exit(0)
+if not memories: sys.exit(0)
+seen = set()
+for m in memories:
+    score = m.get('relevance_score')
+    if score is not None and score != 'N/A':
+        try:
+            if float(score) < 0.3: continue
+        except (ValueError, TypeError): pass
+    c = m.get('content','').replace('\n',' ')[:200]
+    key = c[:50]
+    if key in seen: continue
+    seen.add(key)
+    print(f'  - {c}')
+" < "$TMPFILE" 2>/dev/null)
+fi
+
+# --- Hot-topic discovery ---
+discover_hot_topics() {
+    local patterns=()
+
+    # Source 1: bin/* scripts — extract command prefixes
+    if [[ -d "$PROJECT_DIR/bin" ]]; then
+        local prefixes
+        prefixes=$(ls "$PROJECT_DIR/bin/" 2>/dev/null \
+            | sed 's/\..*//' \
+            | sed 's/-[^-]*$//' \
+            | sort -u \
+            | head -10)
+        for p in $prefixes; do
+            [[ -n "$p" ]] && patterns+=("$p")
+        done
+    fi
+
+    # Source 2: package.json scripts
+    if [[ -f "$PROJECT_DIR/package.json" ]]; then
+        local scripts
+        scripts=$(python3 -c "
+import json
+with open('$PROJECT_DIR/package.json') as f:
+    d = json.load(f)
+for k in list(d.get('scripts',{}).keys())[:5]:
+    print(k)
+" 2>/dev/null)
+        for s in $scripts; do
+            patterns+=("npm\\\\s+run\\\\s+$s|bun\\\\s+run\\\\s+$s")
+        done
+    fi
+
+    # Source 3: Makefile targets
+    if [[ -f "$PROJECT_DIR/Makefile" ]]; then
+        local targets
+        targets=$(grep -E '^[a-zA-Z_-]+:' "$PROJECT_DIR/Makefile" 2>/dev/null \
+            | sed 's/:.*//' \
+            | head -5)
+        for t in $targets; do
+            patterns+=("make\\\\s+$t")
+        done
+    fi
+
+    # Source 4: pyproject.toml scripts
+    if [[ -f "$PROJECT_DIR/pyproject.toml" ]]; then
+        local py_scripts
+        py_scripts=$(python3 -c "
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+with open('$PROJECT_DIR/pyproject.toml', 'rb') as f:
+    d = tomllib.load(f)
+for k in list(d.get('project',{}).get('scripts',{}).keys())[:5]:
+    print(k)
+" 2>/dev/null)
+        for s in $py_scripts; do
+            [[ -n "$s" ]] && patterns+=("$s")
+        done
+    fi
+
+    # Source 5: memories tagged hot-topic
+    local hot_memories
+    hot_memories=$(wt-memory search --tags "hot-topic" --limit 10 2>/dev/null | python3 -c "
+import sys, json
+try:
+    for m in json.load(sys.stdin):
+        c = m.get('content','').strip()
+        if c: print(c)
+except: pass
+" 2>/dev/null)
+    for h in $hot_memories; do
+        [[ -n "$h" ]] && patterns+=("$h")
+    done
+
+    # Source 6: error memories — extract command prefixes from past failures
+    local error_cmds
+    error_cmds=$(wt-memory search --tags "error" --limit 10 2>/dev/null | python3 -c "
+import sys, json, re
+try:
+    seen = set()
+    for m in json.load(sys.stdin):
+        c = m.get('content','')
+        # Extract command name from 'Command failed: XXX' or similar
+        match = re.search(r'(?:command|cmd|ran|running|execute)[:\s]+(\S+)', c, re.I)
+        if match:
+            cmd = match.group(1).strip('\"'\\'')
+            if cmd and cmd not in seen:
+                seen.add(cmd)
+                print(cmd)
+except: pass
+" 2>/dev/null)
+    for e in $error_cmds; do
+        [[ -n "$e" ]] && patterns+=("$e")
+    done
+
+    # Deduplicate and cap at 20
+    local unique_patterns=()
+    local seen_set=""
+    for p in "${patterns[@]}"; do
+        if [[ "$seen_set" != *"|$p|"* ]]; then
+            seen_set="${seen_set}|$p|"
+            unique_patterns+=("$p")
+        fi
+        [[ ${#unique_patterns[@]} -ge 20 ]] && break
+    done
+
+    # Write cache file
+    mkdir -p "$PROJECT_DIR/.claude"
+    python3 -c "
+import json, sys
+from datetime import datetime, timezone
+patterns = sys.argv[1:]
+data = {
+    'patterns': patterns,
+    'promoted': [],
+    'generated_at': datetime.now(timezone.utc).isoformat()
+}
+with open('$PROJECT_DIR/.claude/hot-topics.json', 'w') as f:
+    json.dump(data, f, indent=2)
+" "${unique_patterns[@]}" 2>/dev/null
+}
+
+discover_hot_topics
+
+# --- Build output ---
+OUTPUT=""
+
+if [[ -n "$CHEAT_SHEET" ]]; then
+    OUTPUT="=== OPERATIONAL CHEAT SHEET ===\n$CHEAT_SHEET"
+fi
+
+if [[ -n "$PROJECT_CONTEXT" ]]; then
+    [[ -n "$OUTPUT" ]] && OUTPUT="$OUTPUT\n\n"
+    OUTPUT="${OUTPUT}=== PROJECT CONTEXT ===\n$PROJECT_CONTEXT"
+fi
+
+# Exit silently if nothing to inject
+[[ -z "$OUTPUT" ]] && exit 0
+
+# Output as additionalContext JSON
+python3 -c "
+import json, sys
+text = sys.argv[1]
+output = {
+    'hookSpecificOutput': {
+        'hookEventName': 'SessionStart',
+        'additionalContext': text
+    }
+}
+print(json.dumps(output))
+" "$(echo -e "$OUTPUT")" 2>/dev/null
+
+exit 0
