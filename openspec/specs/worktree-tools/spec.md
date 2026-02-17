@@ -10,14 +10,21 @@ The system SHALL manage multiple git projects through a central registry.
 - **WHEN** user runs `wt-project init` inside a git repository
 - **THEN** the repository is registered with its directory name as project name
 - **AND** the project path is stored in `~/.config/wt-tools/projects.json`
+- **AND** wt-tools hooks, commands, and skills are deployed to `<project>/.claude/`
 
 #### Scenario: Initialize with custom name
 - **WHEN** user runs `wt-project init --name myproject` inside a git repository
 - **THEN** the repository is registered with "myproject" as its name
+- **AND** wt-tools hooks, commands, and skills are deployed to `<project>/.claude/`
 
 #### Scenario: Init outside git repository
 - **WHEN** user runs `wt-project init` outside a git repository
 - **THEN** an error is shown indicating the current directory is not a git repository
+
+#### Scenario: Re-init already registered project
+- **WHEN** user runs `wt-project init` in an already-registered project
+- **THEN** registration is skipped
+- **AND** wt-tools hooks, commands, and skills are updated to the current version
 
 #### Scenario: List registered projects
 - **WHEN** user runs `wt-project list`
