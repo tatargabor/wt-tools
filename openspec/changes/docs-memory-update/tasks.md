@@ -1,6 +1,6 @@
 ## 1. Screenshot
 
-- [ ] 1.1 Save user-provided screenshot as `docs/images/control-center-memory.png`
+- [x] 1.1 Save user-provided screenshot as `docs/images/control-center-memory.png`
 - [x] 1.2 Add screenshot reference in `docs/developer-memory.md` under `## GUI` heading with caption describing M/O/R badges
 
 ## 2. CLI Reference — developer-memory.md
