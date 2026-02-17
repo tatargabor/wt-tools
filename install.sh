@@ -304,14 +304,15 @@ install_shodh_memory() {
 
     info "Installing Shodh-Memory into $PYTHON..."
     # Use $PYTHON -m pip to guarantee pip matches the target Python
-    if "$PYTHON" -m pip install shodh-memory >/dev/null 2>&1; then
+    local shodh_pkg='shodh-memory>=0.1.75,!=0.1.80'
+    if "$PYTHON" -m pip install "$shodh_pkg" >/dev/null 2>&1; then
         :
-    elif "$PYTHON" -m pip install --user shodh-memory >/dev/null 2>&1; then
+    elif "$PYTHON" -m pip install --user "$shodh_pkg" >/dev/null 2>&1; then
         :
-    elif "$PYTHON" -m pip install --break-system-packages shodh-memory 2>&1; then
+    elif "$PYTHON" -m pip install --break-system-packages "$shodh_pkg" 2>&1; then
         :
     else
-        warn "Shodh-Memory installation failed. Install manually: $PYTHON -m pip install shodh-memory"
+        warn "Shodh-Memory installation failed. Install manually: $PYTHON -m pip install '$shodh_pkg'"
         return 0
     fi
 
