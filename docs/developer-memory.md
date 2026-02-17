@@ -2,7 +2,13 @@
 
 Per-project cognitive memory for AI agents. Agents save decisions, learnings, and context as they work — future agents in different sessions recall relevant past experience before starting. Built on [shodh-memory](https://github.com/varun29ankuS/shodh-memory), integrated across CLI, GUI, and OpenSpec workflows.
 
-> **Status:** Experimental. Requires `pip install shodh-memory`. Gracefully degrades if not installed — all commands silently no-op.
+> **Status:** Experimental. Requires `pip install 'shodh-memory>=0.1.75,!=0.1.80'`. Gracefully degrades if not installed — all commands silently no-op.
+
+---
+
+## Brownfield Project? Seed Memory from Existing Docs
+
+If you're joining a project that already has OpenSpec artifacts (proposals, designs, specs) but empty memory, use the **[Memory Seeding Guide](memory-seeding-guide.md)** to bootstrap project memory from existing documentation. An AI agent reads each artifact, extracts decisions, learnings, and context, and saves them via `wt-memory`. One-time process — takes a few minutes and gives future agents immediate access to past project knowledge.
 
 ---
 
@@ -551,7 +557,7 @@ Use `/wt:memory` inside Claude Code for quick access:
 ### 1. Install shodh-memory
 
 ```bash
-pip install shodh-memory
+pip install 'shodh-memory>=0.1.75,!=0.1.80'
 ```
 
 ### 2. Verify
@@ -575,7 +581,7 @@ wt-memory-hooks check   # verify
 #### A. Fresh project — OpenSpec + memory from scratch
 
 ```bash
-pip install shodh-memory              # 1. Install memory backend
+pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend
 wt-project init                       # 2. Register project + deploy hooks/commands/skills
 wt-openspec init                      # 3. Initialize OpenSpec
 wt-memory-hooks install               # 4. Patch memory hooks into OpenSpec skills
@@ -585,13 +591,24 @@ wt-memory-hooks check                 # 5. Verify hooks installed
 #### B. Existing OpenSpec project — enable memory
 
 ```bash
-pip install shodh-memory              # 1. Install memory backend (if not installed)
+pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend (if not installed)
 wt-project init                       # 2. Re-run to update deployment (adds memory hooks to settings.json)
 wt-memory-hooks install               # 3. Patch memory hooks into OpenSpec skills
 wt-memory-hooks check                 # 4. Verify
 ```
 
-#### C. After `wt-openspec update` — re-install memory hooks
+#### C. Brownfield project — seed memory from existing OpenSpec artifacts
+
+```bash
+pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend
+wt-memory health                      # 2. Verify it works
+# 3. Follow docs/memory-seeding-guide.md to extract knowledge from
+#    existing proposals, designs, and specs into wt-memory
+```
+
+See the full [Memory Seeding Guide](memory-seeding-guide.md) for step-by-step instructions.
+
+#### D. After `wt-openspec update` — re-install memory hooks
 
 `wt-openspec update` overwrites SKILL.md files, removing memory hook patches. Re-install:
 

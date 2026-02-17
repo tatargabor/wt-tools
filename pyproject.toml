@@ -1,6 +1,6 @@
 [project]
 name = "wt-tools"
-version = "0.2.3"
+version = "0.2.4"
 description = "AI-Assisted Development Workflow with Git Worktrees"
 readme = "README.md"
 license = {text = "MIT"}
