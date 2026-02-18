@@ -14,8 +14,9 @@ set -e
 EVENT="$1"
 [[ -z "$EVENT" ]] && exit 0
 
-# --- Debug logging (set WT_HOOK_DEBUG=1 to enable) ---
+# --- Debug logging (WT_HOOK_DEBUG=1 or touch /tmp/wt-hook-memory.debug) ---
 DEBUG_LOG="/tmp/wt-hook-memory.log"
+[[ -f /tmp/wt-hook-memory.debug ]] && WT_HOOK_DEBUG=1
 _dbg() {
     [[ "${WT_HOOK_DEBUG:-}" == "1" ]] || return 0
     echo "[$(date '+%H:%M:%S')] [$EVENT] $*" >> "$DEBUG_LOG"
@@ -446,7 +447,7 @@ if re.search(r'(?i)\b(error|failed|warning)\b', to):
 
     dedup_add "$KEY"
     _dbg "=== OUTPUT ==="
-    output_top_context "=== MEMORY: Context for this file/command ===\n$FORMATTED"
+    output_hook_context "PostToolUse" "=== MEMORY: Context for this file/command ===\n$FORMATTED"
 }
 
 # ============================================================
@@ -542,7 +543,7 @@ print(' '.join(entries[-3:])[:500])
     fi
 
     _dbg "=== OUTPUT ==="
-    output_top_context "=== MEMORY: Context from subagent ===\n$FORMATTED"
+    output_hook_context "SubagentStop" "=== MEMORY: Context from subagent ===\n$FORMATTED"
 }
 
 # ============================================================
