@@ -47,11 +47,15 @@ jobs:
       - name: Run tests
         run: |
           pytest tests/ -v --tb=short
+        env:
+          QT_QPA_PLATFORM: ${{ runner.os == 'Linux' && 'offscreen' || '' }}
 
       - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
           pytest tests/ -v --cov=wt_tools --cov=gui --cov-report=xml
+        env:
+          QT_QPA_PLATFORM: offscreen
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -90,3 +94,4 @@ jobs:
         with:
           scandir: './bin'
           severity: warning
+          ignore_paths: 'wt-completions.zsh'
