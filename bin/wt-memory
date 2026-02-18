@@ -34,6 +34,9 @@ Usage: wt-memory <command> [options]
 
 CLI helper for Shodh-Memory (local per-project cognitive memory).
 
+Setup:
+  init [--force]                  Add memory instructions to CLAUDE.md
+
 Core Commands:
   health                          Check if shodh-memory is available
   remember --type TYPE [--tags t1,t2] [--metadata JSON] [--failure] [--anomaly] < content
@@ -1684,6 +1687,133 @@ print(stats.get('total_memories', 0))
     fi
 }
 
+# --- Init: Add memory instructions to CLAUDE.md ---
+
+MEMORY_MARKER_START="<!-- wt-memory instructions start -->"
+MEMORY_MARKER_END="<!-- wt-memory instructions end -->"
+
+# The memory instructions block to inject into CLAUDE.md
+get_memory_instructions() {
+    cat <<'INSTRUCTIONS'
+## ⚠️ MANDATORY FIRST STEP — DO THIS BEFORE ANYTHING ELSE
+
+**At the START of every session, BEFORE responding to the user's request:**
+
+```bash
+# 1. Check memory health
+wt-memory health
+
+# 2. If healthy, recall relevant context based on user's topic
+wt-memory recall "<user's topic or keywords>" --limit 5 --mode hybrid
+```
+
+This is NOT optional. Do this FIRST, even before greeting the user or analyzing their request. Use recalled memories to inform your response.
+
+---
+INSTRUCTIONS
+}
+
+cmd_init() {
+    local force=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    # Find repo root
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z "$repo_root" ]]; then
+        echo "Error: not in a git repository" >&2
+        return 1
+    fi
+
+    local claude_file="$repo_root/CLAUDE.md"
+
+    # Check if already installed
+    if [[ -f "$claude_file" ]] && grep -q "$MEMORY_MARKER_START" "$claude_file"; then
+        if [[ "$force" == "true" ]]; then
+            # Remove existing block first
+            local tmpfile
+            tmpfile=$(mktemp)
+            local in_block=false
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                if [[ "$line" == "$MEMORY_MARKER_START" ]]; then
+                    in_block=true
+                    continue
+                fi
+                if [[ "$line" == "$MEMORY_MARKER_END" ]]; then
+                    in_block=false
+                    continue
+                fi
+                if [[ "$in_block" == "false" ]]; then
+                    echo "$line"
+                fi
+            done < "$claude_file" > "$tmpfile"
+            mv "$tmpfile" "$claude_file"
+        else
+            echo "Memory instructions already installed in CLAUDE.md"
+            echo "Use --force to reinstall"
+            return 0
+        fi
+    fi
+
+    # Build the block to insert
+    local block
+    block=$(cat <<EOF
+$MEMORY_MARKER_START
+
+$(get_memory_instructions)
+
+$MEMORY_MARKER_END
+EOF
+)
+
+    if [[ ! -f "$claude_file" ]]; then
+        # Create new CLAUDE.md
+        cat > "$claude_file" <<EOF
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+$block
+EOF
+        echo "Created CLAUDE.md with memory instructions"
+    else
+        # Insert after the first "# CLAUDE" heading (within first 10 lines) or prepend
+        local tmpfile
+        tmpfile=$(mktemp)
+        local inserted=false
+        local line_num=0
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line_num=$((line_num + 1))
+            echo "$line"
+            # Insert after "# CLAUDE" heading in first 10 lines
+            if [[ "$inserted" == "false" && $line_num -le 10 && "$line" =~ ^#\ CLAUDE ]]; then
+                echo ""
+                echo "$block"
+                inserted=true
+            fi
+        done < "$claude_file" > "$tmpfile"
+
+        # If no CLAUDE heading found in first 10 lines, prepend
+        if [[ "$inserted" == "false" ]]; then
+            {
+                echo "$block"
+                echo ""
+                cat "$claude_file"
+            } > "$tmpfile"
+        fi
+
+        mv "$tmpfile" "$claude_file"
+        echo "Added memory instructions to CLAUDE.md"
+    fi
+}
+
 # --- Migrations: versioned memory storage transformations ---
 
 # Read the .migrations state file. Returns JSON or '{"applied":[]}' if missing.
@@ -2289,6 +2419,7 @@ main() {
     shift
 
     case "$command" in
+        init)     cmd_init "$@" ;;
         health)   cmd_health "$@" ;;
         remember) cmd_remember "$@" ;;
         recall)   cmd_recall "$@" ;;
