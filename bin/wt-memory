@@ -716,13 +716,28 @@ context = os.environ['_SHODH_CONTEXT']
 
 if hasattr(m, 'proactive_context'):
     raw = m.proactive_context(context, max_results=limit, auto_ingest=False, semantic_threshold=0.3)
-    # proactive_context returns a dict with 'memories' list
     results = raw.get('memories', []) if isinstance(raw, dict) else raw
+
+    # Always augment with hybrid recall to catch keyword matches that semantic misses
+    hybrid = m.recall(context, limit=limit, mode='hybrid')
+    seen = {r.get('content', '')[:50] for r in results}
+    hybrid_new = []
+    for h in hybrid:
+        key = h.get('content', '')[:50]
+        if key not in seen:
+            seen.add(key)
+            h['relevance_score'] = 0.35
+            hybrid_new.append(h)
+
+    # Reserve slots for hybrid-only results (up to 2), trim proactive if needed
+    if hybrid_new:
+        reserve = min(len(hybrid_new), 2)
+        results = results[:max(limit - reserve, 0)] + hybrid_new[:reserve]
+    results = results[:limit]
     print(json.dumps(results, default=str))
 else:
-    # Fallback: use recall with hybrid mode
+    # Fallback: use recall with hybrid mode (old shodh-memory without proactive_context)
     results = m.recall(context, limit=limit, mode='hybrid')
-    # Add placeholder relevance fields for consistent output
     for r in results:
         r['relevance_score'] = 'N/A'
     print(json.dumps(results, default=str))
