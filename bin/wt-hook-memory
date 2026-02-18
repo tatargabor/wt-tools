@@ -14,9 +14,24 @@ set -e
 EVENT="$1"
 [[ -z "$EVENT" ]] && exit 0
 
+# --- Debug logging (set WT_HOOK_DEBUG=1 to enable) ---
+DEBUG_LOG="/tmp/wt-hook-memory.log"
+_dbg() {
+    [[ "${WT_HOOK_DEBUG:-}" == "1" ]] || return 0
+    echo "[$(date '+%H:%M:%S')] [$EVENT] $*" >> "$DEBUG_LOG"
+}
+
+_dbg "=== START ==="
+
 # --- Health check (single, shared) ---
-command -v wt-memory &>/dev/null || exit 0
-wt-memory health &>/dev/null || exit 0
+if ! command -v wt-memory &>/dev/null; then
+    _dbg "SKIP: wt-memory not in PATH"
+    exit 0
+fi
+if ! wt-memory health &>/dev/null; then
+    _dbg "SKIP: wt-memory unhealthy"
+    exit 0
+fi
 
 # --- Store input in temp file (efficient for large PostToolUse payloads) ---
 INPUT_FILE=$(mktemp)
@@ -24,29 +39,41 @@ TMPFILE=$(mktemp)
 trap 'rm -f "$INPUT_FILE" "$TMPFILE"' EXIT
 cat > "$INPUT_FILE"
 
+_dbg "input: $(wc -c < "$INPUT_FILE") bytes"
+
 # --- Session ID for dedup cache ---
 SESSION_ID=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('session_id','unknown'))" 2>/dev/null || echo "unknown")
 CACHE_FILE="/tmp/wt-memory-session-${SESSION_ID}.json"
+
+_dbg "session=$SESSION_ID"
 
 # ============================================================
 # Helper: Session dedup cache
 # ============================================================
 
 dedup_clear() {
+    _dbg "dedup_clear: removing $CACHE_FILE"
     rm -f "$CACHE_FILE"
 }
 
 dedup_check() {
-    [[ ! -f "$CACHE_FILE" ]] && return 1
-    python3 -c "
+    [[ ! -f "$CACHE_FILE" ]] && { _dbg "dedup_check: no cache file, miss"; return 1; }
+    if python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     cache = json.load(f)
 sys.exit(0 if sys.argv[2] in cache else 1)
-" "$CACHE_FILE" "$1" 2>/dev/null
+" "$CACHE_FILE" "$1" 2>/dev/null; then
+        _dbg "dedup_check: HIT key=$1"
+        return 0
+    else
+        _dbg "dedup_check: MISS key=$1"
+        return 1
+    fi
 }
 
 dedup_add() {
+    _dbg "dedup_add: key=$1"
     python3 -c "
 import json, sys, os
 cache = {}
@@ -72,24 +99,30 @@ make_dedup_key() {
 
 proactive_and_format() {
     local query="$1" limit="${2:-5}"
+    _dbg "proactive_and_format: query='${query:0:100}' limit=$limit"
 
-    wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || return 1
+    wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || { _dbg "proactive_and_format: wt-memory proactive FAILED"; return 1; }
 
-    python3 -c "
+    local result
+    result=$(python3 -c "
 import sys, json
 try:
     memories = json.load(open(sys.argv[1]))
 except: sys.exit(1)
 if not memories: sys.exit(1)
+print(f'total={len(memories)}', file=sys.stderr)
 filtered = []
 for m in memories:
     score = m.get('relevance_score')
     if score is not None and score != 'N/A':
         try:
-            if float(score) < 0.3: continue
+            if float(score) < 0.3:
+                print(f'  skip: score={score} content={m.get(\"content\",\"\")[:60]}', file=sys.stderr)
+                continue
         except (ValueError, TypeError): pass
     filtered.append(m)
 if not filtered: sys.exit(1)
+print(f'filtered={len(filtered)} scores={[m.get(\"relevance_score\",\"?\") for m in filtered]}', file=sys.stderr)
 seen = set()
 for m in filtered:
     c = m.get('content','').replace('\n',' ')[:300]
@@ -97,33 +130,58 @@ for m in filtered:
     if key in seen: continue
     seen.add(key)
     print(f'  - {c}')
-" "$TMPFILE" 2>/dev/null
+" "$TMPFILE" 2>"$TMPFILE.err")
+    local rc=$?
+    if [[ "${WT_HOOK_DEBUG:-}" == "1" && -f "$TMPFILE.err" ]]; then
+        while IFS= read -r line; do
+            _dbg "proactive_and_format: $line"
+        done < "$TMPFILE.err"
+    fi
+    rm -f "$TMPFILE.err"
+    [[ $rc -ne 0 ]] && { _dbg "proactive_and_format: no results after filtering"; return 1; }
+    _dbg "proactive_and_format: returning $(echo "$result" | wc -l) lines"
+    echo "$result"
 }
 
 recall_and_format() {
     local query="$1" limit="${2:-3}" mode="${3:-hybrid}"
+    _dbg "recall_and_format: query='${query:0:100}' limit=$limit mode=$mode"
 
-    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || return 1
+    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _dbg "recall_and_format: wt-memory recall FAILED"; return 1; }
 
-    python3 -c "
+    local result
+    result=$(python3 -c "
 import sys, json
 try:
     memories = json.load(open(sys.argv[1]))
 except: sys.exit(1)
 if not memories: sys.exit(1)
+print(f'total={len(memories)}', file=sys.stderr)
 seen = set()
 for m in memories:
     score = m.get('relevance_score')
     if score is not None and score != 'N/A':
         try:
-            if float(score) < 0.3: continue
+            if float(score) < 0.3:
+                print(f'  skip: score={score}', file=sys.stderr)
+                continue
         except (ValueError, TypeError): pass
     c = m.get('content','').replace('\n',' ')[:300]
     key = c[:50]
     if key in seen: continue
     seen.add(key)
     print(f'  - {c}')
-" "$TMPFILE" 2>/dev/null
+" "$TMPFILE" 2>"$TMPFILE.err")
+    local rc=$?
+    if [[ "${WT_HOOK_DEBUG:-}" == "1" && -f "$TMPFILE.err" ]]; then
+        while IFS= read -r line; do
+            _dbg "recall_and_format: $line"
+        done < "$TMPFILE.err"
+    fi
+    rm -f "$TMPFILE.err"
+    [[ $rc -ne 0 ]] && { _dbg "recall_and_format: no results"; return 1; }
+    _dbg "recall_and_format: returning $(echo "$result" | wc -l) lines"
+    echo "$result"
 }
 
 # ============================================================
@@ -131,7 +189,8 @@ for m in memories:
 # ============================================================
 
 extract_query() {
-    python3 -c "
+    local result
+    result=$(python3 -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
 tool = data.get('tool_name', '')
@@ -148,7 +207,9 @@ elif tool == 'Grep':
     print(ti.get('pattern', ''))
 else:
     print(ti.get('file_path', '') or ti.get('command', '') or ti.get('prompt', '') or ti.get('pattern', '') or '')
-" "$INPUT_FILE" 2>/dev/null
+" "$INPUT_FILE" 2>/dev/null)
+    _dbg "extract_query: '$result'"
+    echo "$result"
 }
 
 # ============================================================
@@ -179,6 +240,7 @@ print(json.dumps({'additionalContext': sys.argv[1]}))" "$1" 2>/dev/null
 handle_session_start() {
     local SOURCE
     SOURCE=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('source',''))" 2>/dev/null)
+    _dbg "source=$SOURCE"
 
     # Clear dedup cache on new session or explicit clear
     if [[ "$SOURCE" == "startup" || "$SOURCE" == "clear" ]]; then
@@ -217,19 +279,30 @@ for m in memories:
     fi
 
     local PROACTIVE_QUERY="Project: $PROJECT_NAME. Changed files: $RECENT_FILES"
+    _dbg "proactive query: '${PROACTIVE_QUERY:0:120}'"
     PROJECT_CONTEXT=$(proactive_and_format "$PROACTIVE_QUERY" 5) || true
 
     # --- Build output ---
     local OUTPUT=""
     if [[ -n "$CHEAT_SHEET" ]]; then
         OUTPUT="=== OPERATIONAL CHEAT SHEET ===\n$CHEAT_SHEET"
+        _dbg "cheat_sheet: $(echo "$CHEAT_SHEET" | wc -l) lines"
+    else
+        _dbg "cheat_sheet: empty"
     fi
     if [[ -n "$PROJECT_CONTEXT" ]]; then
         [[ -n "$OUTPUT" ]] && OUTPUT="$OUTPUT\n\n"
         OUTPUT="${OUTPUT}=== PROJECT CONTEXT ===\n$PROJECT_CONTEXT"
+        _dbg "project_context: $(echo "$PROJECT_CONTEXT" | wc -l) lines"
+    else
+        _dbg "project_context: empty"
     fi
 
-    [[ -z "$OUTPUT" ]] && exit 0
+    if [[ -z "$OUTPUT" ]]; then
+        _dbg "no output, exiting"
+        exit 0
+    fi
+    _dbg "=== OUTPUT ($(echo -e "$OUTPUT" | wc -c) bytes) ==="
     output_hook_context "SessionStart" "$(echo -e "$OUTPUT")"
 }
 
@@ -240,7 +313,8 @@ for m in memories:
 handle_user_prompt() {
     local PROMPT
     PROMPT=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('prompt',''))" 2>/dev/null)
-    [[ -z "$PROMPT" ]] && exit 0
+    _dbg "prompt='${PROMPT:0:120}'"
+    [[ -z "$PROMPT" ]] && { _dbg "empty prompt, exiting"; exit 0; }
 
     # Extract change name from opsx/openspec skill invocation (not explore)
     local CHANGE_NAME=""
@@ -259,15 +333,21 @@ if m: print(m.group(1))
         QUERY=$(echo "$PROMPT" | head -c 200)
     fi
 
+    _dbg "change_name='$CHANGE_NAME' query='${QUERY:0:100}'"
+
     # Proactive recall (no MEMORY_COUNT==0 guard — fresh projects benefit from proactive)
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$QUERY" 5) || true
-    [[ -z "$FORMATTED" ]] && exit 0
+    if [[ -z "$FORMATTED" ]]; then
+        _dbg "no proactive results, exiting"
+        exit 0
+    fi
 
     local CONTEXT_TEXT="=== PROJECT MEMORY — Use this context before independent research ==="
     [[ -n "$CHANGE_NAME" ]] && CONTEXT_TEXT="$CONTEXT_TEXT\nChange: $CHANGE_NAME"
     CONTEXT_TEXT="$CONTEXT_TEXT\nRelevant past experience:\n$FORMATTED\n=== END ==="
 
+    _dbg "=== OUTPUT ($(echo "$CONTEXT_TEXT" | wc -c) bytes) ==="
     output_hook_context "UserPromptSubmit" "$CONTEXT_TEXT"
 }
 
@@ -278,20 +358,31 @@ if m: print(m.group(1))
 handle_pre_tool() {
     local TOOL_NAME
     TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
+    _dbg "tool=$TOOL_NAME"
 
     local QUERY
     QUERY=$(extract_query)
-    [[ -z "$QUERY" ]] && exit 0
+    if [[ -z "$QUERY" ]]; then
+        _dbg "empty query, exiting"
+        exit 0
+    fi
 
     local KEY
     KEY=$(make_dedup_key "PreToolUse" "$TOOL_NAME" "$QUERY")
-    dedup_check "$KEY" && exit 0
+    if dedup_check "$KEY"; then
+        _dbg "dedup hit, exiting"
+        exit 0
+    fi
 
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$QUERY" 2) || true
-    [[ -z "$FORMATTED" ]] && exit 0
+    if [[ -z "$FORMATTED" ]]; then
+        _dbg "no proactive results, exiting"
+        exit 0
+    fi
 
     dedup_add "$KEY"
+    _dbg "=== OUTPUT ==="
     output_hook_context "PreToolUse" "=== MEMORY: Context for this command ===\n$FORMATTED"
 }
 
@@ -302,10 +393,14 @@ handle_pre_tool() {
 handle_post_tool() {
     local TOOL_NAME
     TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
+    _dbg "tool=$TOOL_NAME"
 
     local QUERY
     QUERY=$(extract_query)
-    [[ -z "$QUERY" ]] && exit 0
+    if [[ -z "$QUERY" ]]; then
+        _dbg "empty query, exiting"
+        exit 0
+    fi
 
     # --- FileAccess memory for Edit/Write ---
     if [[ "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Write" ]]; then
@@ -314,6 +409,7 @@ handle_post_tool() {
         if [[ -n "$FILE_PATH" ]]; then
             local SUMMARY="Modified $FILE_PATH"
             [[ "$TOOL_NAME" == "Write" ]] && SUMMARY="Created/wrote $FILE_PATH"
+            _dbg "file-access memory: $SUMMARY"
             echo "$SUMMARY" | wt-memory remember --type Context --tags "file-access,$FILE_PATH" 2>/dev/null || true
         fi
     fi
@@ -336,13 +432,20 @@ if re.search(r'(?i)\b(error|failed|warning)\b', to):
     # --- Proactive recall (dedup-checked) ---
     local KEY
     KEY=$(make_dedup_key "PostToolUse" "$TOOL_NAME" "$QUERY")
-    dedup_check "$KEY" && exit 0
+    if dedup_check "$KEY"; then
+        _dbg "dedup hit, exiting"
+        exit 0
+    fi
 
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$QUERY" 2) || true
-    [[ -z "$FORMATTED" ]] && exit 0
+    if [[ -z "$FORMATTED" ]]; then
+        _dbg "no proactive results, exiting"
+        exit 0
+    fi
 
     dedup_add "$KEY"
+    _dbg "=== OUTPUT ==="
     output_top_context "=== MEMORY: Context for this file/command ===\n$FORMATTED"
 }
 
@@ -365,13 +468,25 @@ print(error[:300])
     IS_INTERRUPT=$(echo "$PARSED" | head -1)
     ERROR_TEXT=$(echo "$PARSED" | tail -n +2)
 
-    [[ "$IS_INTERRUPT" == "True" || "$IS_INTERRUPT" == "true" ]] && exit 0
-    [[ ${#ERROR_TEXT} -lt 10 ]] && exit 0
+    _dbg "is_interrupt=$IS_INTERRUPT error='${ERROR_TEXT:0:80}'"
+
+    if [[ "$IS_INTERRUPT" == "True" || "$IS_INTERRUPT" == "true" ]]; then
+        _dbg "interrupt, exiting"
+        exit 0
+    fi
+    if [[ ${#ERROR_TEXT} -lt 10 ]]; then
+        _dbg "error too short (${#ERROR_TEXT} chars), exiting"
+        exit 0
+    fi
 
     local FORMATTED=""
     FORMATTED=$(recall_and_format "$ERROR_TEXT" 3 hybrid) || true
-    [[ -z "$FORMATTED" ]] && exit 0
+    if [[ -z "$FORMATTED" ]]; then
+        _dbg "no recall results for error, exiting"
+        exit 0
+    fi
 
+    _dbg "=== OUTPUT ==="
     output_hook_context "PostToolUseFailure" "=== MEMORY: Past fix for this error ===\n$FORMATTED"
 }
 
@@ -382,11 +497,18 @@ print(error[:300])
 handle_subagent_stop() {
     local AGENT_PATH
     AGENT_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('agent_transcript_path',''))" 2>/dev/null)
-    [[ -z "$AGENT_PATH" ]] && exit 0
+    _dbg "agent_path='$AGENT_PATH'"
+    if [[ -z "$AGENT_PATH" ]]; then
+        _dbg "no agent path, exiting"
+        exit 0
+    fi
 
     # Expand ~ in path
     AGENT_PATH="${AGENT_PATH/#\~/$HOME}"
-    [[ ! -f "$AGENT_PATH" ]] && exit 0
+    if [[ ! -f "$AGENT_PATH" ]]; then
+        _dbg "agent transcript not found: $AGENT_PATH"
+        exit 0
+    fi
 
     # Extract last few assistant text entries as query
     local SUMMARY
@@ -406,12 +528,20 @@ try:
 except: pass
 print(' '.join(entries[-3:])[:500])
 " "$AGENT_PATH" 2>/dev/null)
-    [[ -z "$SUMMARY" ]] && exit 0
+    _dbg "summary='${SUMMARY:0:100}'"
+    if [[ -z "$SUMMARY" ]]; then
+        _dbg "empty summary, exiting"
+        exit 0
+    fi
 
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$SUMMARY" 2) || true
-    [[ -z "$FORMATTED" ]] && exit 0
+    if [[ -z "$FORMATTED" ]]; then
+        _dbg "no proactive results, exiting"
+        exit 0
+    fi
 
+    _dbg "=== OUTPUT ==="
     output_top_context "=== MEMORY: Context from subagent ===\n$FORMATTED"
 }
 
@@ -422,7 +552,11 @@ print(' '.join(entries[-3:])[:500])
 handle_stop() {
     local STOP_ACTIVE
     STOP_ACTIVE=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('stop_hook_active',False))" 2>/dev/null)
-    [[ "$STOP_ACTIVE" == "True" || "$STOP_ACTIVE" == "true" ]] && exit 0
+    _dbg "stop_active=$STOP_ACTIVE"
+    if [[ "$STOP_ACTIVE" == "True" || "$STOP_ACTIVE" == "true" ]]; then
+        _dbg "stop hook already active, exiting"
+        exit 0
+    fi
 
     # Clean up dedup cache
     dedup_clear
@@ -430,17 +564,23 @@ handle_stop() {
     local TRANSCRIPT_PATH
     TRANSCRIPT_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('transcript_path',''))" 2>/dev/null)
     TRANSCRIPT_PATH="${TRANSCRIPT_PATH/#\~/$HOME}"
+    _dbg "transcript='$TRANSCRIPT_PATH'"
 
     mkdir -p .wt-tools
 
     # Background transcript extraction
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+        _dbg "launching background extraction"
         _stop_run_extraction_bg "$TRANSCRIPT_PATH" &
         disown
+    else
+        _dbg "no transcript file, skipping extraction"
     fi
 
     # Synchronous: commit-based extraction
+    _dbg "running commit extraction"
     _stop_commit_extraction
+    _dbg "=== DONE ==="
 }
 
 # --- Stop: Background transcript extraction ---
@@ -833,6 +973,7 @@ _stop_commit_extraction() {
 # Dispatch
 # ============================================================
 
+_dbg "dispatching event=$EVENT"
 case "$EVENT" in
     SessionStart)       handle_session_start ;;
     UserPromptSubmit)   handle_user_prompt ;;
@@ -841,5 +982,6 @@ case "$EVENT" in
     PostToolUseFailure) handle_post_tool_failure ;;
     SubagentStop)       handle_subagent_stop ;;
     Stop)               handle_stop ;;
-    *)                  exit 0 ;;
+    *)                  _dbg "unknown event, exiting"; exit 0 ;;
 esac
+_dbg "=== END ==="
