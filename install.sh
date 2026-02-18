@@ -356,32 +356,49 @@ install_completions() {
 install_gui_dependencies() {
     info "Installing GUI Python dependencies..."
 
-    local requirements_file="$SCRIPT_DIR/gui/requirements.txt"
-
-    if [[ ! -f "$requirements_file" ]]; then
-        warn "GUI requirements.txt not found at $requirements_file"
-        return 1
-    fi
-
     # Use find_python() to locate the target Python (shared from wt-common.sh)
     local PYTHON=""
     if ! PYTHON=$(find_python); then
         warn "No python3 found. Skipping GUI dependencies."
-        echo "  Install Python 3 first, then run: python3 -m pip install -r $requirements_file"
+        echo "  Install Python 3 first, then run: python3 -m pip install PySide6 psutil PyNaCl"
         return 1
     fi
 
-    # Install from requirements.txt using $PYTHON -m pip
-    info "Installing from $requirements_file into $PYTHON..."
-    if "$PYTHON" -m pip install -r "$requirements_file" >/dev/null 2>&1; then
-        success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
-    elif "$PYTHON" -m pip install --user -r "$requirements_file" >/dev/null 2>&1; then
-        success "GUI dependencies installed with --user (PySide6, psutil, PyNaCl)"
-    elif "$PYTHON" -m pip install --break-system-packages -r "$requirements_file" 2>&1; then
-        success "GUI dependencies installed (PySide6, psutil, PyNaCl)"
+    # Core dependencies (required)
+    local core_deps=("PySide6>=6.5.0" "psutil>=5.9.0" "PyNaCl>=1.5.0")
+
+    # Platform-specific dependencies
+    if [[ "$PLATFORM" == "macos" ]]; then
+        core_deps+=("pyobjc-framework-Cocoa>=9.0")
+    fi
+
+    info "Installing core dependencies into $PYTHON..."
+    local install_failed=false
+    if "$PYTHON" -m pip install "${core_deps[@]}" >/dev/null 2>&1; then
+        success "Core GUI dependencies installed (PySide6, psutil, PyNaCl)"
+    elif "$PYTHON" -m pip install --user "${core_deps[@]}" >/dev/null 2>&1; then
+        success "Core GUI dependencies installed with --user (PySide6, psutil, PyNaCl)"
+    elif "$PYTHON" -m pip install --break-system-packages "${core_deps[@]}" 2>&1; then
+        success "Core GUI dependencies installed (PySide6, psutil, PyNaCl)"
     else
-        warn "Some GUI dependencies may have failed to install"
-        echo "  Try manually: $PYTHON -m pip install -r $requirements_file"
+        warn "Core GUI dependencies failed to install"
+        echo "  Try manually: $PYTHON -m pip install ${core_deps[*]}"
+        install_failed=true
+    fi
+
+    # Optional: curl-cffi for Cloudflare bypass (usage API)
+    # This can fail on newer Python versions, but the GUI works without it
+    info "Installing optional curl-cffi (for usage API)..."
+    if "$PYTHON" -m pip install "curl-cffi>=0.7.0" >/dev/null 2>&1; then
+        success "curl-cffi installed (usage API will bypass Cloudflare)"
+    elif "$PYTHON" -m pip install --user "curl-cffi>=0.7.0" >/dev/null 2>&1; then
+        success "curl-cffi installed with --user"
+    else
+        info "curl-cffi not installed (optional - usage API will use fallback methods)"
+    fi
+
+    if $install_failed; then
+        return 1
     fi
 }
 
