@@ -1,0 +1,845 @@
+#!/usr/bin/env bash
+# wt-hook-memory - Unified Claude Code memory hook handler
+#
+# Single handler replacing 5 separate scripts. Dispatches by event type.
+# Usage: wt-hook-memory <EventName>
+#
+# Events: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
+#         PostToolUseFailure, SubagentStop, Stop
+#
+# Configuration in .claude/settings.json via wt-deploy-hooks.
+
+set -e
+
+EVENT="$1"
+[[ -z "$EVENT" ]] && exit 0
+
+# --- Health check (single, shared) ---
+command -v wt-memory &>/dev/null || exit 0
+wt-memory health &>/dev/null || exit 0
+
+# --- Store input in temp file (efficient for large PostToolUse payloads) ---
+INPUT_FILE=$(mktemp)
+TMPFILE=$(mktemp)
+trap 'rm -f "$INPUT_FILE" "$TMPFILE"' EXIT
+cat > "$INPUT_FILE"
+
+# --- Session ID for dedup cache ---
+SESSION_ID=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('session_id','unknown'))" 2>/dev/null || echo "unknown")
+CACHE_FILE="/tmp/wt-memory-session-${SESSION_ID}.json"
+
+# ============================================================
+# Helper: Session dedup cache
+# ============================================================
+
+dedup_clear() {
+    rm -f "$CACHE_FILE"
+}
+
+dedup_check() {
+    [[ ! -f "$CACHE_FILE" ]] && return 1
+    python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    cache = json.load(f)
+sys.exit(0 if sys.argv[2] in cache else 1)
+" "$CACHE_FILE" "$1" 2>/dev/null
+}
+
+dedup_add() {
+    python3 -c "
+import json, sys, os
+cache = {}
+if os.path.exists(sys.argv[1]):
+    try:
+        with open(sys.argv[1]) as f:
+            cache = json.load(f)
+    except: pass
+cache[sys.argv[2]] = 1
+with open(sys.argv[1], 'w') as f:
+    json.dump(cache, f)
+" "$CACHE_FILE" "$1" 2>/dev/null
+}
+
+make_dedup_key() {
+    echo -n "$1:$2:$3" | md5sum 2>/dev/null | cut -c1-16 || \
+    echo -n "$1:$2:$3" | sha256sum 2>/dev/null | cut -c1-16
+}
+
+# ============================================================
+# Helper: Proactive recall with relevance filtering
+# ============================================================
+
+proactive_and_format() {
+    local query="$1" limit="${2:-5}"
+
+    wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || return 1
+
+    python3 -c "
+import sys, json
+try:
+    memories = json.load(open(sys.argv[1]))
+except: sys.exit(1)
+if not memories: sys.exit(1)
+filtered = []
+for m in memories:
+    score = m.get('relevance_score')
+    if score is not None and score != 'N/A':
+        try:
+            if float(score) < 0.3: continue
+        except (ValueError, TypeError): pass
+    filtered.append(m)
+if not filtered: sys.exit(1)
+seen = set()
+for m in filtered:
+    c = m.get('content','').replace('\n',' ')[:300]
+    key = c[:50]
+    if key in seen: continue
+    seen.add(key)
+    print(f'  - {c}')
+" "$TMPFILE" 2>/dev/null
+}
+
+recall_and_format() {
+    local query="$1" limit="${2:-3}" mode="${3:-hybrid}"
+
+    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || return 1
+
+    python3 -c "
+import sys, json
+try:
+    memories = json.load(open(sys.argv[1]))
+except: sys.exit(1)
+if not memories: sys.exit(1)
+seen = set()
+for m in memories:
+    score = m.get('relevance_score')
+    if score is not None and score != 'N/A':
+        try:
+            if float(score) < 0.3: continue
+        except (ValueError, TypeError): pass
+    c = m.get('content','').replace('\n',' ')[:300]
+    key = c[:50]
+    if key in seen: continue
+    seen.add(key)
+    print(f'  - {c}')
+" "$TMPFILE" 2>/dev/null
+}
+
+# ============================================================
+# Helper: Tool-specific query extraction
+# ============================================================
+
+extract_query() {
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+tool = data.get('tool_name', '')
+ti = data.get('tool_input', {})
+if tool in ('Read', 'Edit', 'Write'):
+    fp = ti.get('file_path', '')
+    parts = fp.rsplit('/', 2)
+    print('/'.join(parts[-2:]) if len(parts) >= 2 else fp)
+elif tool == 'Bash':
+    print(ti.get('command', '')[:200])
+elif tool == 'Task':
+    print(ti.get('prompt', '')[:200])
+elif tool == 'Grep':
+    print(ti.get('pattern', ''))
+else:
+    print(ti.get('file_path', '') or ti.get('command', '') or ti.get('prompt', '') or ti.get('pattern', '') or '')
+" "$INPUT_FILE" 2>/dev/null
+}
+
+# ============================================================
+# Helper: JSON output formatters
+# ============================================================
+
+output_hook_context() {
+    python3 -c "
+import json, sys
+print(json.dumps({
+    'hookSpecificOutput': {
+        'hookEventName': sys.argv[1],
+        'additionalContext': sys.argv[2]
+    }
+}))" "$1" "$2" 2>/dev/null
+}
+
+output_top_context() {
+    python3 -c "
+import json, sys
+print(json.dumps({'additionalContext': sys.argv[1]}))" "$1" 2>/dev/null
+}
+
+# ============================================================
+# Event: SessionStart
+# ============================================================
+
+handle_session_start() {
+    local SOURCE
+    SOURCE=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('source',''))" 2>/dev/null)
+
+    # Clear dedup cache on new session or explicit clear
+    if [[ "$SOURCE" == "startup" || "$SOURCE" == "clear" ]]; then
+        dedup_clear
+    fi
+
+    # --- Cheat sheet recall ---
+    local CHEAT_SHEET=""
+    if wt-memory recall "cheat-sheet operational" --tags "cheat-sheet" --limit 5 2>/dev/null > "$TMPFILE"; then
+        CHEAT_SHEET=$(python3 -c "
+import sys, json
+try:
+    memories = json.load(open(sys.argv[1]))
+except: sys.exit(0)
+if not memories: sys.exit(0)
+seen = set()
+for m in memories:
+    c = m.get('content','').replace('\n',' ')[:200]
+    key = c[:50]
+    if key in seen: continue
+    seen.add(key)
+    print(f'  - {c}')
+" "$TMPFILE" 2>/dev/null)
+    fi
+
+    # --- Proactive project context (using git changed files, not commit messages) ---
+    local PROJECT_CONTEXT=""
+    local PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    local PROJECT_NAME
+    PROJECT_NAME=$(basename "$PROJECT_DIR")
+
+    local RECENT_FILES=""
+    if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+        RECENT_FILES=$(git -C "$PROJECT_DIR" diff --name-only HEAD~5 HEAD 2>/dev/null | head -10 | tr '\n' ', ' | sed 's/,$//')
+        [[ -z "$RECENT_FILES" ]] && RECENT_FILES=$(git -C "$PROJECT_DIR" diff --name-only 2>/dev/null | head -10 | tr '\n' ', ' | sed 's/,$//')
+    fi
+
+    local PROACTIVE_QUERY="Project: $PROJECT_NAME. Changed files: $RECENT_FILES"
+    PROJECT_CONTEXT=$(proactive_and_format "$PROACTIVE_QUERY" 5) || true
+
+    # --- Build output ---
+    local OUTPUT=""
+    if [[ -n "$CHEAT_SHEET" ]]; then
+        OUTPUT="=== OPERATIONAL CHEAT SHEET ===\n$CHEAT_SHEET"
+    fi
+    if [[ -n "$PROJECT_CONTEXT" ]]; then
+        [[ -n "$OUTPUT" ]] && OUTPUT="$OUTPUT\n\n"
+        OUTPUT="${OUTPUT}=== PROJECT CONTEXT ===\n$PROJECT_CONTEXT"
+    fi
+
+    [[ -z "$OUTPUT" ]] && exit 0
+    output_hook_context "SessionStart" "$(echo -e "$OUTPUT")"
+}
+
+# ============================================================
+# Event: UserPromptSubmit
+# ============================================================
+
+handle_user_prompt() {
+    local PROMPT
+    PROMPT=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('prompt',''))" 2>/dev/null)
+    [[ -z "$PROMPT" ]] && exit 0
+
+    # Extract change name from opsx/openspec skill invocation (not explore)
+    local CHANGE_NAME=""
+    CHANGE_NAME=$(echo "$PROMPT" | python3 -c "
+import sys, re
+prompt = sys.stdin.read()
+CHANGE_SKILLS = r'(?:opsx:(?:apply|continue|verify|archive|sync|ff|new)|openspec-(?:apply|continue|verify|archive|sync|ff|new)[\w-]*)'
+m = re.search(CHANGE_SKILLS + r'\s+(\S+)', prompt)
+if m: print(m.group(1))
+" 2>/dev/null)
+
+    local QUERY=""
+    if [[ -n "$CHANGE_NAME" ]]; then
+        QUERY="$CHANGE_NAME $(echo "$PROMPT" | head -c 200)"
+    else
+        QUERY=$(echo "$PROMPT" | head -c 200)
+    fi
+
+    # Proactive recall (no MEMORY_COUNT==0 guard — fresh projects benefit from proactive)
+    local FORMATTED=""
+    FORMATTED=$(proactive_and_format "$QUERY" 5) || true
+    [[ -z "$FORMATTED" ]] && exit 0
+
+    local CONTEXT_TEXT="=== PROJECT MEMORY — Use this context before independent research ==="
+    [[ -n "$CHANGE_NAME" ]] && CONTEXT_TEXT="$CONTEXT_TEXT\nChange: $CHANGE_NAME"
+    CONTEXT_TEXT="$CONTEXT_TEXT\nRelevant past experience:\n$FORMATTED\n=== END ==="
+
+    output_hook_context "UserPromptSubmit" "$CONTEXT_TEXT"
+}
+
+# ============================================================
+# Event: PreToolUse (unconditional for all 6 tool types)
+# ============================================================
+
+handle_pre_tool() {
+    local TOOL_NAME
+    TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
+
+    local QUERY
+    QUERY=$(extract_query)
+    [[ -z "$QUERY" ]] && exit 0
+
+    local KEY
+    KEY=$(make_dedup_key "PreToolUse" "$TOOL_NAME" "$QUERY")
+    dedup_check "$KEY" && exit 0
+
+    local FORMATTED=""
+    FORMATTED=$(proactive_and_format "$QUERY" 2) || true
+    [[ -z "$FORMATTED" ]] && exit 0
+
+    dedup_add "$KEY"
+    output_hook_context "PreToolUse" "=== MEMORY: Context for this command ===\n$FORMATTED"
+}
+
+# ============================================================
+# Event: PostToolUse (proactive + FileAccess + Bash error storage)
+# ============================================================
+
+handle_post_tool() {
+    local TOOL_NAME
+    TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
+
+    local QUERY
+    QUERY=$(extract_query)
+    [[ -z "$QUERY" ]] && exit 0
+
+    # --- FileAccess memory for Edit/Write ---
+    if [[ "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Write" ]]; then
+        local FILE_PATH
+        FILE_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_input',{}).get('file_path',''))" 2>/dev/null)
+        if [[ -n "$FILE_PATH" ]]; then
+            local SUMMARY="Modified $FILE_PATH"
+            [[ "$TOOL_NAME" == "Write" ]] && SUMMARY="Created/wrote $FILE_PATH"
+            echo "$SUMMARY" | wt-memory remember --type Context --tags "file-access,$FILE_PATH" 2>/dev/null || true
+        fi
+    fi
+
+    # --- Bash error pattern storage ---
+    if [[ "$TOOL_NAME" == "Bash" ]]; then
+        python3 -c "
+import json, re, subprocess, sys
+data = json.load(open(sys.argv[1]))
+to = str(data.get('tool_output', ''))[:2000]
+if re.search(r'(?i)\b(error|failed|warning)\b', to):
+    cmd = data.get('tool_input', {}).get('command', '')[:100]
+    excerpt = to[:200].replace('\n', ' ')
+    content = f'Bash: {cmd} -> {excerpt}'[:300]
+    subprocess.run(['wt-memory', 'remember', '--type', 'Learning', '--tags', 'error,bash'],
+                   input=content, text=True, capture_output=True)
+" "$INPUT_FILE" 2>/dev/null || true
+    fi
+
+    # --- Proactive recall (dedup-checked) ---
+    local KEY
+    KEY=$(make_dedup_key "PostToolUse" "$TOOL_NAME" "$QUERY")
+    dedup_check "$KEY" && exit 0
+
+    local FORMATTED=""
+    FORMATTED=$(proactive_and_format "$QUERY" 2) || true
+    [[ -z "$FORMATTED" ]] && exit 0
+
+    dedup_add "$KEY"
+    output_top_context "=== MEMORY: Context for this file/command ===\n$FORMATTED"
+}
+
+# ============================================================
+# Event: PostToolUseFailure (error recall)
+# ============================================================
+
+handle_post_tool_failure() {
+    local PARSED
+    PARSED=$(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+is_int = str(data.get('is_interrupt', False))
+error = data.get('error', '')
+print(f'{is_int}')
+print(error[:300])
+" "$INPUT_FILE" 2>/dev/null)
+
+    local IS_INTERRUPT ERROR_TEXT
+    IS_INTERRUPT=$(echo "$PARSED" | head -1)
+    ERROR_TEXT=$(echo "$PARSED" | tail -n +2)
+
+    [[ "$IS_INTERRUPT" == "True" || "$IS_INTERRUPT" == "true" ]] && exit 0
+    [[ ${#ERROR_TEXT} -lt 10 ]] && exit 0
+
+    local FORMATTED=""
+    FORMATTED=$(recall_and_format "$ERROR_TEXT" 3 hybrid) || true
+    [[ -z "$FORMATTED" ]] && exit 0
+
+    output_hook_context "PostToolUseFailure" "=== MEMORY: Past fix for this error ===\n$FORMATTED"
+}
+
+# ============================================================
+# Event: SubagentStop
+# ============================================================
+
+handle_subagent_stop() {
+    local AGENT_PATH
+    AGENT_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('agent_transcript_path',''))" 2>/dev/null)
+    [[ -z "$AGENT_PATH" ]] && exit 0
+
+    # Expand ~ in path
+    AGENT_PATH="${AGENT_PATH/#\~/$HOME}"
+    [[ ! -f "$AGENT_PATH" ]] && exit 0
+
+    # Extract last few assistant text entries as query
+    local SUMMARY
+    SUMMARY=$(python3 -c "
+import json, sys
+entries = []
+try:
+    with open(sys.argv[1]) as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+                if obj.get('type') == 'assistant':
+                    for block in (obj.get('message',{}).get('content',[]) or []):
+                        if isinstance(block, dict) and block.get('type') == 'text':
+                            entries.append(block.get('text','')[:200])
+            except: pass
+except: pass
+print(' '.join(entries[-3:])[:500])
+" "$AGENT_PATH" 2>/dev/null)
+    [[ -z "$SUMMARY" ]] && exit 0
+
+    local FORMATTED=""
+    FORMATTED=$(proactive_and_format "$SUMMARY" 2) || true
+    [[ -z "$FORMATTED" ]] && exit 0
+
+    output_top_context "=== MEMORY: Context from subagent ===\n$FORMATTED"
+}
+
+# ============================================================
+# Event: Stop (transcript extraction + commit-based extraction)
+# ============================================================
+
+handle_stop() {
+    local STOP_ACTIVE
+    STOP_ACTIVE=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('stop_hook_active',False))" 2>/dev/null)
+    [[ "$STOP_ACTIVE" == "True" || "$STOP_ACTIVE" == "true" ]] && exit 0
+
+    # Clean up dedup cache
+    dedup_clear
+
+    local TRANSCRIPT_PATH
+    TRANSCRIPT_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('transcript_path',''))" 2>/dev/null)
+    TRANSCRIPT_PATH="${TRANSCRIPT_PATH/#\~/$HOME}"
+
+    mkdir -p .wt-tools
+
+    # Background transcript extraction
+    if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+        _stop_run_extraction_bg "$TRANSCRIPT_PATH" &
+        disown
+    fi
+
+    # Synchronous: commit-based extraction
+    _stop_commit_extraction
+}
+
+# --- Stop: Background transcript extraction ---
+
+STOP_LOCK_FILE=".wt-tools/.transcript-extraction.lock"
+STOP_LOG_FILE=".wt-tools/transcript-extraction.log"
+
+_stop_extract_from_transcript() {
+    local transcript="$1"
+    local transcript_id
+    transcript_id=$(basename "$transcript" .jsonl)
+    local staged_file=".wt-tools/.staged-extract-${transcript_id}"
+    local ts_file="${staged_file}.ts"
+
+    [[ ! -f "$transcript" ]] && return 1
+
+    # Detect opsx/openspec skills
+    local skill_lines
+    skill_lines=$(grep -o '"skill":"opsx:[^"]*"\|"skill":"openspec-[^"]*"' "$transcript" 2>/dev/null)
+    [[ -z "$skill_lines" ]] && return 1
+
+    # Extract change names
+    local change_names
+    change_names=$(python3 -c "
+import json, sys
+names = set()
+with open('$transcript') as f:
+    for line in f:
+        try:
+            obj = json.loads(line)
+            if obj.get('type') != 'assistant': continue
+            for block in (obj.get('message',{}).get('content',[]) or []):
+                if not isinstance(block, dict): continue
+                if block.get('type') == 'tool_use' and block.get('name') == 'Skill':
+                    inp = block.get('input',{})
+                    skill = inp.get('skill','')
+                    if 'opsx:' in skill or 'openspec-' in skill:
+                        args = inp.get('args','').strip()
+                        if args:
+                            names.add(args.split()[0])
+        except: pass
+print(','.join(sorted(names)[:5]) if names else '')
+" 2>/dev/null)
+
+    if [[ -z "$change_names" ]]; then
+        change_names=$(echo "$skill_lines" \
+            | sed 's/.*"skill":"//;s/".*//' \
+            | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    # Debounce
+    if [[ -f "$ts_file" ]]; then
+        local last_extract_ts now_ts
+        last_extract_ts=$(cat "$ts_file" 2>/dev/null)
+        now_ts=$(date +%s)
+        if [[ -n "$last_extract_ts" ]] && (( now_ts - last_extract_ts < 300 )); then
+            return 0
+        fi
+    fi
+
+    # Pre-process transcript
+    local tmpfile
+    tmpfile=$(mktemp)
+    local agent_saved
+    agent_saved=$(python3 << PYEOF
+import json, sys
+
+entries = []
+agent_saved = False
+
+with open("$transcript") as f:
+    for line in f:
+        try:
+            obj = json.loads(line)
+            t = obj.get('type', '')
+            if t == 'user':
+                msg = obj.get('message', {})
+                content = msg.get('content', '')
+                if isinstance(content, str) and len(content) < 2000:
+                    if '<system-reminder>' not in content and len(content) > 5:
+                        entries.append(f"USER: {content[:500]}")
+            elif t == 'assistant':
+                msg = obj.get('message', {})
+                content = msg.get('content', [])
+                if isinstance(content, list):
+                    for block in content:
+                        if not isinstance(block, dict): continue
+                        if block.get('type') == 'text':
+                            text = block.get('text', '')
+                            if text:
+                                if '[Memory saved:' in text or '[Agent insights saved:' in text:
+                                    agent_saved = True
+                                entries.append(f"AGENT: {text[:500]}")
+                        elif block.get('type') == 'tool_use':
+                            name = block.get('name', '')
+                            inp = block.get('input', {})
+                            if name == 'Bash':
+                                cmd = inp.get('command', '')[:200]
+                                entries.append(f"TOOL[Bash]: {cmd}")
+            elif t == 'tool_result':
+                content = obj.get('content', '')
+                if isinstance(content, str) and ('error' in content.lower() or 'Error' in content) and len(content) < 1000:
+                    entries.append(f"ERROR: {content[:500]}")
+        except: pass
+
+for entry in entries[-80:]:
+    print(entry)
+print(f"__AGENT_SAVED__:{agent_saved}")
+PYEOF
+)
+
+    local dedup_flag
+    dedup_flag=$(echo "$agent_saved" | tail -1)
+    echo "$agent_saved" | head -n -1 > "$tmpfile"
+
+    local agent_did_save=false
+    [[ "$dedup_flag" == *"True"* ]] && agent_did_save=true
+
+    local line_count
+    line_count=$(wc -l < "$tmpfile")
+    if [[ "$line_count" -lt 3 ]]; then
+        rm -f "$tmpfile"
+        return 0
+    fi
+
+    local first_change=""
+    [[ -n "$change_names" ]] && first_change="${change_names%%,*}"
+
+    local dedup_note=""
+    [[ "$agent_did_save" == "true" ]] && dedup_note="NOTE: The agent already saved some memories during this session. Only extract insights the agent likely MISSED — focus on errors, user corrections, and non-obvious discoveries that weren't explicitly saved."
+
+    local prompt
+    prompt="You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.
+
+$dedup_note
+
+Skills used: $skill_lines
+Change names: $change_names
+
+Extract ONLY insights that a future agent in a DIFFERENT session would benefit from knowing:
+- Errors encountered and their fixes/workarounds
+- User corrections or knowledge shared (in any language)
+- Non-obvious patterns or gotchas discovered
+- Important decisions or preferences stated by the user
+
+Do NOT extract:
+- Routine task completions
+- General knowledge any developer would know
+- Session-specific context (file paths read, commands run)
+- Things that are obvious from reading the code
+
+Output format: one insight per line, format: Type|tags|content
+- Type: Learning, Decision, Context, or CheatSheet
+- tags: comma-separated (e.g., error,change-name or preference,workflow)
+- content: concise description (max 200 chars)
+
+Use CheatSheet type for reusable operational patterns that should be loaded at every session start:
+- Recurring commands with non-obvious flags or gotchas
+- Project-specific test/build/deploy procedures
+- Environment setup requirements
+- Common error->fix patterns that apply broadly
+Maximum 2 CheatSheet entries per session.
+
+Maximum 5 insights (Learning/Decision/Context). If nothing is worth saving, output exactly: NONE
+
+ALSO extract cross-cutting conventions established in this session.
+Output conventions as: Convention|tags|content (max 2 conventions)
+Only extract conventions if the session clearly establishes a reusable pattern. Do NOT fabricate conventions.
+
+Session summary:"
+
+    local llm_output
+    llm_output=$( (echo "$prompt"; echo ""; cat "$tmpfile") | CLAUDECODE= claude -p --model haiku --no-session-persistence 2>/dev/null)
+    rm -f "$tmpfile"
+
+    [[ -z "$llm_output" ]] && return 1
+    [[ "$llm_output" == "NONE" ]] && return 0
+
+    local staging_tmp
+    staging_tmp=$(mktemp)
+    echo "#CHANGE:${first_change}" > "$staging_tmp"
+    echo "$llm_output" >> "$staging_tmp"
+    mv "$staging_tmp" "$staged_file"
+
+    date +%s > "$ts_file"
+    return 0
+}
+
+_stop_commit_staged() {
+    local current_transcript_id="$1"
+    local now
+    now=$(date +%s)
+    local stale_threshold=3600
+
+    for staged in .wt-tools/.staged-extract-*; do
+        [[ -f "$staged" ]] || continue
+        [[ "$staged" == *.ts ]] && continue
+
+        local staged_id
+        staged_id=$(basename "$staged" | sed 's/^\.staged-extract-//')
+        local ts_file="${staged}.ts"
+
+        # Skip current transcript unless stale
+        if [[ "$staged_id" == "$current_transcript_id" ]]; then
+            local file_age=0
+            if [[ -f "$ts_file" ]]; then
+                local last_ts
+                last_ts=$(cat "$ts_file" 2>/dev/null)
+                [[ -n "$last_ts" ]] && file_age=$(( now - last_ts ))
+            else
+                local mtime
+                mtime=$(stat -c %Y "$staged" 2>/dev/null || stat -f %m "$staged" 2>/dev/null)
+                [[ -n "$mtime" ]] && file_age=$(( now - mtime ))
+            fi
+            (( file_age < stale_threshold )) && continue
+        fi
+
+        # Read change name from header
+        local first_change=""
+        local first_line
+        first_line=$(head -1 "$staged")
+        [[ "$first_line" == "#CHANGE:"* ]] && first_change="${first_line#\#CHANGE:}"
+
+        # Parse and commit insights
+        local count=0 conv_count=0 cheat_count=0
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            [[ "$line" == "NONE" ]] && continue
+            [[ "$line" == "#CHANGE:"* ]] && continue
+            [[ "$line" != *"|"*"|"* ]] && continue
+
+            local mem_type="${line%%|*}"
+            local rest="${line#*|}"
+            local tags="${rest%%|*}"
+            local content="${rest#*|}"
+
+            if [[ "$mem_type" == "Convention" ]]; then
+                (( conv_count >= 2 )) && continue
+                mem_type="Learning"
+                tags="convention,cheat-sheet,$tags"
+                (( conv_count++ ))
+            elif [[ "$mem_type" == "CheatSheet" ]]; then
+                (( cheat_count >= 2 )) && continue
+                mem_type="Learning"
+                tags="cheat-sheet,$tags"
+                (( cheat_count++ ))
+            else
+                (( count >= 5 )) && continue
+                case "$mem_type" in
+                    Learning|Decision|Context) ;;
+                    *) continue ;;
+                esac
+                (( count++ ))
+            fi
+
+            [[ -z "$content" ]] && continue
+
+            local full_tags="phase:auto-extract,source:hook,$tags"
+            [[ -n "$first_change" ]] && full_tags="change:$first_change,$full_tags"
+
+            echo "$content" | wt-memory remember --type "$mem_type" --tags "$full_tags" 2>/dev/null || true
+        done < "$staged"
+
+        rm -f "$staged" "$ts_file"
+    done
+}
+
+_stop_run_extraction_bg() {
+    local transcript="$1"
+    local transcript_id
+    transcript_id=$(basename "$transcript" .jsonl)
+
+    # Lockfile check
+    if [[ -f "$STOP_LOCK_FILE" ]]; then
+        local existing_pid
+        existing_pid=$(cat "$STOP_LOCK_FILE" 2>/dev/null)
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            return 0
+        fi
+        rm -f "$STOP_LOCK_FILE"
+    fi
+
+    echo ${BASHPID:-$$} > "$STOP_LOCK_FILE"
+    trap 'rm -f "$STOP_LOCK_FILE"' EXIT
+
+    _stop_commit_staged "$transcript_id"
+
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting extraction for: $transcript" >> "$STOP_LOG_FILE"
+    _stop_extract_from_transcript "$transcript" 2>> "$STOP_LOG_FILE" || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Extraction complete" >> "$STOP_LOG_FILE"
+
+    rm -f "$STOP_LOCK_FILE"
+}
+
+# --- Stop: Synchronous commit-based extraction ---
+
+_stop_commit_extraction() {
+    local MARKER_FILE=".wt-tools/.last-memory-commit"
+    local DESIGN_MARKER=".wt-tools/.saved-designs"
+    local CODEMAP_MARKER=".wt-tools/.saved-codemaps"
+
+    local LAST_HASH=""
+    [[ -f "$MARKER_FILE" ]] && LAST_HASH=$(cat "$MARKER_FILE" 2>/dev/null)
+
+    local CURRENT_HASH
+    CURRENT_HASH=$(git rev-parse HEAD 2>/dev/null) || return 0
+    [[ "$CURRENT_HASH" == "$LAST_HASH" ]] && return 0
+
+    local COMMITS
+    if [[ -n "$LAST_HASH" ]] && git cat-file -t "$LAST_HASH" &>/dev/null; then
+        COMMITS=$(git log --oneline "$LAST_HASH..HEAD" 2>/dev/null)
+    else
+        COMMITS=$(git log --oneline -1 2>/dev/null)
+    fi
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local hash="${line%% *}"
+        local msg="${line#* }"
+
+        local change_name="general"
+        [[ "$msg" == *:* ]] && change_name="${msg%%:*}"
+
+        if [[ "$change_name" == "general" ]] && [[ -d "openspec/changes" ]]; then
+            for d in openspec/changes/*/; do
+                local dname
+                dname=$(basename "$d")
+                [[ "$dname" == "archive" ]] && continue
+                change_name="$dname"
+                break
+            done
+        fi
+
+        # Code map safety net
+        touch "$CODEMAP_MARKER" 2>/dev/null
+        if ! grep -qx "$change_name" "$CODEMAP_MARKER" 2>/dev/null; then
+            local has_codemap
+            has_codemap=$(wt-memory recall "$change_name code map" --limit 1 --mode semantic 2>/dev/null \
+                | python3 -c "import sys,json; r=json.load(sys.stdin); print('yes' if any('code-map' in ','.join(m.get('tags',[])) for m in r) else 'no')" 2>/dev/null)
+
+            if [[ "$has_codemap" != "yes" ]]; then
+                local all_hashes
+                all_hashes=$(echo "$COMMITS" | awk '{print $1}')
+                local changed_files
+                changed_files=$(echo "$all_hashes" | while read -r h; do
+                    [[ -z "$h" ]] && continue
+                    git diff-tree --no-commit-id --name-only -r "$h" 2>/dev/null
+                done \
+                    | sort -u \
+                    | grep -vE '(package\.json|package-lock|\.config\.|tsconfig|\.test\.|\.spec\.|__test__)' \
+                    | head -8 \
+                    | tr '\n' ', ' \
+                    | sed 's/,$//')
+
+                if [[ -n "$changed_files" ]]; then
+                    local codemap_content="$change_name code map (auto): $changed_files"
+                    [[ ${#codemap_content} -gt 400 ]] && codemap_content="${codemap_content:0:397}..."
+                    echo "$codemap_content" | wt-memory remember --type Context --tags "change:$change_name,phase:apply,source:hook,code-map" 2>/dev/null || true
+                fi
+            fi
+            echo "$change_name" >> "$CODEMAP_MARKER"
+        fi
+
+        # Design choice extraction
+        touch "$DESIGN_MARKER" 2>/dev/null
+        grep -qx "$change_name" "$DESIGN_MARKER" 2>/dev/null && continue
+
+        local design_file="openspec/changes/$change_name/design.md"
+        if [[ -f "$design_file" ]]; then
+            local choices
+            choices=$(grep '^\*\*Choice\*\*' "$design_file" 2>/dev/null \
+                | sed 's/^\*\*Choice\*\*: //' \
+                | sed 's/^\*\*Choice\*\*://' \
+                | tr '\n' '.' \
+                | sed 's/\.\./\. /g; s/\.$//')
+
+            if [[ -n "$choices" ]]; then
+                local content="$change_name: $choices"
+                [[ ${#content} -gt 300 ]] && content="${content:0:297}..."
+                echo "$content" | wt-memory remember --type Decision --tags "change:$change_name,phase:apply,source:hook,decisions" 2>/dev/null || true
+            fi
+        fi
+        echo "$change_name" >> "$DESIGN_MARKER"
+    done <<< "$COMMITS"
+
+    echo "$CURRENT_HASH" > "$MARKER_FILE"
+}
+
+# ============================================================
+# Dispatch
+# ============================================================
+
+case "$EVENT" in
+    SessionStart)       handle_session_start ;;
+    UserPromptSubmit)   handle_user_prompt ;;
+    PreToolUse)         handle_pre_tool ;;
+    PostToolUse)        handle_post_tool ;;
+    PostToolUseFailure) handle_post_tool_failure ;;
+    SubagentStop)       handle_subagent_stop ;;
+    Stop)               handle_stop ;;
+    *)                  exit 0 ;;
+esac

@@ -1,17 +1,21 @@
 
 ## Persistent Memory
 
-This project uses persistent memory (shodh-memory) across sessions. Hooks handle memory automatically — you don't need to manage it.
+This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
 
-**Automatic (invisible to you):**
-- Session start → relevant memories and operational cheat sheet loaded
-- Every prompt → topic-based recall injected as context
-- Hot-topic commands → proactive context before execution
+**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. Start by summarizing what you already know from the injected memory, then fill in gaps. This applies to every turn, not just the first one.**
+
+**How it works:**
+- Session start → relevant memories loaded as system-reminder
+- Every prompt → topic-based recall injected as system-reminder
+- Every tool use → relevant past experience injected as system-reminder
 - Tool errors → past fixes surfaced automatically
 - Session end → insights extracted and saved
 
+**Active (MCP tools):** You also have MCP memory tools available (`remember`, `recall`, `proactive_context`, etc.) for deeper memory interactions when automatic context isn't enough.
+
 **Emphasis (use sparingly):**
-- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>` — mark something as HIGH IMPORTANCE (critical decisions, user-stated preferences, non-obvious gotchas)
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>` — mark something as HIGH IMPORTANCE
 - `wt-memory forget <id>` — suppress or correct a wrong memory
 - Most things are remembered automatically. Only use `remember` for emphasis.
 

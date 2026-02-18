@@ -48,6 +48,121 @@ deploy_wt_tools() {
     if command -v wt-memory-hooks &>/dev/null; then
         (cd "$project_path" && wt-memory-hooks remove --quiet) 2>/dev/null || true
     fi
+
+    # 4b. Clean up deprecated memory references
+    _cleanup_deprecated_memory_refs "$project_path"
+
+    # 5. Ensure CLAUDE.md has the Persistent Memory section
+    local claude_md="$project_path/CLAUDE.md"
+    local memory_marker="## Persistent Memory"
+    if [[ ! -f "$claude_md" ]] || ! grep -q "$memory_marker" "$claude_md" 2>/dev/null; then
+        local snippet
+        snippet=$(cat << 'MEMORY_SNIPPET'
+
+## Persistent Memory
+
+This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
+
+**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. Start by summarizing what you already know from the injected memory, then fill in gaps. This applies to every turn, not just the first one.**
+
+**How it works:**
+- Session start → relevant memories loaded as system-reminder
+- Every prompt → topic-based recall injected as system-reminder
+- Every tool use → relevant past experience injected as system-reminder
+- Tool errors → past fixes surfaced automatically
+- Session end → insights extracted and saved
+
+**Active (MCP tools):** You also have MCP memory tools available (`remember`, `recall`, `proactive_context`, etc.) for deeper memory interactions when automatic context isn't enough.
+
+**Emphasis (use sparingly):**
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>` — mark something as HIGH IMPORTANCE
+- `wt-memory forget <id>` — suppress or correct a wrong memory
+- Most things are remembered automatically. Only use `remember` for emphasis.
+MEMORY_SNIPPET
+)
+        if [[ -f "$claude_md" ]]; then
+            # Append to existing CLAUDE.md
+            echo "$snippet" >> "$claude_md"
+        else
+            # Create new CLAUDE.md (strip leading newline)
+            echo "${snippet#$'\n'}" > "$claude_md"
+        fi
+        success "  Added Persistent Memory section to CLAUDE.md"
+    fi
+
+    # 6. Register wt-memory MCP server (if not already registered)
+    _register_mcp_server
+}
+
+# Check if wt-memory MCP server is registered
+_is_mcp_registered() {
+    if command -v claude &>/dev/null; then
+        claude mcp list 2>/dev/null | grep -q "wt-memory" && return 0
+    fi
+    return 1
+}
+
+# Register the wt-memory MCP server
+_register_mcp_server() {
+    if ! command -v claude &>/dev/null; then
+        return 0  # claude CLI not available, skip
+    fi
+    if _is_mcp_registered; then
+        return 0  # already registered
+    fi
+    local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
+    if [[ -f "$mcp_server" ]]; then
+        claude mcp add wt-memory -- python "$mcp_server" 2>/dev/null || true
+        success "  Registered wt-memory MCP server"
+    fi
+}
+
+# Clean up deprecated memory references from skill/command files
+_cleanup_deprecated_memory_refs() {
+    local project_path="$1"
+
+    # Remove <!-- wt-memory hooks --> blocks from SKILL.md files
+    if [[ -d "$project_path/.claude/skills" ]]; then
+        find "$project_path/.claude/skills" -name "SKILL.md" -type f 2>/dev/null | while read -r f; do
+            if grep -q '<!-- wt-memory hooks' "$f" 2>/dev/null; then
+                python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove all wt-memory hooks blocks (including variants like hooks-midflow, hooks-remember, etc.)
+cleaned = re.sub(r'<!--\s*wt-memory hooks[^>]*-->.*?<!--\s*/wt-memory hooks[^>]*-->\s*\n?', '', content, flags=re.DOTALL)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Remove manual wt-memory recall/remember instructions from command .md files
+    if [[ -d "$project_path/.claude/commands" ]]; then
+        find "$project_path/.claude/commands" -name "*.md" -type f 2>/dev/null | while read -r f; do
+            if grep -qE 'wt-memory (recall|remember)' "$f" 2>/dev/null; then
+                python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove lines containing wt-memory recall or wt-memory remember instructions
+lines = content.split('\n')
+cleaned_lines = [l for l in lines if not re.search(r'wt-memory\s+(recall|remember)', l)]
+cleaned = '\n'.join(cleaned_lines)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Delete .claude/hot-topics.json if it exists
+    if [[ -f "$project_path/.claude/hot-topics.json" ]]; then
+        rm -f "$project_path/.claude/hot-topics.json"
+    fi
 }
 
 usage() {

@@ -79,6 +79,10 @@ Depending on what the user brings, you might:
 
 You have full context of the OpenSpec system. Use it naturally, don't force it.
 
+### Check memory first
+
+Before exploring independently, check injected memory context from `<system-reminder>` tags. Summarize what you already know from memory, then fill in gaps with codebase exploration.
+
 ### Check for context
 
 At the start, quickly check what exists:
