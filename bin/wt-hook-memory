@@ -344,7 +344,7 @@ if m: print(m.group(1))
         exit 0
     fi
 
-    local CONTEXT_TEXT="=== PROJECT MEMORY — Use this context before independent research ==="
+    local CONTEXT_TEXT="=== PROJECT MEMORY — If any memory below directly answers the user's question, cite it in your response ==="
     [[ -n "$CHANGE_NAME" ]] && CONTEXT_TEXT="$CONTEXT_TEXT\nChange: $CHANGE_NAME"
     CONTEXT_TEXT="$CONTEXT_TEXT\nRelevant past experience:\n$FORMATTED\n=== END ==="
 
