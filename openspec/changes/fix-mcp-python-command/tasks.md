@@ -20,3 +20,7 @@
 ## 5. Richer always-on logging
 
 - [x] 5.1 In `bin/wt-hook-memory`: make `_log()` verbose by default — log search query, recall mode, confidence scores, and any key outcomes (memories saved/recalled) without requiring `WT_HOOK_DEBUG=1`
+
+## 6. Fix MEMORY_SNIPPET citation instruction
+
+- [x] 6.1 In `bin/wt-project` MEMORY_SNIPPET: update the IMPORTANT instruction to include the "From memory:" citation rule (matching wt-tools' own CLAUDE.md) — the deployed snippet was missing `cite it explicitly (e.g., "From memory: ...")` and instead had the weaker `summarize what you know` wording
