@@ -19,10 +19,15 @@ deploy_wt_tools() {
     local project_path="$1"
     shift
     local claude_dir="$project_path/.claude"
+    local _warnings=0
 
     # 1. Deploy hooks via wt-deploy-hooks
-    "$SCRIPT_DIR/wt-deploy-hooks" --quiet "$project_path"
-    success "  Deployed hooks to .claude/settings.json"
+    if "$SCRIPT_DIR/wt-deploy-hooks" --quiet "$project_path"; then
+        success "  Deployed hooks to .claude/settings.json"
+    else
+        warn "  Failed to deploy hooks to .claude/settings.json"
+        ((_warnings++))
+    fi
 
     # 2. Deploy /wt:* commands
     local src_commands="$WT_TOOLS_ROOT/.claude/commands/wt"
@@ -114,7 +119,9 @@ if old in content:
     fi
 
     # 6. Register unified wt-tools MCP server for the project path (and any extra paths, e.g. worktree)
-    _register_mcp_server "$project_path" "$@"
+    _register_mcp_server "$project_path" "$@" || ((_warnings++))
+
+    return $(( _warnings > 0 ? 1 : 0 ))
 }
 
 # Register the unified wt-tools MCP server scoped to one or more project paths.
@@ -127,14 +134,23 @@ _register_mcp_server() {
     fi
     local mcp_server_dir="$WT_TOOLS_ROOT/mcp-server"
     [[ -d "$mcp_server_dir" ]] || return 0
+    local had_failure=0
     for reg_path in "$@"; do
         [[ -d "$reg_path" ]] || continue
-        (cd "$reg_path" \
-            && claude mcp remove wt-memory 2>/dev/null \
-            && claude mcp remove wt-tools 2>/dev/null \
-            ; claude mcp add wt-tools -- env CLAUDE_PROJECT_DIR="$reg_path" uv --directory "$mcp_server_dir" run python wt_mcp_server.py 2>/dev/null) || true
+        # Remove old server names (may not exist — stderr suppressed intentionally)
+        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp remove wt-tools 2>/dev/null) || true
+        # Register — capture errors, do NOT suppress stderr
+        local mcp_err
+        mcp_err=$(cd "$reg_path" && claude mcp add wt-tools -- env CLAUDE_PROJECT_DIR="$reg_path" uv --directory "$mcp_server_dir" run python wt_mcp_server.py 2>&1)
+        if [[ $? -ne 0 ]]; then
+            warn "  MCP registration failed for $reg_path: $mcp_err"
+            had_failure=1
+        fi
     done
-    success "  Registered wt-tools MCP server"
+    if [[ $had_failure -eq 0 ]]; then
+        success "  Registered wt-tools MCP server"
+    fi
+    return $had_failure
 }
 
 # Clean up deprecated memory references from skill/command files
@@ -145,7 +161,7 @@ _cleanup_deprecated_memory_refs() {
     if [[ -d "$project_path/.claude/skills" ]]; then
         find "$project_path/.claude/skills" -name "SKILL.md" -type f 2>/dev/null | while read -r f; do
             if grep -q '<!-- wt-memory hooks' "$f" 2>/dev/null; then
-                python3 -c "
+                if ! python3 -c "
 import re, sys
 with open(sys.argv[1]) as f:
     content = f.read()
@@ -154,7 +170,9 @@ cleaned = re.sub(r'<!--\s*wt-memory hooks[^>]*-->.*?<!--\s*/wt-memory hooks[^>]*
 if cleaned != content:
     with open(sys.argv[1], 'w') as f:
         f.write(cleaned)
-" "$f" 2>/dev/null || true
+" "$f" 2>&1; then
+                    warn "  Failed to clean up memory hooks in $f"
+                fi
             fi
         done
     fi
@@ -166,7 +184,7 @@ if cleaned != content:
             # Skip wt-tools command files (commands/wt/*.md) — they use wt-memory intentionally
             [[ "$f" == */commands/wt/*.md ]] && continue
             if grep -qE 'wt-memory (recall|remember)' "$f" 2>/dev/null; then
-                python3 -c "
+                if ! python3 -c "
 import re, sys
 with open(sys.argv[1]) as f:
     content = f.read()
@@ -177,7 +195,9 @@ cleaned = '\n'.join(cleaned_lines)
 if cleaned != content:
     with open(sys.argv[1], 'w') as f:
         f.write(cleaned)
-" "$f" 2>/dev/null || true
+" "$f" 2>&1; then
+                    warn "  Failed to clean up memory refs in $f"
+                fi
             fi
         done
     fi
@@ -292,19 +312,24 @@ cmd_init() {
     fi
 
     # Deploy wt-tools to main repo
+    local _deploy_warnings=0
     echo ""
     info "Deploying wt-tools to $git_root..."
-    deploy_wt_tools "$git_root"
+    deploy_wt_tools "$git_root" || ((_deploy_warnings++))
 
     # If called from a worktree, also deploy to the worktree's own .claude/ dir
     # and register MCP for the worktree path scope
     if $in_worktree; then
         echo ""
         info "Deploying wt-tools to worktree $current_dir..."
-        deploy_wt_tools "$current_dir"
+        deploy_wt_tools "$current_dir" || ((_deploy_warnings++))
     fi
     echo ""
-    success "wt-tools deployment complete for '$name'"
+    if [[ $_deploy_warnings -gt 0 ]]; then
+        warn "wt-tools deployment complete for '$name' (with warnings — check output above)"
+    else
+        success "wt-tools deployment complete for '$name'"
+    fi
 }
 
 cmd_list() {
