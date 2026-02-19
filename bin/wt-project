@@ -113,7 +113,7 @@ _register_mcp_server() {
     [[ -f "$mcp_server" ]] || return 0
     for reg_path in "$@"; do
         [[ -d "$reg_path" ]] || continue
-        (cd "$reg_path" && claude mcp add wt-memory -- "$mcp_server" 2>/dev/null) || true
+        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp add wt-memory -- "$mcp_server" 2>/dev/null) || true
     done
     success "  Registered wt-memory MCP server"
 }
@@ -269,13 +269,17 @@ cmd_init() {
         echo "  Path: $git_root"
     fi
 
-    # Deploy wt-tools to project (pass worktree path as extra MCP registration target)
+    # Deploy wt-tools to main repo
     echo ""
     info "Deploying wt-tools to $git_root..."
+    deploy_wt_tools "$git_root"
+
+    # If called from a worktree, also deploy to the worktree's own .claude/ dir
+    # and register MCP for the worktree path scope
     if $in_worktree; then
-        deploy_wt_tools "$git_root" "$current_dir"
-    else
-        deploy_wt_tools "$git_root"
+        echo ""
+        info "Deploying wt-tools to worktree $current_dir..."
+        deploy_wt_tools "$current_dir"
     fi
     echo ""
     success "wt-tools deployment complete for '$name'"
