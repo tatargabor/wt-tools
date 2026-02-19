@@ -517,6 +517,13 @@ Export produces a single JSON file with version header, project name, and all re
 | `wt-memory migrate` | Run pending memory migrations |
 | `wt-memory migrate --status` | Show migration history |
 
+**Metrics & Reporting:**
+
+| Command | Description |
+|---------|-------------|
+| `wt-memory metrics [--since Nd] [--json]` | Injection quality report (default: last 7 days) |
+| `wt-memory dashboard [--since Nd]` | Generate HTML dashboard and open in browser |
+
 **Diagnostics:**
 
 | Command | Description |
@@ -660,6 +667,47 @@ If shodh-memory is not installed:
 - OpenSpec hooks skip silently
 
 You can install shodh-memory at any time — existing commands and hooks will start working immediately.
+
+---
+
+## Metrics & Reporting
+
+Track how effectively the memory system serves agents across sessions. Metrics are collected automatically by the hook system and stored in a local SQLite database (`~/.local/share/wt-tools/metrics/metrics.db`).
+
+### TUI Report
+
+```bash
+wt-memory metrics              # Last 7 days (default)
+wt-memory metrics --since 30d  # Last 30 days
+wt-memory metrics --json       # Machine-readable output
+```
+
+Shows per-layer injection counts, token usage, relevance distribution, citation rate, dedup hit rate, and top cited memories — all in the terminal.
+
+![TUI metrics report in the terminal](images/memory-metrics-tui.png)
+
+### HTML Dashboard
+
+```bash
+wt-memory dashboard              # Last 7 days, opens in browser
+wt-memory dashboard --since 30d  # Last 30 days
+```
+
+Generates an interactive HTML dashboard with charts (token burn per day, relevance trend, layer breakdown donut) and a sessions table. Written to `/tmp/wt-memory-dashboard.html` and auto-opened in the default browser.
+
+![HTML metrics dashboard in the browser](images/memory-metrics-dashboard.png)
+
+### What's measured
+
+| Metric | Description |
+|--------|-------------|
+| **Injections** | Total memory injections across all layers (L1-L4) |
+| **Tokens burned** | Estimated token count of injected memory context |
+| **Relevance distribution** | Strong (>0.7), partial (0.3-0.7), weak (<0.3) matches |
+| **Citation rate** | How often agents cite memory in their responses ("From memory:", etc.) |
+| **Dedup hit rate** | Injections skipped because the same memory was already in context |
+| **Empty injections** | Injections that returned no relevant memories |
+| **Per-layer breakdown** | Injection count, avg tokens, avg relevance for L1-L4 |
 
 ---
 
