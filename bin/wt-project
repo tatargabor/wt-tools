@@ -125,10 +125,11 @@ _register_mcp_server() {
         return 0  # claude CLI not available, skip
     fi
     local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
+    local mcp_server_dir="$WT_TOOLS_ROOT/mcp-server"
     [[ -f "$mcp_server" ]] || return 0
     for reg_path in "$@"; do
         [[ -d "$reg_path" ]] || continue
-        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp add wt-memory -- "$mcp_server" 2>/dev/null) || true
+        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp add wt-memory -- uv --directory "$mcp_server_dir" run python "$mcp_server" 2>/dev/null) || true
     done
     success "  Registered wt-memory MCP server"
 }
