@@ -74,9 +74,13 @@ for N in $(seq "$START" "$END"); do
   env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --dangerously-skip-permissions \
     -p "$PROMPT" \
     --max-turns "$MAX_TURNS" \
-    --output-format json \
-    > "results/session-${NN}.json" 2>"results/session-${NN}.err" || true
-  echo "  Claude session finished ($(wc -c < "results/session-${NN}.json") bytes output)"
+    --verbose \
+    --output-format stream-json \
+    > "results/session-${NN}.jsonl" 2>"results/session-${NN}.err" || true
+
+  # Extract the final result line (type=result) for token/cost summary
+  grep '"type":"result"' "results/session-${NN}.jsonl" | tail -1 > "results/session-${NN}.json" 2>/dev/null || true
+  echo "  Claude session finished ($(wc -l < "results/session-${NN}.jsonl") lines output)"
 
   SESSION_END=$(date +%s)
   SESSION_TIME=$(( SESSION_END - SESSION_START ))
