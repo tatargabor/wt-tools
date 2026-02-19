@@ -19,6 +19,15 @@ This project uses persistent memory (shodh-memory) across sessions. Memory conte
 - `wt-memory forget <id>` — suppress or correct a wrong memory
 - Most things are remembered automatically. Only use `remember` for emphasis.
 
+## Help & Documentation
+
+When the user asks how a feature works or needs help with wt-tools:
+- **General overview or "what can I do?"**: use `/wt:help` (quick reference for all commands, skills, MCP tools)
+- **CLI tools** (wt-new, wt-memory, etc.): run `wt-<tool> --help`
+- **Skills** (/opsx:*, /wt:*): read `.claude/skills/openspec-*/SKILL.md` or `.claude/skills/wt/SKILL.md`
+- **Memory system**: read `docs/developer-memory.md`
+- **Agent messaging**: read `docs/agent-messaging.md`
+
 ## GUI Testing
 
 When the user says "futtass tesztet", "run tests", "teljes teszt", or similar — run this:
