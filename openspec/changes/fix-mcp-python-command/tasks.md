@@ -16,3 +16,7 @@
 
 - [x] 4.1 In `bin/wt-hook-memory`: add a lightweight always-on log line per event invocation to `/tmp/wt-hook-memory.log` (event name, timestamp, outcome) — independent of `WT_HOOK_DEBUG`
 - [x] 4.2 Keep verbose/detail logging gated on `WT_HOOK_DEBUG=1` as before
+
+## 5. Richer always-on logging
+
+- [x] 5.1 In `bin/wt-hook-memory`: make `_log()` verbose by default — log search query, recall mode, confidence scores, and any key outcomes (memories saved/recalled) without requiring `WT_HOOK_DEBUG=1`

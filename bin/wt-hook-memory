@@ -152,14 +152,14 @@ for m in filtered:
     print(f'  - {c}')
 " "$TMPFILE" 2>"$TMPFILE.err")
     local rc=$?
-    if [[ "${WT_HOOK_DEBUG:-}" == "1" && -f "$TMPFILE.err" ]]; then
+    if [[ -f "$TMPFILE.err" ]]; then
         while IFS= read -r line; do
-            _dbg "proactive_and_format: $line"
+            _log "proactive: $line"
         done < "$TMPFILE.err"
     fi
     rm -f "$TMPFILE.err"
-    [[ $rc -ne 0 ]] && { _dbg "proactive_and_format: no results after filtering"; return 1; }
-    _dbg "proactive_and_format: returning $(echo "$result" | wc -l) lines"
+    [[ $rc -ne 0 ]] && { _log "proactive: no results after filtering"; return 1; }
+    _log "proactive: query='${query:0:80}' → $(echo "$result" | wc -l) results"
     echo "$result"
 }
 
@@ -167,7 +167,7 @@ recall_and_format() {
     local query="$1" limit="${2:-3}" mode="${3:-hybrid}"
     _dbg "recall_and_format: query='${query:0:100}' limit=$limit mode=$mode"
 
-    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _dbg "recall_and_format: wt-memory recall FAILED"; return 1; }
+    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _log "recall: FAILED query='${query:0:80}' mode=$mode"; return 1; }
 
     local result
     result=$(python3 -c "
@@ -183,24 +183,26 @@ for m in memories:
     if score is not None and score != 'N/A':
         try:
             if float(score) < 0.3:
-                print(f'  skip: score={score}', file=sys.stderr)
+                print(f'  skip: score={score} content={m.get(\"content\",\"\")[:60]}', file=sys.stderr)
                 continue
         except (ValueError, TypeError): pass
     c = m.get('content','').replace('\n',' ')[:300]
     key = c[:50]
     if key in seen: continue
     seen.add(key)
+    score = m.get('relevance_score', '?')
+    print(f'  - [{score}] {c}', file=sys.stderr)
     print(f'  - {c}')
 " "$TMPFILE" 2>"$TMPFILE.err")
     local rc=$?
-    if [[ "${WT_HOOK_DEBUG:-}" == "1" && -f "$TMPFILE.err" ]]; then
+    if [[ -f "$TMPFILE.err" ]]; then
         while IFS= read -r line; do
-            _dbg "recall_and_format: $line"
+            _log "recall: $line"
         done < "$TMPFILE.err"
     fi
     rm -f "$TMPFILE.err"
-    [[ $rc -ne 0 ]] && { _dbg "recall_and_format: no results"; return 1; }
-    _dbg "recall_and_format: returning $(echo "$result" | wc -l) lines"
+    [[ $rc -ne 0 ]] && { _log "recall: no results query='${query:0:80}' mode=$mode"; return 1; }
+    _log "recall: query='${query:0:80}' mode=$mode → $(echo "$result" | wc -l) results"
     echo "$result"
 }
 
@@ -392,7 +394,7 @@ print(json.dumps(result))
             SAVE_PREFIX="🔴 User frustrated (high)"
         fi
         local SAVE_CONTENT="$SAVE_PREFIX: $(echo "$PROMPT" | head -c 500)"
-        _dbg "saving frustration memory: tags=$SAVE_TAGS"
+        _log "remember: frustration type=Learning tags=$SAVE_TAGS"
         echo "$SAVE_CONTENT" | wt-memory remember --type Learning --tags "$SAVE_TAGS" 2>/dev/null || true
     fi
 
@@ -515,7 +517,7 @@ handle_post_tool() {
         if [[ -n "$FILE_PATH" ]]; then
             local SUMMARY="Modified $FILE_PATH"
             [[ "$TOOL_NAME" == "Write" ]] && SUMMARY="Created/wrote $FILE_PATH"
-            _dbg "file-access memory: $SUMMARY"
+            _log "remember: $SUMMARY type=Context tags=file-access,$FILE_PATH"
             echo "$SUMMARY" | wt-memory remember --type Context --tags "file-access,$FILE_PATH" 2>/dev/null || true
         fi
     fi
@@ -947,6 +949,7 @@ _stop_commit_staged() {
             local full_tags="phase:auto-extract,source:hook,$tags"
             [[ -n "$first_change" ]] && full_tags="change:$first_change,$full_tags"
 
+            _log "remember: auto-extract type=$mem_type tags=$full_tags content='${content:0:80}'"
             echo "$content" | wt-memory remember --type "$mem_type" --tags "$full_tags" 2>/dev/null || true
         done < "$staged"
 
@@ -1044,6 +1047,7 @@ _stop_commit_extraction() {
                 if [[ -n "$changed_files" ]]; then
                     local codemap_content="$change_name code map (auto): $changed_files"
                     [[ ${#codemap_content} -gt 400 ]] && codemap_content="${codemap_content:0:397}..."
+                    _log "remember: codemap change=$change_name files=${changed_files:0:80}"
                     echo "$codemap_content" | wt-memory remember --type Context --tags "change:$change_name,phase:apply,source:hook,code-map" 2>/dev/null || true
                 fi
             fi
@@ -1066,6 +1070,7 @@ _stop_commit_extraction() {
             if [[ -n "$choices" ]]; then
                 local content="$change_name: $choices"
                 [[ ${#content} -gt 300 ]] && content="${content:0:297}..."
+                _log "remember: design-choices change=$change_name content='${content:0:80}'"
                 echo "$content" | wt-memory remember --type Decision --tags "change:$change_name,phase:apply,source:hook,decisions" 2>/dev/null || true
             fi
         fi
