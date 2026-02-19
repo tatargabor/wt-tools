@@ -63,6 +63,8 @@ deploy_wt_tools() {
     # 5. Ensure CLAUDE.md has the Persistent Memory section
     local claude_md="$project_path/CLAUDE.md"
     local memory_marker="## Persistent Memory"
+    local current_important='Start by summarizing what you already know from the injected memory, then fill in gaps.'
+    local correct_important='If a memory directly answers the user'"'"'s question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch.'
     if [[ ! -f "$claude_md" ]] || ! grep -q "$memory_marker" "$claude_md" 2>/dev/null; then
         local snippet
         snippet=$(cat << 'MEMORY_SNIPPET'
@@ -96,6 +98,19 @@ MEMORY_SNIPPET
             echo "${snippet#$'\n'}" > "$claude_md"
         fi
         success "  Added Persistent Memory section to CLAUDE.md"
+    elif grep -qF "$current_important" "$claude_md" 2>/dev/null; then
+        # Patch outdated IMPORTANT line to include explicit "From memory:" citation rule
+        python3 -c "
+import sys
+old = sys.argv[1]
+new = sys.argv[2]
+with open(sys.argv[3]) as f:
+    content = f.read()
+if old in content:
+    with open(sys.argv[3], 'w') as f:
+        f.write(content.replace(old, new, 1))
+" "$current_important" "$correct_important" "$claude_md" 2>/dev/null || true
+        success "  Updated Persistent Memory citation instruction in CLAUDE.md"
     fi
 
     # 6. Register wt-memory MCP server for the project path (and any extra paths, e.g. worktree)
