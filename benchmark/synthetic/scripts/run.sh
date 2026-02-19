@@ -64,7 +64,7 @@ for N in $(seq "$START" "$END"); do
     PROMPT="Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   fi
 
-  env -u CLAUDECODE claude --dangerously-skip-permissions \
+  env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --dangerously-skip-permissions \
     -p "$PROMPT" \
     --max-turns 30 \
     --output-format json \
