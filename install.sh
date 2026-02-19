@@ -284,10 +284,25 @@ install_shodh_memory() {
         return 0
     fi
 
-    # Already installed in a reachable Python?
+    # Read version pin from pyproject.toml (single source of truth)
+    local shodh_pkg=""
+    local pyproject="$SCRIPT_DIR/pyproject.toml"
+    if [[ -f "$pyproject" ]]; then
+        shodh_pkg=$(grep 'shodh-memory' "$pyproject" | head -1 | sed 's/.*"\(shodh-memory[^"]*\)".*/\1/')
+    fi
+    if [[ -z "$shodh_pkg" ]]; then
+        shodh_pkg='shodh-memory>=0.1.81'  # fallback
+    fi
+
+    # Already installed? Check if version satisfies the pin.
     if "$PYTHON" -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
         save_shodh_python "$PYTHON"
-        success "Shodh-Memory already installed ($(basename "$PYTHON"))"
+        # Try upgrade to satisfy the pin (pip handles "already satisfied" cheaply)
+        if "$PYTHON" -m pip install "$shodh_pkg" >/dev/null 2>&1; then
+            success "Shodh-Memory up to date ($(basename "$PYTHON"))"
+        else
+            success "Shodh-Memory already installed ($(basename "$PYTHON"))"
+        fi
         return 0
     fi
 
@@ -304,7 +319,6 @@ install_shodh_memory() {
 
     info "Installing Shodh-Memory into $PYTHON..."
     # Use $PYTHON -m pip to guarantee pip matches the target Python
-    local shodh_pkg='shodh-memory>=0.1.75,!=0.1.80'
     if "$PYTHON" -m pip install "$shodh_pkg" >/dev/null 2>&1; then
         :
     elif "$PYTHON" -m pip install --user "$shodh_pkg" >/dev/null 2>&1; then
