@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from ...constants import SCRIPT_DIR, CONFIG_DIR, ICON_RUNNING, ICON_WAITING
 from ...dialogs.helpers import show_warning, show_information, show_question
+from ...logging_setup import safe_slot
 
 __all__ = ["TeamMixin"]
 
@@ -194,6 +195,7 @@ class TeamMixin:
         self.team_filter_state[project] = (current + 1) % 3
         self.refresh_table_display()
 
+    @safe_slot
     def update_team(self, data: dict):
         """Handle team data update from worker"""
         self.team_data = data

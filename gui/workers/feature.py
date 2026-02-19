@@ -4,6 +4,7 @@ Feature Worker - Background thread for polling per-project feature status
 """
 
 import json
+import logging
 import subprocess
 import threading
 
@@ -12,6 +13,8 @@ from PySide6.QtCore import QThread, Signal
 from ..constants import SCRIPT_DIR
 
 __all__ = ["FeatureWorker"]
+
+logger = logging.getLogger("wt-control.workers.feature")
 
 POLL_INTERVAL_MS = 15000  # 15 seconds
 
@@ -63,6 +66,7 @@ class FeatureWorker(QThread):
         if not projects:
             return
 
+        logger.debug("polling %d projects", len(projects))
         result = {}
         for project, main_repo_path in projects.items():
             if not self._running:
@@ -70,6 +74,7 @@ class FeatureWorker(QThread):
             result[project] = self._poll_project(project, main_repo_path)
 
         if self._running:
+            logger.debug("poll complete: %s", {k: {sk: sv.get("available", sv.get("installed", "?")) for sk, sv in v.items()} for k, v in result.items()})
             self.features_updated.emit(result)
 
     def _poll_project(self, project: str, main_repo_path: str) -> dict:
@@ -88,8 +93,8 @@ class FeatureWorker(QThread):
             if result.returncode == 0 and result.stdout.strip():
                 data = json.loads(result.stdout.strip())
                 return {"available": data.get("available", False), "count": data.get("count", 0)}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("wt-memory poll failed for %s: %s", project, e)
         return {"available": False, "count": 0}
 
     def _poll_openspec(self, main_repo_path: str) -> dict:
@@ -104,6 +109,6 @@ class FeatureWorker(QThread):
             )
             if result.returncode == 0 and result.stdout.strip():
                 return json.loads(result.stdout.strip())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("wt-openspec poll failed for %s: %s", main_repo_path, e)
         return {"installed": False, "changes_active": 0, "skills_present": False, "cli_available": False}

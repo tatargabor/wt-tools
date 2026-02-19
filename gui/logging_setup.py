@@ -70,3 +70,22 @@ def log_exceptions(func):
             raise
 
     return wrapper
+
+
+def safe_slot(func):
+    """Decorator for worker signal handler slots.
+
+    Like log_exceptions, but suppresses the exception instead of re-raising.
+    This prevents a single bad worker result from crashing the UI — the slot
+    logs the error and the UI continues with stale data.
+    """
+    logger = logging.getLogger("wt-control.slots")
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            logger.exception("Exception in slot %s", func.__name__)
+
+    return wrapper

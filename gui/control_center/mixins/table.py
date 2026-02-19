@@ -208,6 +208,7 @@ class TableMixin:
         layout.addWidget(mem_btn)
 
         # OpenSpec [O] button (reads from FeatureWorker cache)
+        os_status = self.get_openspec_status(project)
         os_btn = QPushButton("O")
         os_btn.setFixedSize(22, 22)
         if not has_cache:
@@ -266,7 +267,11 @@ class TableMixin:
         """Set background color on all columns of a row.
 
         CellWidgets are kept transparent so the item background shows through.
+        Alpha-transparent colors are replaced with bg_dialog to prevent
+        rendering artifacts on Linux X11 frameless windows.
         """
+        if color.alpha() < 255:
+            color = QColor(self.get_color("bg_dialog"))
         for col in range(self.table.columnCount()):
             item = self.table.item(row, col)
             if item:
@@ -385,7 +390,6 @@ class TableMixin:
         ralph_status = self.get_ralph_status(wt_path)
         if ralph_status:
             integrations_widget = QWidget()
-            integrations_widget.setAttribute(Qt.WA_TranslucentBackground)
             integrations_widget.setStyleSheet("background: transparent;")
             integrations_layout = QHBoxLayout(integrations_widget)
             integrations_layout.setContentsMargins(2, 0, 2, 0)
@@ -689,13 +693,18 @@ class TableMixin:
         # Calculate opacity: oscillate between 0.2 and 0.5
         opacity = 0.2 + 0.15 * (1 + math.sin(self.pulse_phase))
 
-        # Get base green color and apply opacity
-        base_color = QColor(34, 197, 94)  # Green
-        base_color.setAlphaF(opacity)
+        # Blend green with background to get an opaque color
+        # (alpha-transparent colors cause rendering artifacts on Linux X11 frameless windows)
+        bg = QColor(self.get_color("bg_dialog"))
+        green = QColor(34, 197, 94)
+        r = int(bg.red() * (1 - opacity) + green.red() * opacity)
+        g = int(bg.green() * (1 - opacity) + green.green() * opacity)
+        b = int(bg.blue() * (1 - opacity) + green.blue() * opacity)
+        blended = QColor(r, g, b)
 
         for row in self.running_rows:
             if row < self.table.rowCount():
-                self._set_row_background(row, base_color)
+                self._set_row_background(row, blended)
 
     def _is_recent(self, iso_timestamp: str, seconds: int = 60) -> bool:
         """Check if an ISO timestamp is within the last N seconds"""

@@ -226,8 +226,8 @@ def test_set_row_background_covers_all_columns(control_center, git_env, qtbot):
         break
     assert wt_row is not None
 
-    # Apply a distinctive color via the helper
-    test_color = QColor(255, 0, 0, 128)
+    # Apply a fully opaque color via the helper
+    test_color = QColor(255, 0, 0)
     control_center._set_row_background(wt_row, test_color)
 
     # Verify all columns with items got the background
@@ -236,6 +236,7 @@ def test_set_row_background_covers_all_columns(control_center, git_env, qtbot):
         if item:
             bg = item.background().color()
             assert bg.red() == 255, f"Column {col} item background red should be 255, got {bg.red()}"
+            assert bg.alpha() == 255, f"Column {col} item background should be opaque"
 
         # Verify cellWidgets are transparent (item background shows through)
         widget = control_center.table.cellWidget(wt_row, col)
@@ -271,5 +272,6 @@ def test_pulse_covers_cellwidget(control_center, git_env, qtbot):
             item = control_center.table.item(row, col)
             if item:
                 bg = item.background().color()
-                # Pulse uses green (34, 197, 94) with alpha
-                assert bg.green() > 100, f"Row {row} col {col}: expected green pulse, got g={bg.green()}"
+                # Pulse uses green (34, 197, 94) blended with bg_dialog (opaque)
+                assert bg.green() > 50, f"Row {row} col {col}: expected green-tinted pulse, got g={bg.green()}"
+                assert bg.alpha() == 255, f"Row {row} col {col}: pulse color should be opaque"

@@ -24,6 +24,7 @@ from ..constants import (
 from ..config import Config
 from ..utils import get_version
 from ..workers import StatusWorker, UsageWorker, TeamWorker, ChatWorker, FeatureWorker
+from ..logging_setup import safe_slot
 from .mixins import TeamMixin, TableMixin, MenusMixin, HandlersMixin
 
 __all__ = ["ControlCenter"]
@@ -89,6 +90,9 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
 
         # Active filter state (show only worktrees with open editor)
         self.filter_active = False
+
+        # Ensure opaque rendering (prevents transparency artifacts on Linux X11)
+        self.setAttribute(Qt.WA_StyledBackground, True)
 
         # Setup UI
         self.setup_ui()
@@ -453,6 +457,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.feature_worker.features_updated.connect(self.on_features_updated)
         self.feature_worker.start()
 
+    @safe_slot
     def on_features_updated(self, data: dict):
         """Handle feature status update from FeatureWorker"""
         self._feature_cache = data
@@ -463,6 +468,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         if hasattr(self, 'feature_worker'):
             self.feature_worker.refresh_now()
 
+    @safe_slot
     def update_chat_badge(self, unread_count: int):
         """Update chat button with unread count"""
         project = self.get_active_project()
@@ -488,6 +494,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
             pass
         return None
 
+    @safe_slot
     def update_usage(self, data: dict):
         """Handle usage data update from worker"""
         self.usage_data = data
@@ -679,6 +686,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         except Exception as e:
             self.on_error(str(e))
 
+    @safe_slot
     def update_status(self, data: dict):
         """Update the UI with new status data"""
         new_worktrees = data.get("worktrees", [])
