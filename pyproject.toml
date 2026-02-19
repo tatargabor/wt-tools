@@ -29,7 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 memory = [
-    "shodh-memory>=0.1.75,!=0.1.80",
+    "shodh-memory>=0.1.81",
 ]
 dev = [
     "pytest>=7.0.0",

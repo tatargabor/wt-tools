@@ -210,6 +210,67 @@ def import_memories(file_path: str, dry_run: bool = True) -> str:
 
 
 # ============================================================
+# Todo tools
+# ============================================================
+
+@mcp.tool()
+def add_todo(content: str, tags: str = "") -> str:
+    """Save a todo/idea for later. Fire-and-forget capture."""
+    args = ["todo", "add"]
+    if tags:
+        args.extend(["--tags", tags])
+    return _run(args, input_text=content)
+
+
+@mcp.tool()
+def list_todos() -> str:
+    """List all open todos."""
+    return _run_json(["todo", "list", "--json"])
+
+
+@mcp.tool()
+def complete_todo(id: str) -> str:
+    """Mark a todo as done (deletes it). Supports ID prefix matching."""
+    return _run(["todo", "done", id])
+
+
+# ============================================================
+# API parity tools (shodh-memory 0.1.81+)
+# ============================================================
+
+@mcp.tool()
+def verify_index() -> str:
+    """Verify index integrity — find orphaned memories not in vector index."""
+    return _run_json(["verify"])
+
+
+@mcp.tool()
+def consolidation_report(since: str = "") -> str:
+    """Memory consolidation report — strengthening/decay events."""
+    args = ["consolidation"]
+    if since:
+        args.extend(["--since", since])
+    return _run_json(args)
+
+
+@mcp.tool()
+def graph_stats() -> str:
+    """Knowledge graph statistics (node count, edge count, etc.)."""
+    return _run_json(["graph-stats"])
+
+
+@mcp.tool()
+def recall_by_date(since: str = "", until: str = "", limit: int = 20) -> str:
+    """Recall memories within a date range. ISO 8601 dates."""
+    args = ["recall", "--limit", str(limit)]
+    if since:
+        args.extend(["--since", since])
+    if until:
+        args.extend(["--until", until])
+    return _run_json(args)
+
+
+# ============================================================
 # Entry point
 # ============================================================
 
