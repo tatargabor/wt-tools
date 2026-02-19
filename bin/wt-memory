@@ -58,8 +58,8 @@ Forget / Cleanup:
 
 Diagnostics:
   stats [--json]                  Memory quality diagnostics (types, tags, importance)
-  cleanup [--threshold F] [--dry-run]
-                                  Remove low-value memories (default threshold 0.2)
+  cleanup [--threshold F] [--min-length N] [--dry-run]
+                                  Remove garbage (<N chars, default 20) and low-value memories (default threshold 0.2)
   audit [--threshold F] [--json]  Duplicate detection report (default threshold 0.75)
   dedup [--threshold F] [--dry-run] [--interactive]
                                   Remove duplicate memories (keeps best per cluster)
@@ -1074,15 +1074,17 @@ else:
     return 0
 }
 
-# Memory cleanup — remove low-value memories
-# Usage: wt-memory cleanup [--threshold F] [--dry-run]
+# Memory cleanup — remove low-value and garbage memories
+# Usage: wt-memory cleanup [--threshold F] [--min-length N] [--dry-run]
 cmd_cleanup() {
     local threshold=0.2
+    local min_length=20
     local dry_run=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --threshold) threshold="$2"; shift 2 ;;
+            --min-length) min_length="$2"; shift 2 ;;
             --dry-run) dry_run=true; shift ;;
             *) shift ;;
         esac
@@ -1097,6 +1099,7 @@ cmd_cleanup() {
 
     _SHODH_STORAGE="$storage_path" \
     _SHODH_THRESHOLD="$threshold" \
+    _SHODH_MIN_LENGTH="$min_length" \
     _SHODH_DRY_RUN="$dry_run" \
     run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
@@ -1104,26 +1107,29 @@ import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
 threshold = float(os.environ['_SHODH_THRESHOLD'])
+min_length = int(os.environ.get('_SHODH_MIN_LENGTH', '20'))
 dry_run = os.environ.get('_SHODH_DRY_RUN', 'false') == 'true'
 
-if not dry_run and hasattr(m, 'forget_by_importance'):
-    count = m.forget_by_importance(threshold)
-    print(json.dumps({'deleted_count': count}))
+memories = m.list_memories()
+
+# Phase 1: remove garbage (content too short to be useful)
+garbage = [r for r in memories if len(r.get('content', '')) < min_length]
+
+# Phase 2: remove low-importance memories
+low_value = [r for r in memories if r not in garbage and float(r.get('importance', 0.5)) < threshold]
+
+if dry_run:
+    print(json.dumps({'garbage': len(garbage), 'low_importance': len(low_value),
+                       'would_delete': len(garbage) + len(low_value), 'dry_run': True}))
 else:
-    # Fallback or dry-run: list, filter, optionally delete
-    memories = m.list_memories()
-    to_delete = [r for r in memories if float(r.get('importance', 0.5)) < threshold]
-    if dry_run:
-        print(json.dumps({'would_delete': len(to_delete), 'dry_run': True}))
-    else:
-        deleted = 0
-        for r in to_delete:
-            try:
-                m.forget(r['id'])
-                deleted += 1
-            except Exception:
-                pass
-        print(json.dumps({'deleted_count': deleted}))
+    deleted = 0
+    for r in garbage + low_value:
+        try:
+            m.forget(r['id'])
+            deleted += 1
+        except Exception:
+            pass
+    print(json.dumps({'deleted_count': deleted, 'garbage': len(garbage), 'low_importance': len(low_value)}))
 " || echo '{"deleted_count": 0}'
 
     return 0

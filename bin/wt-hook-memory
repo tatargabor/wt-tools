@@ -143,8 +143,12 @@ for m in memories:
     filtered.append(m)
 if not filtered: sys.exit(1)
 seen = set()
+emitted = 0
 for m in filtered:
-    c = m.get('content','').replace('\n',' ')[:300]
+    c = m.get('content','').replace('\n',' ').strip()
+    if len(c) < 20:
+        print(f'  skip [short]: {c!r}', file=sys.stderr)
+        continue
     key = c[:50]
     if key in seen: continue
     seen.add(key)
@@ -153,7 +157,9 @@ for m in filtered:
     except: pass
     print(f'  [{score}] {c[:100]}', file=sys.stderr)
     print(f'  - {c}')
-print(f'filtered={len(filtered)}', file=sys.stderr)
+    emitted += 1
+if not emitted: sys.exit(1)
+print(f'filtered={emitted}', file=sys.stderr)
 " "$TMPFILE" 2>"$TMPFILE.err")
     local rc=$?
     if [[ -f "$TMPFILE.err" ]]; then
@@ -189,7 +195,10 @@ for m in memories:
                 print(f'  skip [{float(score):.2f}]: {m.get(\"content\",\"\")[:60]}', file=sys.stderr)
                 continue
         except (ValueError, TypeError): pass
-    c = m.get('content','').replace('\n',' ')[:300]
+    c = m.get('content','').replace('\n',' ').strip()
+    if len(c) < 20:
+        print(f'  skip [short]: {c!r}', file=sys.stderr)
+        continue
     key = c[:50]
     if key in seen: continue
     seen.add(key)
@@ -284,7 +293,8 @@ except: sys.exit(0)
 if not memories: sys.exit(0)
 seen = set()
 for m in memories:
-    c = m.get('content','').replace('\n',' ')[:200]
+    c = m.get('content','').replace('\n',' ').strip()
+    if len(c) < 20: continue
     key = c[:50]
     if key in seen: continue
     seen.add(key)
