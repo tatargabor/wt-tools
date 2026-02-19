@@ -451,6 +451,20 @@ class HandlersMixin:
             "iterm2": ["open", "-a", "iTerm"],
             "terminal-app": ["open", "-a", "Terminal"],
         }
+        import shutil
+        import os
+
+        def _find_binary(name):
+            """Find binary, also searching Homebrew paths not in GUI app PATH."""
+            found = shutil.which(name)
+            if found:
+                return found
+            for extra in ["/opt/homebrew/bin", "/usr/local/bin"]:
+                candidate = os.path.join(extra, name)
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    return candidate
+            return name  # fallback to bare name
+
         try:
             config_path = CONFIG_DIR / "config.json"
             if config_path.exists():
@@ -459,17 +473,22 @@ class HandlersMixin:
                 name = data.get("editor", {}).get("name", "auto")
                 if name != "auto":
                     if name in ide_commands:
-                        return ide_commands[name] + [wt_path]
+                        cmd = ide_commands[name]
+                        binary = _find_binary(cmd[0])
+                        return [binary] + cmd[1:] + [wt_path]
                     if name in terminal_commands:
-                        return terminal_commands[name] + [wt_path]
+                        cmd = terminal_commands[name]
+                        binary = _find_binary(cmd[0])
+                        return [binary] + cmd[1:] + [wt_path]
         except Exception:
             pass
         # Default: try zed, then code
-        import shutil
-        if shutil.which("zed"):
-            return ["zed", "-n", wt_path]
-        if shutil.which("code"):
-            return ["code", wt_path]
+        zed = _find_binary("zed")
+        if os.path.isabs(zed):
+            return [zed, "-n", wt_path]
+        code = _find_binary("code")
+        if os.path.isabs(code):
+            return [code, wt_path]
         return ["xdg-open", wt_path]
 
     def _get_editor_app_name(self) -> str:
