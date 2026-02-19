@@ -1,0 +1,1088 @@
+{
+  "version": 1,
+  "format": "wt-memory-export",
+  "project": "wt-tools",
+  "exported_at": "2026-02-19T10:23:09.940289+00:00",
+  "count": 58,
+  "records": [
+    {
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "is_anomaly": false,
+      "id": "060d3d4b-4a59-45c4-ba7a-c3013fa0115f",
+      "experience_type": "Context",
+      "metadata": {},
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "importance": 0.12000000476837158,
+      "access_count": 0,
+      "created_at": "2026-02-19T09:50:35.055298833+00:00",
+      "entities": [],
+      "compressed": false,
+      "last_accessed": "2026-02-19T09:50:35.055298833+00:00"
+    },
+    {
+      "last_accessed": "2026-02-19T10:04:46.603094001+00:00",
+      "entities": [],
+      "created_at": "2026-02-19T10:04:46.603094001+00:00",
+      "compressed": false,
+      "access_count": 0,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "experience_type": "Context",
+      "metadata": {},
+      "is_anomaly": false,
+      "is_failure": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "importance": 0.12000000476837158,
+      "id": "06894769-f64a-4112-89a7-b30b1eaa1b05"
+    },
+    {
+      "access_count": 0,
+      "compressed": false,
+      "id": "1a23e657-6cbe-48ae-87c0-ba36bfa7d164",
+      "metadata": {},
+      "created_at": "2026-02-19T10:04:16.401720114+00:00",
+      "experience_type": "Context",
+      "is_failure": false,
+      "importance": 0.12000000476837158,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "last_accessed": "2026-02-19T10:04:16.401720114+00:00",
+      "is_anomaly": false,
+      "entities": [],
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ]
+    },
+    {
+      "experience_type": "Context",
+      "is_anomaly": false,
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "last_accessed": "2026-02-19T10:10:32.707363747+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "is_failure": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "access_count": 0,
+      "compressed": false,
+      "entities": [],
+      "id": "1c7cc7bb-367e-48fd-9e28-7237dd8f15ba",
+      "created_at": "2026-02-19T10:10:32.707363747+00:00"
+    },
+    {
+      "tags": [
+        "frustration",
+        "recurring",
+        "source:emotion-detect",
+        "branch:master"
+      ],
+      "id": "252ef842-c1ce-4fa3-baf5-92e42be5c903",
+      "entities": [],
+      "access_count": 0,
+      "is_anomaly": false,
+      "content": "\u26a0\ufe0f User frustrated (moderate): You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.\n\n\n\nSkills used: \"skill\":\"opsx:explore\"\n\"skill\":\"opsx:continue\"\n\"skill\":\"opsx:apply\"\n\"skill\":\"opsx:continue\"\n\"skill\":\"opsx:continue\"\nChange names: fix-mcp-python-command\n\nExtract ONLY insights that a future agent in a DIFFERENT session would benefit from knowing:\n- Errors encountered and their fixes/workarounds\n- User corrections or knowledge shared (in any language)\n- N",
+      "is_failure": false,
+      "importance": 0.5,
+      "experience_type": "Learning",
+      "created_at": "2026-02-19T10:17:08.252993+00:00",
+      "metadata": {},
+      "compressed": false,
+      "last_accessed": "2026-02-19T10:17:08.252993+00:00"
+    },
+    {
+      "is_failure": false,
+      "experience_type": "Context",
+      "created_at": "2026-02-19T10:15:31.488705476+00:00",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "metadata": {},
+      "access_count": 0,
+      "entities": [],
+      "id": "367a0d73-f9d2-4f82-9f1e-cfa7a71f167d",
+      "last_accessed": "2026-02-19T10:15:31.488705476+00:00",
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "is_anomaly": false
+    },
+    {
+      "experience_type": "Observation",
+      "content": "<Modif",
+      "compressed": false,
+      "is_failure": false,
+      "access_count": 0,
+      "entities": [],
+      "created_at": "2026-02-19T09:23:44.597309066+00:00",
+      "id": "3fad1bbe-1c71-492e-9318-f6e5e8c4d6a3",
+      "last_accessed": "2026-02-19T09:23:44.597309066+00:00",
+      "is_anomaly": false,
+      "importance": 0.5,
+      "metadata": {}
+    },
+    {
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "id": "417b3353-3eee-4e0a-a971-33a88899d757",
+      "is_anomaly": false,
+      "experience_type": "Context",
+      "created_at": "2026-02-19T10:03:15.205326208+00:00",
+      "last_accessed": "2026-02-19T10:03:15.205326208+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "entities": [],
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "is_failure": false,
+      "access_count": 0
+    },
+    {
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "is_failure": false,
+      "metadata": {},
+      "entities": [],
+      "experience_type": "Context",
+      "access_count": 0,
+      "created_at": "2026-02-19T10:15:49.391358947+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/.gitignore",
+        "branch:master"
+      ],
+      "is_anomaly": false,
+      "id": "44d99c7e-aa8c-4b1f-ba8e-6d736bf71a80",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/.gitignore",
+      "last_accessed": "2026-02-19T10:15:49.391358947+00:00"
+    },
+    {
+      "importance": 0.5,
+      "entities": [],
+      "created_at": "2026-02-19T09:23:44.597360522+00:00",
+      "metadata": {},
+      "compressed": false,
+      "id": "47fd0b50-a645-4ee6-b04b-70a835079847",
+      "last_accessed": "2026-02-19T09:23:44.597360522+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "content": "emoving an email from GitHub contributors requires: delete all branches containing",
+      "experience_type": "Observation",
+      "access_count": 0
+    },
+    {
+      "compressed": false,
+      "tags": [
+        "frustration",
+        "recurring",
+        "source:emotion-detect",
+        "branch:master"
+      ],
+      "access_count": 0,
+      "last_accessed": "2026-02-19T10:11:09.267340959+00:00",
+      "is_failure": false,
+      "experience_type": "Learning",
+      "entities": [],
+      "is_anomaly": false,
+      "id": "4b50fadd-e2fd-4fbe-8f00-631874fd603a",
+      "importance": 0.5,
+      "content": "\u26a0\ufe0f User frustrated (moderate): You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.\n\n\n\nSkills used: \"skill\":\"opsx:explore\"\n\"skill\":\"opsx:continue\"\n\"skill\":\"opsx:apply\"\n\"skill\":\"opsx:continue\"\nChange names: fix-mcp-python-command\n\nExtract ONLY insights that a future agent in a DIFFERENT session would benefit from knowing:\n- Errors encountered and their fixes/workarounds\n- User corrections or knowledge shared (in any language)\n- Non-obvious patterns or g",
+      "metadata": {},
+      "created_at": "2026-02-19T10:11:09.267340959+00:00"
+    },
+    {
+      "created_at": "2026-02-19T10:17:39.917768334+00:00",
+      "is_failure": false,
+      "id": "51276867-deda-4153-8f10-c2acff55d287",
+      "access_count": 0,
+      "content": "Created/wrote /home/szlukaandras/.claude/projects/-home-szlukaandras-projects-wt-tools/memory/MEMORY.md",
+      "metadata": {},
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/.claude/projects/-home-szlukaandras-projects-wt-tools/memory/MEMORY.md",
+        "branch:master"
+      ],
+      "compressed": false,
+      "importance": 0.12000000476837158,
+      "experience_type": "Context",
+      "entities": [],
+      "last_accessed": "2026-02-19T10:17:39.917768334+00:00"
+    },
+    {
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "access_count": 0,
+      "last_accessed": "2026-02-19T09:50:41.175193486+00:00",
+      "id": "52dc1323-8156-460a-857d-c5c914a0a931",
+      "created_at": "2026-02-19T09:50:41.175193486+00:00",
+      "experience_type": "Context",
+      "entities": [],
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "is_failure": false,
+      "is_anomaly": false,
+      "metadata": {}
+    },
+    {
+      "compressed": false,
+      "experience_type": "Context",
+      "is_failure": false,
+      "entities": [],
+      "metadata": {},
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "created_at": "2026-02-19T09:58:24.373787398+00:00",
+      "importance": 0.12000000476837158,
+      "access_count": 0,
+      "id": "537ee029-c6f2-4256-917d-9994a383a1f7",
+      "last_accessed": "2026-02-19T09:58:24.373787398+00:00"
+    },
+    {
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "experience_type": "Context",
+      "access_count": 0,
+      "is_anomaly": false,
+      "compressed": false,
+      "entities": [],
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "last_accessed": "2026-02-19T09:49:27.664949266+00:00",
+      "id": "585088e4-2660-4ae2-ac75-16648a47e9fd",
+      "created_at": "2026-02-19T09:49:27.664949266+00:00",
+      "is_failure": false
+    },
+    {
+      "created_at": "2026-02-19T09:50:02.728065267+00:00",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "last_accessed": "2026-02-19T09:50:02.728065267+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "id": "5e1eabac-03ce-43a0-8f3c-f1133725a662",
+      "entities": [],
+      "access_count": 0,
+      "compressed": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "experience_type": "Context"
+    },
+    {
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T10:16:16.903972252+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+      "compressed": false,
+      "last_accessed": "2026-02-19T10:16:16.903972252+00:00",
+      "access_count": 0,
+      "metadata": {},
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+        "branch:master"
+      ],
+      "experience_type": "Context",
+      "id": "63060c7d-013a-4cc1-a613-31d4a1246f0e",
+      "entities": []
+    },
+    {
+      "metadata": {},
+      "compressed": false,
+      "experience_type": "Context",
+      "access_count": 0,
+      "content": "Modified /home/szlukaandras/projects/terepasztal-detektor/CLAUDE.md",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/terepasztal-detektor/CLAUDE.md",
+        "branch:master"
+      ],
+      "is_failure": false,
+      "last_accessed": "2026-02-19T10:19:09.016367656+00:00",
+      "id": "6922af53-a443-4715-bef8-3b1d1f3cadf2",
+      "created_at": "2026-02-19T10:19:09.016367656+00:00",
+      "entities": [],
+      "is_anomaly": false,
+      "importance": 0.12000000476837158
+    },
+    {
+      "access_count": 0,
+      "content": "Created/wrote /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/proposal.md",
+      "experience_type": "Context",
+      "last_accessed": "2026-02-19T09:31:58.016833480+00:00",
+      "compressed": false,
+      "entities": [],
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T09:31:58.016833480+00:00",
+      "id": "70cd90d6-9167-4563-b8b3-bda50016af31",
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/proposal.md",
+        "branch:master"
+      ],
+      "metadata": {},
+      "is_failure": false
+    },
+    {
+      "compressed": false,
+      "id": "71db79fc-cfa8-44aa-a82e-fb8a4c5a4609",
+      "access_count": 0,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "entities": [],
+      "is_failure": false,
+      "last_accessed": "2026-02-19T09:34:26.012090257+00:00",
+      "experience_type": "Context",
+      "importance": 0.12000000476837158,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "created_at": "2026-02-19T09:34:26.012090257+00:00",
+      "metadata": {}
+    },
+    {
+      "access_count": 0,
+      "tags": [
+        "preference",
+        "openspec",
+        "opsx",
+        "skills",
+        "branch:master"
+      ],
+      "experience_type": "Decision",
+      "content": "Always use opsx:* skills (not openspec-* skills) for OpenSpec workflow. E.g. /opsx:new, /opsx:apply, /opsx:archive, /opsx:continue, /opsx:ff, etc.",
+      "importance": 0.3799999952316284,
+      "last_accessed": "2026-02-19T09:51:01.151234842+00:00",
+      "created_at": "2026-02-19T09:51:01.151234842+00:00",
+      "compressed": false,
+      "id": "746bf322-4732-45b6-9153-73f157296922",
+      "is_anomaly": false,
+      "metadata": {},
+      "entities": [],
+      "is_failure": false
+    },
+    {
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "importance": 0.12000000476837158,
+      "entities": [],
+      "access_count": 0,
+      "experience_type": "Context",
+      "is_failure": false,
+      "is_anomaly": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "metadata": {},
+      "id": "759e4e81-38f5-4ba0-9ae7-032c486f9f9b",
+      "created_at": "2026-02-19T09:34:21.625436508+00:00",
+      "last_accessed": "2026-02-19T09:34:21.625436508+00:00",
+      "compressed": false
+    },
+    {
+      "created_at": "2026-02-19T10:19:21.515257204+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+        "branch:master"
+      ],
+      "id": "77d7989c-0385-4d83-8d05-74e912bcd310",
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "access_count": 0,
+      "experience_type": "Context",
+      "last_accessed": "2026-02-19T10:19:21.515257204+00:00",
+      "compressed": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+      "entities": []
+    },
+    {
+      "content": "Modified /home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "id": "7a73f41a-3987-4468-9773-5c8785df07c7",
+      "is_anomaly": false,
+      "access_count": 0,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+        "branch:master"
+      ],
+      "experience_type": "Context",
+      "entities": [],
+      "created_at": "2026-02-19T10:19:19.714477680+00:00",
+      "last_accessed": "2026-02-19T10:19:19.714477680+00:00",
+      "is_failure": false
+    },
+    {
+      "entities": [],
+      "is_failure": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "metadata": {},
+      "last_accessed": "2026-02-19T09:34:54.457502090+00:00",
+      "importance": 0.12000000476837158,
+      "access_count": 0,
+      "id": "7aa12437-c535-4f51-98b5-c0fda51f4ebf",
+      "experience_type": "Context",
+      "created_at": "2026-02-19T09:34:54.457502090+00:00",
+      "compressed": false,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ]
+    },
+    {
+      "experience_type": "Context",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "id": "7b2d30da-180f-4c6c-ba01-8a8047fb4e91",
+      "access_count": 0,
+      "entities": [],
+      "is_anomaly": false,
+      "metadata": {},
+      "created_at": "2026-02-19T09:48:18.693375300+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "last_accessed": "2026-02-19T09:48:18.693375300+00:00",
+      "importance": 0.12000000476837158
+    },
+    {
+      "experience_type": "Context",
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T09:49:05.959772778+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "is_anomaly": false,
+      "entities": [],
+      "id": "81226269-28f8-420f-8a82-71c8533945e5",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "metadata": {},
+      "last_accessed": "2026-02-19T09:49:05.959772778+00:00",
+      "access_count": 0,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project"
+    },
+    {
+      "access_count": 0,
+      "id": "8124125e-8f47-4543-a01d-33d61dfebd35",
+      "experience_type": "Context",
+      "last_accessed": "2026-02-19T09:49:55.597058801+00:00",
+      "compressed": false,
+      "metadata": {},
+      "is_anomaly": false,
+      "is_failure": false,
+      "entities": [],
+      "created_at": "2026-02-19T09:49:55.597058801+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/install.sh",
+        "branch:master"
+      ],
+      "importance": 0.12000000476837158,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/install.sh"
+    },
+    {
+      "last_accessed": "2026-02-19T10:22:07.426861736+00:00",
+      "is_anomaly": false,
+      "compressed": false,
+      "access_count": 0,
+      "is_failure": false,
+      "created_at": "2026-02-19T10:22:07.426861736+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/.claude/projects/-home-szlukaandras-projects-wt-tools/memory/MEMORY.md",
+        "branch:master"
+      ],
+      "entities": [],
+      "experience_type": "Context",
+      "content": "Modified /home/szlukaandras/.claude/projects/-home-szlukaandras-projects-wt-tools/memory/MEMORY.md",
+      "importance": 0.12000000476837158,
+      "id": "81369ce3-56aa-475a-9ee8-4c92d392593d",
+      "metadata": {}
+    },
+    {
+      "entities": [],
+      "created_at": "2026-02-19T09:34:16.838185573+00:00",
+      "last_accessed": "2026-02-19T09:34:16.838185573+00:00",
+      "is_failure": false,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "importance": 0.12000000476837158,
+      "experience_type": "Context",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "compressed": false,
+      "access_count": 0,
+      "metadata": {},
+      "id": "83df6329-f497-4530-b1cf-390055aa9205"
+    },
+    {
+      "is_anomaly": false,
+      "access_count": 0,
+      "metadata": {},
+      "entities": [],
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "experience_type": "Context",
+      "created_at": "2026-02-19T09:50:48.079533912+00:00",
+      "id": "884c3b76-950f-470c-bad2-50e79e25cc7b",
+      "last_accessed": "2026-02-19T09:50:48.079533912+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "is_failure": false
+    },
+    {
+      "importance": 0.12000000476837158,
+      "experience_type": "Context",
+      "entities": [],
+      "metadata": {},
+      "content": "Modified /home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+      "access_count": 0,
+      "created_at": "2026-02-19T10:16:15.933124295+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/.claude/commands/wt/memory.md",
+        "branch:master"
+      ],
+      "last_accessed": "2026-02-19T10:16:15.933124295+00:00",
+      "id": "8c186c9f-3f05-4d4f-b1cc-de3b7096c845",
+      "is_anomaly": false
+    },
+    {
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "access_count": 0,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "importance": 0.12000000476837158,
+      "experience_type": "Context",
+      "is_failure": false,
+      "id": "9485199d-ac74-43da-9e58-55ec4698ecf4",
+      "created_at": "2026-02-19T09:49:32.491604985+00:00",
+      "compressed": false,
+      "metadata": {},
+      "last_accessed": "2026-02-19T09:49:32.491604985+00:00",
+      "entities": []
+    },
+    {
+      "created_at": "2026-02-19T09:34:49.118385434+00:00",
+      "last_accessed": "2026-02-19T09:34:49.118385434+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/specs/mcp-memory-tools/spec.md",
+        "branch:master"
+      ],
+      "access_count": 0,
+      "compressed": false,
+      "is_failure": false,
+      "experience_type": "Context",
+      "metadata": {},
+      "is_anomaly": false,
+      "entities": [],
+      "importance": 0.12000000476837158,
+      "id": "a116faff-2465-46c7-8bc1-5d09614c2a5f",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/specs/mcp-memory-tools/spec.md"
+    },
+    {
+      "is_anomaly": false,
+      "entities": [],
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "metadata": {},
+      "last_accessed": "2026-02-19T10:10:51.067577550+00:00",
+      "compressed": false,
+      "id": "a12574ec-315c-4aa6-bea0-44162c5632ce",
+      "experience_type": "Context",
+      "created_at": "2026-02-19T10:10:51.067577550+00:00",
+      "importance": 0.12000000476837158,
+      "access_count": 0,
+      "is_failure": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory"
+    },
+    {
+      "metadata": {},
+      "importance": 0.5,
+      "id": "a3590c24-5a19-4aab-9a4c-98d9dd97cf23",
+      "entities": [],
+      "is_anomaly": false,
+      "content": "nstall.sh already-installed check skipped version validation \u2014 fix: always reinstall with version const",
+      "experience_type": "Observation",
+      "created_at": "2026-02-19T09:23:44.597368006+00:00",
+      "last_accessed": "2026-02-19T09:23:44.597368006+00:00",
+      "access_count": 0,
+      "compressed": false,
+      "is_failure": false
+    },
+    {
+      "id": "b1a1bc72-c8a1-4a6a-8170-f38cfc945d55",
+      "metadata": {},
+      "created_at": "2026-02-19T09:50:46.322379355+00:00",
+      "access_count": 0,
+      "is_anomaly": false,
+      "tags": [
+        "frustration",
+        "high-priority",
+        "source:emotion-detect",
+        "branch:master"
+      ],
+      "compressed": false,
+      "last_accessed": "2026-02-19T09:50:46.322379355+00:00",
+      "content": "\ud83d\udd34 User frustrated (high): mi\u00e9rt nem mukodott az \u00e9rzelmi alapu detekci\u00f3? azt \u00edrtam be basszus!!! mindig haszna\u00e1lj opsx-et openspec killekhez",
+      "entities": [],
+      "importance": 0.3499999940395355,
+      "experience_type": "Learning",
+      "is_failure": false
+    },
+    {
+      "last_accessed": "2026-02-19T10:05:05.338391847+00:00",
+      "importance": 0.5,
+      "created_at": "2026-02-19T10:05:05.338391847+00:00",
+      "experience_type": "Learning",
+      "id": "bab18979-1c20-4d7a-973f-eb619db693c1",
+      "entities": [],
+      "metadata": {},
+      "compressed": false,
+      "is_failure": false,
+      "content": "\u26a0\ufe0f User frustrated (moderate): You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.\n\n\n\nSkills used: \"skill\":\"opsx:explore\"\n\"skill\":\"opsx:continue\"\n\"skill\":\"opsx:apply\"\n\"skill\":\"opsx:continue\"\nChange names: fix-mcp-python-command\n\nExtract ONLY insights that a future agent in a DIFFERENT session would benefit from knowing:\n- Errors encountered and their fixes/workarounds\n- User corrections or knowledge shared (in any language)\n- Non-obvious patterns or g",
+      "is_anomaly": false,
+      "tags": [
+        "frustration",
+        "recurring",
+        "source:emotion-detect",
+        "branch:master"
+      ],
+      "access_count": 0
+    },
+    {
+      "last_accessed": "2026-02-19T09:59:18.505895334+00:00",
+      "experience_type": "Learning",
+      "metadata": {},
+      "access_count": 0,
+      "is_anomaly": false,
+      "tags": [
+        "frustration",
+        "recurring",
+        "source:emotion-detect",
+        "branch:master"
+      ],
+      "created_at": "2026-02-19T09:59:18.505895334+00:00",
+      "compressed": false,
+      "content": "\u26a0\ufe0f User frustrated (moderate): You are a memory extraction system. Analyze this Claude Code session summary and extract valuable insights for future sessions.\n\n\n\nSkills used: \"skill\":\"opsx:explore\"\n\"skill\":\"opsx:continue\"\n\"skill\":\"opsx:apply\"\nChange names: fix-mcp-python-command\n\nExtract ONLY insights that a future agent in a DIFFERENT session would benefit from knowing:\n- Errors encountered and their fixes/workarounds\n- User corrections or knowledge shared (in any language)\n- Non-obvious patterns or gotchas discovered\n- Impo",
+      "entities": [],
+      "id": "bede392f-ed14-4b16-9dbf-20acd3ad6275",
+      "importance": 0.5,
+      "is_failure": false
+    },
+    {
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "id": "bf5438a1-21da-4bd7-a95a-14e04334a7a0",
+      "metadata": {},
+      "created_at": "2026-02-19T10:20:35.938218813+00:00",
+      "last_accessed": "2026-02-19T10:20:35.938218813+00:00",
+      "importance": 0.12000000476837158,
+      "compressed": false,
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "is_anomaly": false,
+      "entities": [],
+      "access_count": 0,
+      "experience_type": "Context"
+    },
+    {
+      "compressed": false,
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "experience_type": "Context",
+      "access_count": 0,
+      "is_failure": false,
+      "is_anomaly": false,
+      "id": "c3e2e790-4137-4082-90ca-08a6c743bd5c",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "entities": [],
+      "last_accessed": "2026-02-19T09:49:23.685300957+00:00",
+      "created_at": "2026-02-19T09:49:23.685300957+00:00",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ]
+    },
+    {
+      "is_anomaly": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "metadata": {},
+      "last_accessed": "2026-02-19T10:04:40.193930161+00:00",
+      "entities": [],
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T10:04:40.193930161+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "access_count": 0,
+      "experience_type": "Context",
+      "id": "c61e231e-91ba-41a8-b6dd-ef2701cf865e"
+    },
+    {
+      "last_accessed": "2026-02-19T10:04:24.660387904+00:00",
+      "importance": 0.12000000476837158,
+      "is_failure": false,
+      "access_count": 0,
+      "metadata": {},
+      "compressed": false,
+      "entities": [],
+      "created_at": "2026-02-19T10:04:24.660387904+00:00",
+      "experience_type": "Context",
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "id": "c90fb1b7-bbe4-46d9-a9ee-7c180c43f3af"
+    },
+    {
+      "is_failure": false,
+      "access_count": 0,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T09:34:11.231876259+00:00",
+      "last_accessed": "2026-02-19T09:34:11.231876259+00:00",
+      "id": "c9204c81-a04c-404b-a0a7-8e4811d0372c",
+      "compressed": false,
+      "entities": [],
+      "experience_type": "Context",
+      "is_anomaly": false
+    },
+    {
+      "created_at": "2026-02-19T10:17:02.912786589+00:00",
+      "compressed": false,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "access_count": 0,
+      "importance": 0.12000000476837158,
+      "last_accessed": "2026-02-19T10:17:02.912786589+00:00",
+      "is_failure": false,
+      "id": "cdd8f663-1c51-4aff-971c-c50fbbbe5f96",
+      "entities": [],
+      "metadata": {},
+      "experience_type": "Context"
+    },
+    {
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "experience_type": "Context",
+      "created_at": "2026-02-19T10:15:41.018366001+00:00",
+      "is_failure": false,
+      "entities": [],
+      "last_accessed": "2026-02-19T10:15:41.018366001+00:00",
+      "compressed": false,
+      "metadata": {},
+      "access_count": 0,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ],
+      "id": "ce17fc66-19b0-4851-a915-fdc9c0e5244c",
+      "is_anomaly": false,
+      "importance": 0.12000000476837158
+    },
+    {
+      "id": "d352c06b-c745-48b7-83c5-a6c89003ed9b",
+      "experience_type": "Context",
+      "created_at": "2026-02-19T09:48:08.564506209+00:00",
+      "entities": [],
+      "is_anomaly": false,
+      "access_count": 0,
+      "importance": 0.12000000476837158,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/proposal.md",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/proposal.md",
+        "branch:master"
+      ],
+      "is_failure": false,
+      "last_accessed": "2026-02-19T09:48:08.564506209+00:00",
+      "metadata": {},
+      "compressed": false
+    },
+    {
+      "experience_type": "Context",
+      "importance": 0.12000000476837158,
+      "id": "d773492d-58a4-4447-b46d-0d59c5038b4d",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-project",
+      "metadata": {},
+      "entities": [],
+      "access_count": 0,
+      "created_at": "2026-02-19T09:57:19.595204096+00:00",
+      "last_accessed": "2026-02-19T09:57:19.595204096+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-project",
+        "branch:master"
+      ]
+    },
+    {
+      "compressed": false,
+      "is_failure": false,
+      "metadata": {},
+      "importance": 0.5,
+      "experience_type": "Observation",
+      "last_accessed": "2026-02-19T09:23:44.597373817+00:00",
+      "is_anomaly": false,
+      "access_count": 0,
+      "id": "d7c4a00d-7aba-4494-8153-03ebf5356d8b",
+      "content": "t-memory health may fail silently (no output, non-zero exit) if shodh-memory is missing or wrong version \u2014 check pip ",
+      "entities": [],
+      "created_at": "2026-02-19T09:23:44.597373817+00:00"
+    },
+    {
+      "entities": [],
+      "access_count": 0,
+      "last_accessed": "2026-02-19T10:04:29.109093213+00:00",
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "metadata": {},
+      "importance": 0.12000000476837158,
+      "id": "dc1c46ac-1cb9-402d-a062-0d8bc836a068",
+      "experience_type": "Context",
+      "compressed": false,
+      "created_at": "2026-02-19T10:04:29.109093213+00:00",
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "is_failure": false
+    },
+    {
+      "importance": 0.5,
+      "experience_type": "Observation",
+      "last_accessed": "2026-02-19T09:23:44.597381521+00:00",
+      "is_failure": false,
+      "metadata": {},
+      "id": "ebc40826-9bc0-46f2-a6ab-0324f2840672",
+      "access_count": 0,
+      "content": "<activ",
+      "compressed": false,
+      "is_anomaly": false,
+      "created_at": "2026-02-19T09:23:44.597381521+00:00",
+      "entities": []
+    },
+    {
+      "id": "ec606302-78bd-43fb-80a9-8bb24a9232f3",
+      "entities": [],
+      "metadata": {},
+      "content": "Created/wrote /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "importance": 0.12000000476837158,
+      "created_at": "2026-02-19T09:32:57.942474591+00:00",
+      "last_accessed": "2026-02-19T09:32:57.942474591+00:00",
+      "compressed": false,
+      "is_failure": false,
+      "access_count": 0,
+      "is_anomaly": false,
+      "experience_type": "Context",
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ]
+    },
+    {
+      "last_accessed": "2026-02-19T09:23:44.597386911+00:00",
+      "is_failure": false,
+      "content": "bsh",
+      "importance": 0.5,
+      "id": "f53b619b-5d68-45bc-9648-0aff156c15e8",
+      "entities": [],
+      "experience_type": "Observation",
+      "metadata": {},
+      "created_at": "2026-02-19T09:23:44.597386911+00:00",
+      "access_count": 0,
+      "compressed": false,
+      "is_anomaly": false
+    },
+    {
+      "last_accessed": "2026-02-19T10:04:35.908023684+00:00",
+      "created_at": "2026-02-19T10:04:35.908023684+00:00",
+      "compressed": false,
+      "entities": [],
+      "metadata": {},
+      "experience_type": "Context",
+      "is_failure": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "importance": 0.12000000476837158,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "access_count": 0,
+      "is_anomaly": false,
+      "id": "f684e13b-4017-46bb-99dd-27daaf0cdd01"
+    },
+    {
+      "last_accessed": "2026-02-19T09:49:39.646904516+00:00",
+      "experience_type": "Context",
+      "metadata": {},
+      "is_failure": false,
+      "is_anomaly": false,
+      "created_at": "2026-02-19T09:49:39.646904516+00:00",
+      "access_count": 0,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+        "branch:master"
+      ],
+      "id": "f7ec6295-7c4b-4772-bcc4-d698ed72a71f",
+      "compressed": false,
+      "content": "Modified /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/tasks.md",
+      "importance": 0.12000000476837158,
+      "entities": []
+    },
+    {
+      "created_at": "2026-02-19T09:32:23.352214917+00:00",
+      "last_accessed": "2026-02-19T09:32:23.352214917+00:00",
+      "is_failure": false,
+      "metadata": {},
+      "is_anomaly": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/design.md",
+        "branch:master"
+      ],
+      "content": "Created/wrote /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/design.md",
+      "compressed": false,
+      "experience_type": "Context",
+      "access_count": 0,
+      "importance": 0.12000000476837158,
+      "id": "fa37cd70-5367-4b34-9231-473ccd5a9339",
+      "entities": []
+    },
+    {
+      "is_anomaly": false,
+      "created_at": "2026-02-19T09:32:45.641707782+00:00",
+      "access_count": 0,
+      "last_accessed": "2026-02-19T09:32:45.641707782+00:00",
+      "metadata": {},
+      "content": "Created/wrote /home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/specs/mcp-memory-tools/spec.md",
+      "importance": 0.12000000476837158,
+      "entities": [],
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/openspec/changes/fix-mcp-python-command/specs/mcp-memory-tools/spec.md",
+        "branch:master"
+      ],
+      "is_failure": false,
+      "experience_type": "Context",
+      "compressed": false,
+      "id": "fc991748-9ff3-4c6b-944f-1ed54d4f6d56"
+    },
+    {
+      "importance": 0.12000000476837158,
+      "metadata": {},
+      "content": "Modified /home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+      "last_accessed": "2026-02-19T10:03:49.218672220+00:00",
+      "is_anomaly": false,
+      "created_at": "2026-02-19T10:03:49.218672220+00:00",
+      "is_failure": false,
+      "compressed": false,
+      "tags": [
+        "file-access",
+        "/home/szlukaandras/projects/wt-tools/bin/wt-hook-memory",
+        "branch:master"
+      ],
+      "experience_type": "Context",
+      "entities": [],
+      "access_count": 0,
+      "id": "fe706f2d-e5e8-47c2-90b8-b2af79cd8a5a"
+    }
+  ]
+}
