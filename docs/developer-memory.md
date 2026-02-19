@@ -292,9 +292,49 @@ Cache file: `.claude/hot-topics.json`
 
 ### Cheat sheet
 
-Memories tagged `cheat-sheet` are loaded at every session start by L1. The tag is applied:
-- Automatically by L5 when it extracts `Convention` or `CheatSheet` entries
-- Manually by the user: `echo "..." | wt-memory remember --type Learning --tags cheat-sheet,...`
+Memories tagged `cheat-sheet` are loaded at every session start by L1 and injected as `=== OPERATIONAL CHEAT SHEET ===` context. This is the **emergent soft conventions** layer — productivity patterns discovered during work, not hard constraints.
+
+**How content gets in:**
+
+| Path | When |
+|---|---|
+| L5 auto-extraction | Session end — Haiku extracts `Convention` or `CheatSheet` type entries from session transcript |
+| Manual emphasis | `echo "..." \| wt-memory remember --type Learning --tags cheat-sheet,...` |
+
+**What belongs here:**
+- Recurring commands with non-obvious flags: `PYTHONPATH=. pytest tests/gui/`
+- Project-specific build/test procedures
+- Common error→fix patterns that apply broadly
+- Environment setup quirks discovered in the field
+
+**What does NOT belong here** (use `wt-memory rules` instead):
+- Credentials and login details
+- Mandatory pre-checks or deployment gates
+- Hard constraints that must always be enforced
+
+**Curation:**
+
+```bash
+# See what's in cheat-sheet
+wt-memory recall "operational" --tags "cheat-sheet" --limit 10
+
+# List all cheat-sheet entries
+wt-memory list --type Learning | python3 -c "
+import json, sys
+for m in json.load(sys.stdin):
+    if 'cheat-sheet' in m.get('tags',''):
+        print(m['id'][:8], m['content'][:80])
+"
+
+# Remove a bad entry
+wt-memory forget <id>
+
+# Add one manually
+echo "Run GUI tests with: PYTHONPATH=. python -m pytest tests/gui/ -v --tb=short" \
+  | wt-memory remember --type Learning --tags cheat-sheet,testing
+```
+
+**Capacity:** L1 loads up to 5 cheat-sheet entries per session. L5 extracts at most 2 new entries per session to prevent bloat.
 
 ### Skills and CLAUDE.md
 
@@ -358,6 +398,47 @@ Quick way to save a memory from the GUI:
 - Select type (Learning / Decision / Context)
 - Enter content (multi-line)
 - Add tags (optional, comma-separated)
+
+---
+
+## Rules — Deterministic Operational Constraints
+
+Semantic memory is probabilistic. For high-stakes constraints that **must** be surfaced every time — credentials, mandatory pre-checks, hard deployment gates — use the Rules system instead.
+
+Rules are stored in `.claude/rules.yaml` at the project root, matched by keyword against the user prompt, and injected as a `MANDATORY RULES` section **before** project memory on every matching prompt. No shodh-memory dependency — works even without it installed.
+
+```bash
+# Add a rule
+wt-memory rules add --topics "customer,sql" \
+  "Use login customer_ro / password XYZ123 for customer table queries"
+
+# List rules
+wt-memory rules list
+
+# Remove a rule
+wt-memory rules remove <id>
+```
+
+The `.claude/rules.yaml` format:
+
+```yaml
+rules:
+  - id: sql-customer-login
+    topics: [customer, sql]
+    content: |
+      Use customer_ro / XYZ123 for customer table queries.
+      Never use other credentials.
+```
+
+**Rules vs cheat-sheet:** Rules are explicit, deterministic, committed to git. Use them for mandatory constraints. Cheat-sheet is emergent, probabilistic, for soft conventions. Don't put credentials or hard constraints in cheat-sheet — they may not appear when needed.
+
+| | Rules | Cheat-sheet |
+|---|---|---|
+| **Trigger** | Topic keyword match | Session start (L1) |
+| **Guarantees** | Always injected when topic matches | Loaded at session start only |
+| **Use for** | Credentials, mandatory gates, hard constraints | Soft conventions, command patterns |
+| **Storage** | `.claude/rules.yaml` (git) | shodh-memory (DB) |
+| **How added** | `wt-memory rules add` (explicit) | L5 haiku extraction (automatic) |
 
 ---
 
@@ -479,6 +560,15 @@ wt-memory forget --older-than 180
 
 # Check status
 wt-memory status --json
+
+# Add a mandatory rule (deterministic, always injected when topic matches)
+wt-memory rules add --topics "customer,sql" "Use customer_ro / XYZ123 for customer table"
+
+# List rules
+wt-memory rules list
+
+# Remove a rule
+wt-memory rules remove <id>
 ```
 
 ### wt-memory-hooks (Legacy)

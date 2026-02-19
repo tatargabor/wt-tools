@@ -114,6 +114,81 @@ make_dedup_key() {
 }
 
 # ============================================================
+# Helper: Load matching rules from .claude/rules.yaml
+# Returns formatted MANDATORY RULES block, or empty string.
+# Silently skips if file absent, malformed, or yaml unavailable.
+# ============================================================
+
+load_matching_rules() {
+    local prompt_text="$1"
+
+    local project_root
+    project_root=$(git rev-parse --show-toplevel 2>/dev/null) || project_root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    local rules_file="${project_root}/.claude/rules.yaml"
+
+    [[ -f "$rules_file" ]] || { _dbg "rules: no file"; return 0; }
+
+    # Write python to a temp file — avoids heredoc-inside-$() bash parse issues
+    local py_tmp
+    py_tmp=$(mktemp /tmp/wt-rules.XXXXXX.py)
+    # NOTE: no parens/braces inside the heredoc body that bash would misparse
+    cat > "$py_tmp" <<'RULES_PY'
+import sys
+rules_file = sys.argv[1]
+prompt_lower = sys.argv[2].lower()
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+try:
+    data = yaml.safe_load(open(rules_file))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+rules = data.get("rules")
+if not isinstance(rules, list):
+    sys.exit(0)
+matched = []
+for rule in rules:
+    if not isinstance(rule, dict):
+        continue
+    topics = rule.get("topics") or []
+    content = (rule.get("content") or "").strip()
+    rid = rule.get("id") or ""
+    if not topics or not content:
+        continue
+    hit = False
+    for t in topics:
+        if str(t).lower() in prompt_lower:
+            hit = True
+            break
+    if hit:
+        matched.append(rid + "\t" + content)
+if matched:
+    print("=== MANDATORY RULES ===")
+    for m in matched:
+        rid, cnt = m.split("\t", 1)
+        print("[" + rid + "] " + cnt)
+    print("===========================")
+RULES_PY
+
+    local result
+    result=$(python3 "$py_tmp" "$rules_file" "$prompt_text" 2>/dev/null) || true
+    rm -f "$py_tmp"
+
+    if [[ -n "$result" ]]; then
+        local rule_count
+        rule_count=$(printf '%s\n' "$result" | grep -c '^\[' 2>/dev/null || echo "?")
+        _log "rules: injecting $rule_count matching rule(s)"
+        _dbg "rules block: ${result:0:200}"
+        printf '%s\n' "$result"
+    else
+        _dbg "rules: no matches"
+    fi
+}
+
+# ============================================================
 # Helper: Proactive recall with relevance filtering
 # ============================================================
 
@@ -435,8 +510,17 @@ if m: print(m.group(1))
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$QUERY" 5) || true
 
-    # Build output — emotion warning + proactive recall
+    # Load mandatory rules (deterministic, topic-matched, no shodh-memory dependency)
+    local RULES_BLOCK=""
+    RULES_BLOCK=$(load_matching_rules "$PROMPT") || true
+
+    # Build output — mandatory rules + emotion warning + proactive recall
     local CONTEXT_TEXT=""
+
+    # Inject mandatory rules first (highest priority)
+    if [[ -n "$RULES_BLOCK" ]]; then
+        CONTEXT_TEXT="$RULES_BLOCK"
+    fi
 
     # Inject emotion warning if detected
     if [[ "$EMOTION_INJECT" == "true" ]]; then
@@ -448,7 +532,11 @@ if m: print(m.group(1))
         else
             EMOTION_WARNING="Note: The user may be slightly frustrated (triggers: $EMOTION_TRIGGERS). Pay attention to their concern."
         fi
-        CONTEXT_TEXT="$EMOTION_WARNING"
+        if [[ -n "$CONTEXT_TEXT" ]]; then
+            CONTEXT_TEXT="$CONTEXT_TEXT\n$EMOTION_WARNING"
+        else
+            CONTEXT_TEXT="$EMOTION_WARNING"
+        fi
         _dbg "injected emotion warning"
     fi
 
@@ -859,11 +947,15 @@ Output format: one insight per line, format: Type|tags|content
 - tags: comma-separated (e.g., error,change-name or preference,workflow)
 - content: concise description (max 200 chars)
 
-Use CheatSheet type for reusable operational patterns that should be loaded at every session start:
+Use CheatSheet type for reusable SOFT operational patterns that should be loaded at every session start:
 - Recurring commands with non-obvious flags or gotchas
 - Project-specific test/build/deploy procedures
 - Environment setup requirements
 - Common error->fix patterns that apply broadly
+
+IMPORTANT: Do NOT use CheatSheet for credentials, passwords, login details, or hard mandatory constraints.
+Those belong in .claude/rules.yaml (use `wt-memory rules add`) — not in cheat-sheet memory.
+Only soft conventions and productivity patterns should be CheatSheet entries.
 Maximum 2 CheatSheet entries per session.
 
 Maximum 5 insights (Learning/Decision/Context). If nothing is worth saving, output exactly: NONE
