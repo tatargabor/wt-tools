@@ -15,6 +15,8 @@ The README MUST contain these sections in this exact order:
 
 ### 2. Overview
 - 3-5 sentences explaining what wt-tools is and who it's for
+- Emphasize modularity: wt-tools is a collection — users cherry-pick what they need. GUI is optional; CLI tools, Claude Code skills, Developer Memory, and MCP server all work independently from the command line
+- Mention Developer Memory with benchmark result (+34% convention compliance in synthetic benchmarks)
 - Screenshot of Control Center GUI (`docs/images/control-center.gif`)
 - Keep it high-level — details come later
 
@@ -63,6 +65,10 @@ The README MUST contain these sections in this exact order:
   - CLI quick-start: mention `wt-memory remember`, `wt-memory recall`, `wt-memory status`, `wt-memory forget`, `wt-memory context`, `wt-memory export`, `wt-memory import`
   - GUI: mention [M] button for browsing memories (summary view default, paginated list via "Show All", semantic search) and saving memories
   - Link to `docs/developer-memory.md` for full documentation
+  - **Metrics**: mention `wt-memory metrics` (TUI report) and `wt-memory dashboard` (HTML dashboard with charts)
+  - **Benchmark results**: Include current benchmark status:
+    - Synthetic (MemoryProbe): +34% weighted convention compliance, 20% fewer tokens (SYN-05, SYN-06)
+    - Real-world (CraftBazaar v6): no measurable delta yet — test infrastructure too weak (import-only checks, no behavioral verification). Stronger tests planned for v7
   - Mark as **(Experimental)** — note graceful degradation if shodh-memory not installed
 
 ### 7. Installation

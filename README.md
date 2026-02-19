@@ -2,7 +2,7 @@
 
 A toolkit for managing parallel AI agent development with git worktrees, a real-time GUI, and spec-driven workflows.
 
-> **Latest update:** 2026-02-17
+> **Latest update:** 2026-02-20
 
 ---
 
@@ -12,7 +12,9 @@ I built wt-tools because I was running Claude Code agents across multiple projec
 
 The **Control Center** is a compact, always-on-top GUI that shows every worktree and agent across all your projects in real-time. You see at a glance which agents are running, which are waiting for you (blinking row — click to jump straight there), and how much API capacity you have left (hourly and daily burn rate). Double-click any row to open the editor — if it's already open, it focuses the window. Need a new worktree? Click "+ New", pick the project, name it, and you're working. Everything also has a CLI command and a Claude Code slash command, so you never leave the agent to manage worktrees.
 
-Beyond the basics: the **Ralph Loop** runs agents autonomously through task lists, **Team Sync** coordinates multiple machines through a git branch (no server needed), and the **MCP Server** lets agents see each other's progress. The project is useful today — AI tooling evolves fast and something may replace it eventually, but right now it fills a real gap.
+Beyond the basics: the **Ralph Loop** runs agents autonomously through task lists, **Team Sync** coordinates multiple machines through a git branch (no server needed), the **MCP Server** lets agents see each other's progress, and **Developer Memory** gives agents persistent, cross-session recall — decisions, learnings, and context accumulate across sessions so future agents don't start from zero (synthetic benchmarks show +34% convention compliance improvement).
+
+wt-tools is a modular collection — cherry-pick what's useful to you. The GUI is optional: CLI tools, Claude Code skills (`/wt:new`, `/wt:merge`, etc.), Developer Memory, and the MCP server all work independently from the command line. You can use just the skills, just memory, or the full stack. The project is useful today — AI tooling evolves fast and something may replace it eventually, but right now it fills a real gap.
 
 ![Always-on-top Control Center alongside your editor](docs/images/control-center-full.gif)
 
@@ -168,6 +170,12 @@ Per-project cognitive memory powered by [shodh-memory](https://github.com/varun2
 | sync-specs | — | — | on merge |
 | archive | — | — | on archive |
 
+**Metrics & benchmarking:**
+- `wt-memory metrics` — TUI report showing injection counts, token usage, relevance distribution, citation rate
+- `wt-memory dashboard` — interactive HTML dashboard with charts (token burn, relevance trend, layer breakdown)
+- **Synthetic benchmark (MemoryProbe)**: +34% weighted convention compliance improvement across 2 independent runs (SYN-05, SYN-06). Memory-enabled agents use 20% fewer tokens by avoiding re-discovery of known conventions
+- **Real-world benchmark (CraftBazaar v6)**: no measurable delta yet — test infrastructure gaps (import-only checks, no behavioral verification) mask potential benefits. Stronger tests planned for v7
+
 See [docs/developer-memory.md](docs/developer-memory.md) for the full guide with use cases, OpenSpec integration details, and CLI reference.
 
 ### MCP Server
@@ -288,6 +296,8 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 | `wt-memory dedup [--threshold N] [--dry-run] [--interactive]` | Remove duplicate memories, keeping best per cluster |
 | `wt-memory status [--json]` | Show memory config, health, and count |
 | `wt-memory projects` | List all projects with memory counts |
+| `wt-memory metrics [--since Nd] [--json]` | Injection quality report (default: last 7 days) |
+| `wt-memory dashboard [--since Nd]` | Generate HTML dashboard and open in browser |
 | `wt-memory-hooks check` | Check if legacy inline hooks are present |
 | `wt-memory-hooks remove` | Remove legacy inline hooks from OpenSpec skills |
 
@@ -609,7 +619,7 @@ Weeks later, a new agent starts a change:
 
 Memory also works outside OpenSpec. During any conversation, if you share something non-obvious ("by the way, the CI cache breaks when you change `package.json`"), the agent recognizes it and saves it for future sessions.
 
-See [docs/developer-memory.md](docs/developer-memory.md) for the full guide.
+**Measured impact:** Synthetic benchmarks (MemoryProbe) show a consistent +34% weighted improvement in convention compliance across sessions, with 20% fewer tokens used. The real-world benchmark (CraftBazaar, 12 changes) doesn't show a delta yet due to test infrastructure gaps — stronger behavioral tests are planned. See [docs/developer-memory.md](docs/developer-memory.md) for the full guide.
 
 **Best for:** Projects with multiple agents or contributors over time, where institutional knowledge matters. Experimental — requires `pip install shodh-memory`.
 
