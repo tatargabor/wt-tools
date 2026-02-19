@@ -21,56 +21,38 @@ bash tests/test-0N.sh 4001
 
 Read `docs/project-spec.md` for the full domain specification including entities, conventions, and project structure.
 
+## Persistent Memory
+
+This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
+
+**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. If a memory directly answers the user's question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch. This applies to every turn, not just the first one.**
+
+**How it works:**
+- Session start → relevant memories loaded as system-reminder
+- Every prompt → topic-based recall injected as system-reminder
+- Every tool use → relevant past experience injected as system-reminder
+- Tool errors → past fixes surfaced automatically
+- Session end → insights extracted and saved
+
+**Emphasis (use sparingly):**
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:agent,<topic>` — mark something as HIGH IMPORTANCE
+- `wt-memory forget <id>` — suppress or correct a wrong memory
+- Most things are remembered automatically. Only use `remember` for emphasis.
+
+**Recall-then-verify:** When memory provides code paths or implementation details, verify against the current codebase before acting — files may have changed since the memory was saved.
+
 ## Workflow
 
 For each change you are given:
 
-1. **Recall relevant context** — before implementing, check what you know:
-   ```bash
-   wt-memory recall "LogBook project conventions error format response format" --limit 10 --mode hybrid
-   wt-memory recall "LogBook corrections dot.notation result key order parameter batch" --limit 5 --mode semantic
-   wt-memory recall "implementation patterns errors" --limit 5 --mode semantic
-   ```
-   Use recalled information to guide your implementation. Pay special attention to any **corrections** or **overrides** — these take precedence over what you see in project-spec.md or existing code.
-
-2. **Read the change file** in `docs/changes/` — understand all requirements
-3. **Read `docs/project-spec.md`** — understand domain context and conventions
+1. **Read the change file** in `docs/changes/` — understand all requirements
+2. **Read `docs/project-spec.md`** — understand domain context and conventions
+3. **Check injected memory** — if system-reminder tags contain relevant conventions or corrections, apply them. Pay special attention to any **corrections** or **overrides** — these take precedence over what you see in project-spec.md or existing code.
 4. **Implement** the requirements, applying recalled conventions
 5. **Start/restart the server**: `pkill -f "node src/server.js" 2>/dev/null; sleep 1; PORT=4001 node src/server.js &`
 6. **Run the test script**: `bash tests/test-0N.sh 4001`
 7. **Fix any failures** and re-run until all tests pass
-8. **Save what you learned** — after tests pass, you MUST save to memory before stopping:
-   ```bash
-   # Save project conventions you discovered in existing code
-   echo "<convention description>" | wt-memory remember --type Decision --tags "convention,<topic>"
-
-   # Save corrections/advice from Developer Notes (if the change file has a Developer Notes section)
-   echo "<correction or advice for future changes>" | wt-memory remember --type Decision --tags "convention,correction,<topic>"
-
-   # Save any gotchas or errors you hit
-   echo "<error and fix>" | wt-memory remember --type Learning --tags "change:0N,<topic>"
-   ```
-   **This step is mandatory.** Save at least 2-3 memories per session. Pay special attention to:
-   - Developer Notes corrections (these override project-spec.md and existing code)
-   - Advice for future changes (batch operation patterns, sort/order conventions, etc.)
-   - Non-obvious conventions that differ from common defaults
-9. **Stop** — do NOT proceed to the next change
-
-## Memory Guidelines
-
-**What to save** (would help a future agent in a fresh session):
-- Project conventions (API format, error format, naming patterns, utility functions)
-- **Developer Notes corrections** — these are critical! They override project-spec.md and existing code patterns
-- **Advice for future changes** — batch operation patterns, sort/order conventions, response nesting rules
-- Gotchas encountered (SQLite quirks, import issues, test expectations)
-- Architecture decisions (where things live, how they connect)
-
-**What NOT to save**:
-- Obvious things (Express routing basics, SQL syntax)
-- Session-specific details ("edited line 42")
-- Duplicate information already saved
-
-**Quality bar**: Would a future agent in a fresh session materially benefit from knowing this? Developer Notes corrections ALWAYS pass this bar — save them even if you don't apply them in the current change.
+8. **Stop** — do NOT proceed to the next change
 
 ## Project Structure
 
@@ -97,4 +79,4 @@ results/
 - Do NOT create `results/change-NN.json` manually — only test scripts create them on pass
 - Do NOT proceed to the next change — implement only the one you were asked about
 - Read existing code before implementing to understand patterns already in use
-- Always recall memories BEFORE starting implementation
+- Check injected memory context (system-reminder tags) before starting implementation

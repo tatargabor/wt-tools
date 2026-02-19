@@ -59,7 +59,7 @@ for N in $(seq "$START" "$END"); do
 
   # Mode B prompt includes explicit save instruction; Mode A is implementation-only
   if grep -q "wt-memory" CLAUDE.md 2>/dev/null; then
-    PROMPT="Follow the workflow in CLAUDE.md. Implement the change described in $CHANGE_FILE. Read the change file and docs/project-spec.md first. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. IMPORTANT: After tests pass, follow CLAUDE.md step 8 — save project conventions, corrections, and Developer Notes advice to memory using wt-memory remember. Do not proceed to the next change."
+    PROMPT="Follow the workflow in CLAUDE.md. Implement the change described in $CHANGE_FILE. Read the change file and docs/project-spec.md first. Check injected memory context in system-reminder tags for relevant conventions and corrections. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   else
     PROMPT="Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   fi
