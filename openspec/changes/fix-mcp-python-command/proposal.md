@@ -1,12 +1,17 @@
 ## Why
 
-`wt-project init` registers the wt-memory MCP server with `claude mcp add wt-memory -- python <path>`, hardcoding `python` as the interpreter. On systems where only `python3` exists (common on Linux), the MCP server fails to start. The script already has `#!/usr/bin/env python3` — we should use it directly instead of specifying an interpreter.
+Three related gaps in MCP registration and hook visibility:
+
+1. `wt-project init` hardcoded `python` as the MCP interpreter — broken on Linux where only `python3` exists (shebang fix already landed)
+2. When `wt-project init` runs from a worktree, MCP only gets registered for the worktree path, not the main repo — and `install.sh` never deploys to worktrees at all
+3. Hook debug logging requires `WT_HOOK_DEBUG=1` or a sentinel file — there's no always-on lightweight log for production debugging
 
 ## What Changes
 
-- Remove the hardcoded `python` from MCP registration — run the script directly via its shebang
-- Add migration in `_register_mcp_server()` to detect and fix existing stale `"command": "python"` configs
-- Update the mcp-memory-tools spec to reflect the new registration command
+- ~~Remove hardcoded `python` — shebang-based execution~~ *(done)*
+- Register MCP for both main repo AND current PWD when called from a worktree
+- `install.sh::install_projects()` enumerates all git worktrees per project and deploys to each
+- `wt-hook-memory`: always write a lightweight event line to `/tmp/wt-hook-memory.log`; verbose detail still gated on `WT_HOOK_DEBUG=1`
 
 ## Capabilities
 
@@ -16,10 +21,11 @@ _(none)_
 
 ### Modified Capabilities
 
-- `mcp-memory-tools`: MCP server registration scenario changes from `-- python <path>` to `-- <path>` (shebang-based execution)
+- `mcp-memory-tools`: registration now covers both main repo and worktree paths; always-on hook log
+- `project-init-deploy`: `wt-project init` from a worktree registers MCP for the worktree scope too; `install.sh` deploys to all worktrees
 
 ## Impact
 
-- `bin/wt-project`: `_register_mcp_server()` function
-- `~/.claude.json`: existing per-project MCP configs with `"command": "python"` get migrated
-- No API changes, no new dependencies
+- `bin/wt-project`: `_register_mcp_server()` — register under both paths
+- `install.sh`: `install_projects()` — add worktree enumeration per project
+- `bin/wt-hook-memory`: lightweight always-on log line, verbose detail unchanged

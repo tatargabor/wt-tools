@@ -576,6 +576,18 @@ install_projects() {
         if [[ -d "$project_path" ]]; then
             info "  Updating: $project_path"
             (cd "$project_path" && "$SCRIPT_DIR/bin/wt-project" init) || warn "  Failed: $project_path"
+
+            # Also deploy to each worktree of this project
+            local worktree_paths
+            worktree_paths=$(git -C "$project_path" worktree list --porcelain 2>/dev/null \
+                | grep '^worktree ' | cut -d' ' -f2- | grep -v "^$project_path$")
+            while IFS= read -r wt_path; do
+                [[ -z "$wt_path" ]] && continue
+                if [[ -d "$wt_path" ]]; then
+                    info "  Updating worktree: $wt_path"
+                    (cd "$wt_path" && "$SCRIPT_DIR/bin/wt-project" init) || warn "  Failed worktree: $wt_path"
+                fi
+            done <<< "$worktree_paths"
         else
             warn "  Project path not found: $project_path"
         fi

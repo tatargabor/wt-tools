@@ -13,9 +13,11 @@ done
 WT_TOOLS_ROOT="$(cd "$(dirname "$_wt_project_script")/.." && pwd)"
 
 # Deploy wt-tools hooks, commands, and skills to a project's .claude/ directory.
-# Usage: deploy_wt_tools <project-path>
+# Usage: deploy_wt_tools <project-path> [<extra-mcp-path> ...]
+# extra-mcp-path: additional paths to register MCP for (e.g. current worktree)
 deploy_wt_tools() {
     local project_path="$1"
+    shift
     local claude_dir="$project_path/.claude"
 
     # 1. Deploy hooks via wt-deploy-hooks
@@ -96,28 +98,24 @@ MEMORY_SNIPPET
         success "  Added Persistent Memory section to CLAUDE.md"
     fi
 
-    # 6. Register wt-memory MCP server (if not already registered)
-    _register_mcp_server
+    # 6. Register wt-memory MCP server for the project path (and any extra paths, e.g. worktree)
+    _register_mcp_server "$project_path" "$@"
 }
 
-# Check if wt-memory MCP server is registered
-_is_mcp_registered() {
-    if command -v claude &>/dev/null; then
-        claude mcp list 2>/dev/null | grep -q "wt-memory" && return 0
-    fi
-    return 1
-}
-
-# Register the wt-memory MCP server
+# Register the wt-memory MCP server scoped to one or more project paths.
+# Usage: _register_mcp_server <path> [<extra-path> ...]
+# claude mcp add uses PWD as the scope key, so we cd into each path before registering.
 _register_mcp_server() {
     if ! command -v claude &>/dev/null; then
         return 0  # claude CLI not available, skip
     fi
     local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
-    if [[ -f "$mcp_server" ]]; then
-        claude mcp add wt-memory -- "$mcp_server" 2>/dev/null || true
-        success "  Registered wt-memory MCP server"
-    fi
+    [[ -f "$mcp_server" ]] || return 0
+    for reg_path in "$@"; do
+        [[ -d "$reg_path" ]] || continue
+        (cd "$reg_path" && claude mcp add wt-memory -- "$mcp_server" 2>/dev/null) || true
+    done
+    success "  Registered wt-memory MCP server"
 }
 
 # Clean up deprecated memory references from skill/command files
@@ -271,10 +269,14 @@ cmd_init() {
         echo "  Path: $git_root"
     fi
 
-    # Deploy wt-tools to project
+    # Deploy wt-tools to project (pass worktree path as extra MCP registration target)
     echo ""
     info "Deploying wt-tools to $git_root..."
-    deploy_wt_tools "$git_root"
+    if $in_worktree; then
+        deploy_wt_tools "$git_root" "$current_dir"
+    else
+        deploy_wt_tools "$git_root"
+    fi
     echo ""
     success "wt-tools deployment complete for '$name'"
 }

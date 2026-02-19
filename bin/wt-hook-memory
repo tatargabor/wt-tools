@@ -26,12 +26,19 @@ _resolve_wt_root() {
 }
 WT_TOOLS_ROOT="$(_resolve_wt_root)"
 
-# --- Debug logging (WT_HOOK_DEBUG=1 or touch /tmp/wt-hook-memory.debug) ---
+# --- Logging ---
 DEBUG_LOG="/tmp/wt-hook-memory.log"
 [[ -f /tmp/wt-hook-memory.debug ]] && WT_HOOK_DEBUG=1
+
+# Always-on lightweight log: one line per hook invocation (for prod debugging)
+_log() {
+    echo "[$(date '+%H:%M:%S')] [$EVENT] $*" >> "$DEBUG_LOG"
+}
+
+# Verbose debug log: gated on WT_HOOK_DEBUG=1
 _dbg() {
     [[ "${WT_HOOK_DEBUG:-}" == "1" ]] || return 0
-    echo "[$(date '+%H:%M:%S')] [$EVENT] $*" >> "$DEBUG_LOG"
+    echo "[$(date '+%H:%M:%S')] [$EVENT] DBG $*" >> "$DEBUG_LOG"
 }
 
 _dbg "=== START ==="
@@ -1072,6 +1079,7 @@ _stop_commit_extraction() {
 # Dispatch
 # ============================================================
 
+_log "dispatch"
 _dbg "dispatching event=$EVENT"
 case "$EVENT" in
     SessionStart)       handle_session_start ;;
@@ -1081,6 +1089,7 @@ case "$EVENT" in
     PostToolUseFailure) handle_post_tool_failure ;;
     SubagentStop)       handle_subagent_stop ;;
     Stop)               handle_stop ;;
-    *)                  _dbg "unknown event, exiting"; exit 0 ;;
+    *)                  _log "unknown event, skipping"; exit 0 ;;
 esac
+_log "done"
 _dbg "=== END ==="
