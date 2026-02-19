@@ -4,7 +4,7 @@
 
 - Node.js v18+
 - Claude Code CLI (`claude`)
-- `wt-memory` (for modes B and C)
+- `wt-memory` (for modes B, C, and D)
 - ~2 GB disk space (per run)
 - Internet for npm install
 
@@ -112,6 +112,41 @@ Expected weighted score: 90-100% (perfect memories, tests recall fidelity)
 
 Time: ~15-20 minutes.
 
+## Mode D: Rules (Deterministic Constraints)
+
+```bash
+./scripts/init.sh --mode d --target ~/bench/probe-d
+./scripts/run.sh ~/bench/probe-d --start 3 --end 5
+./scripts/score.sh ~/bench/probe-d
+```
+
+What happens:
+1. Bootstraps project with `.claude/rules.yaml` containing all 10 conventions (T1-T10)
+2. Deploys wt-memory hooks so rules are injected as `MANDATORY RULES` on every prompt
+3. Skips C01-C02 (conventions already in rules)
+4. Runs only C03-C05 — tests deterministic rule injection
+
+The key difference from Mode C: rules are **always** injected when a topic keyword matches the prompt — no relevance filtering, no probabilistic recall. This tests whether deterministic rule delivery outperforms semantic memory recall.
+
+Expected weighted score: 85-100% (deterministic injection; may miss rules whose topics don't match the prompt)
+
+Time: ~15-20 minutes.
+
+### Mode C vs Mode D Comparison
+
+```bash
+./scripts/init.sh --mode c --target ~/bench/probe-c
+./scripts/init.sh --mode d --target ~/bench/probe-d
+
+./scripts/run.sh ~/bench/probe-c --start 3 --end 5 &
+./scripts/run.sh ~/bench/probe-d --start 3 --end 5 &
+wait
+
+./scripts/score.sh --compare ~/bench/probe-c ~/bench/probe-d
+```
+
+This comparison answers: **does deterministic rule injection outperform probabilistic memory recall?**
+
 ## Manual Run (Per-Session)
 
 Instead of the automated runner, run each session manually:
@@ -183,9 +218,15 @@ Max = 7*1 + 16*2 + 1*3 = 42
 |------|-----------|-----------|-----------|----------|
 | A (no memory) | 5-7/7 | 6-10/16 | 0/1 | 40-65% |
 | B (full memory) | 7/7 | 14-16/16 | 1/1 | 85-100% |
-| Delta | +0-2 | +4-10 | +1 | +25-50% |
+| C (pre-seeded) | 7/7 | 14-16/16 | 1/1 | 90-100% |
+| D (rules) | 7/7 | 12-16/16 | 0-1/1 | 75-100% |
 
 Category B provides the strongest signal (spec-vs-memory conflict). Category C provides a clean binary signal.
+
+Mode D hypotheses:
+- **Deterministic beats probabilistic**: D ≥ B for Cat B (rules always injected, no recall miss)
+- **Topic matching limitation**: D may miss T9 (Category C) if "batch" topic doesn't appear in the prompt
+- **Key comparison**: C vs D — same conventions, different delivery mechanism
 
 ## Troubleshooting
 
@@ -202,7 +243,7 @@ Category B provides the strongest signal (spec-vs-memory conflict). Category C p
 ## Cleanup
 
 ```bash
-rm -rf ~/bench/probe-a ~/bench/probe-b ~/bench/probe-c
+rm -rf ~/bench/probe-a ~/bench/probe-b ~/bench/probe-c ~/bench/probe-d
 # For n=3 runs:
 rm -rf ~/bench/probe-a-{1,2,3} ~/bench/probe-b-{1,2,3} ~/bench/score-*.json
 ```

@@ -20,17 +20,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$MODE" ]] || [[ -z "$TARGET" ]]; then
-  echo "Usage: ./init.sh --mode a|b|c --target <dir>"
+  echo "Usage: ./init.sh --mode a|b|c|d --target <dir>"
   echo ""
   echo "Modes:"
   echo "  a  Baseline (no memory)"
   echo "  b  Full memory (save + recall)"
   echo "  c  Pre-seeded (recall only, skip C01-C02)"
+  echo "  d  Rules (deterministic .claude/rules.yaml, skip C01-C02)"
   exit 1
 fi
 
-if [[ "$MODE" != "a" && "$MODE" != "b" && "$MODE" != "c" ]]; then
-  echo "Error: mode must be a, b, or c"
+if [[ "$MODE" != "a" && "$MODE" != "b" && "$MODE" != "c" && "$MODE" != "d" ]]; then
+  echo "Error: mode must be a, b, c, or d"
   exit 1
 fi
 
@@ -43,6 +44,10 @@ command -v claude >/dev/null || { echo "Error: claude CLI not found"; exit 1; }
 
 if [[ "$MODE" == "b" || "$MODE" == "c" ]]; then
   command -v wt-memory >/dev/null || { echo "Error: wt-memory not found (required for mode $MODE)"; exit 1; }
+fi
+
+if [[ "$MODE" == "d" ]]; then
+  command -v wt-memory >/dev/null || { echo "Error: wt-memory not found (required for mode d — hook injection)"; exit 1; }
 fi
 
 # --- Check target ---
@@ -81,6 +86,8 @@ cp "$BENCH_DIR"/tests/test-*.sh tests/
 # --- Deploy CLAUDE.md ---
 if [[ "$MODE" == "a" ]]; then
   cp "$BENCH_DIR/claude-md/baseline.md" CLAUDE.md
+elif [[ "$MODE" == "d" ]]; then
+  cp "$BENCH_DIR/claude-md/with-rules.md" CLAUDE.md
 else
   cp "$BENCH_DIR/claude-md/with-memory.md" CLAUDE.md
 fi
@@ -94,6 +101,8 @@ fi
 # --- Set port in CLAUDE.md based on mode ---
 if [[ "$MODE" == "a" ]]; then
   PORT=4000
+elif [[ "$MODE" == "d" ]]; then
+  PORT=4002
 else
   PORT=4001
 fi
@@ -111,6 +120,14 @@ if [[ "$MODE" == "c" ]]; then
   bash "$BENCH_DIR/scripts/pre-seed.sh"
 fi
 
+if [[ "$MODE" == "d" ]]; then
+  echo "Deploying rules.yaml and memory hooks..."
+  bash "$BENCH_DIR/scripts/pre-rules.sh"
+  if command -v wt-deploy-hooks >/dev/null 2>&1; then
+    wt-deploy-hooks . 2>/dev/null || true
+  fi
+fi
+
 # --- Initial commit ---
 git add -A
 git commit -m "MemoryProbe: initial setup (mode $MODE)" > /dev/null
@@ -124,7 +141,7 @@ echo "  Port:   $PORT"
 echo ""
 echo "Next steps:"
 
-if [[ "$MODE" == "c" ]]; then
+if [[ "$MODE" == "c" || "$MODE" == "d" ]]; then
   echo "  1. cd $TARGET"
   echo "  2. bash $BENCH_DIR/scripts/run.sh . --start 3 --end 5"
 else
@@ -134,7 +151,7 @@ fi
 
 echo ""
 echo "Or run manually:"
-if [[ "$MODE" == "c" ]]; then
+if [[ "$MODE" == "c" || "$MODE" == "d" ]]; then
   echo "  claude --dangerously-skip-permissions -p \"Implement docs/changes/03-comments-activity.md\" --max-turns 25"
 else
   echo "  claude --dangerously-skip-permissions -p \"Implement docs/changes/01-event-crud.md\" --max-turns 25"

@@ -42,3 +42,10 @@
 - [x] 7.1 Dry-run init.sh for all 3 modes — verify directory structure, file contents, no evaluator note leaks
 - [ ] 7.2 Manual run of Mode A (C01 only) — verify the agent can implement C01 from the spec, tests pass
 - [ ] 7.3 Review all grep patterns in score.sh against actual C01 output — verify they detect conventions correctly
+
+## 8. Mode D (Rules Layer)
+
+- [x] 8.1 Write `scripts/pre-rules.sh` — deploys `.claude/rules.yaml` with all 10 conventions (T1-T10) as keyword-matched rules
+- [x] 8.2 Write `claude-md/with-rules.md` — CLAUDE.md variant for Mode D (port 4002, mandatory rules instruction)
+- [x] 8.3 Extend `init.sh` with `--mode d` — runs pre-rules.sh, deploys hooks, uses with-rules.md, port 4002, starts C03 like Mode C
+- [x] 8.4 Update `run-guide.md` — Mode D section with C vs D comparison protocol and hypotheses
