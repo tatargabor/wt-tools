@@ -663,6 +663,55 @@ You can install shodh-memory at any time — existing commands and hooks will st
 
 ---
 
+## Benchmark — MemoryProbe
+
+The `benchmark/synthetic/` directory contains **MemoryProbe**, a synthetic benchmark that measures how well the memory system helps agents apply project conventions across fresh sessions.
+
+### What it measures
+
+5 sequential changes (C01-C05) implement a LogBook REST API. Each session starts with a fresh Claude context — memory is the only bridge between sessions. C01-C02 establish and correct 10 non-standard conventions. C03-C05 probe whether the agent recalls them.
+
+**10 convention traps (T1-T10)** across 3 weighted categories:
+
+| Category | Weight | Examples |
+|----------|--------|---------|
+| A: Code-readable | x1 | Pagination format, soft-delete column, ID prefixes |
+| B: Human override | x2 | Error code notation (dot vs SCREAMING_SNAKE), response nesting |
+| C: Forward-looking | x3 | Batch IDs in POST body — no code to read |
+
+### Modes
+
+| Mode | Description | Starts at | Port |
+|------|-------------|-----------|------|
+| A | Baseline — no memory | C01 | 4000 |
+| B | Full memory (save + recall) | C01 | 4001 |
+| C | Pre-seeded memories — recall only | C03 | 4001 |
+| D | Rules layer — `.claude/rules.yaml` preset | C03 | 4002 |
+
+Mode D tests the hypothesis: **deterministic rules ≥ probabilistic memory recall** for hard constraints (Category B).
+
+### Quick run
+
+```bash
+cd benchmark/synthetic
+
+# Bootstrap
+./scripts/init.sh --mode a --target ~/bench/probe-a
+./scripts/init.sh --mode d --target ~/bench/probe-d
+
+# Run Mode A (all changes), Mode D (C03-C05 only)
+./scripts/run.sh ~/bench/probe-a &
+./scripts/run.sh ~/bench/probe-d --start 3 --end 5 &
+wait
+
+# Score and compare
+./scripts/score.sh --compare ~/bench/probe-a ~/bench/probe-d
+```
+
+See `benchmark/synthetic/run-guide.md` for full protocol, n=3 methodology, and expected scores.
+
+---
+
 ## Architecture
 
 <details>

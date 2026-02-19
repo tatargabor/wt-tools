@@ -49,3 +49,4 @@
 - [x] 8.2 Write `claude-md/with-rules.md` — CLAUDE.md variant for Mode D (port 4002, mandatory rules instruction)
 - [x] 8.3 Extend `init.sh` with `--mode d` — runs pre-rules.sh, deploys hooks, uses with-rules.md, port 4002, starts C03 like Mode C
 - [x] 8.4 Update `run-guide.md` — Mode D section with C vs D comparison protocol and hypotheses
+- [x] 8.5 Update `docs/developer-memory.md` — add Benchmark section (MemoryProbe, modes A-D, quick run, scoring table)
