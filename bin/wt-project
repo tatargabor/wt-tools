@@ -24,9 +24,12 @@ deploy_wt_tools() {
 
     # 2. Deploy /wt:* commands
     local src_commands="$WT_TOOLS_ROOT/.claude/commands/wt"
+    local dst_commands="$claude_dir/commands/wt"
     if [[ -d "$src_commands" ]]; then
-        mkdir -p "$claude_dir/commands/wt"
-        cp -r "$src_commands"/* "$claude_dir/commands/wt/"
+        mkdir -p "$dst_commands"
+        if [[ "$(realpath "$src_commands")" != "$(realpath "$dst_commands")" ]]; then
+            cp -r "$src_commands"/* "$dst_commands/"
+        fi
         local cmd_count
         cmd_count=$(ls -1 "$src_commands"/*.md 2>/dev/null | wc -l)
         success "  Deployed $cmd_count command(s) to .claude/commands/wt/"
@@ -36,9 +39,12 @@ deploy_wt_tools() {
 
     # 3. Deploy wt skills
     local src_skills="$WT_TOOLS_ROOT/.claude/skills/wt"
+    local dst_skills="$claude_dir/skills/wt"
     if [[ -d "$src_skills" ]]; then
-        mkdir -p "$claude_dir/skills/wt"
-        cp -r "$src_skills"/* "$claude_dir/skills/wt/"
+        mkdir -p "$dst_skills"
+        if [[ "$(realpath "$src_skills")" != "$(realpath "$dst_skills")" ]]; then
+            cp -r "$src_skills"/* "$dst_skills/"
+        fi
         success "  Deployed skills to .claude/skills/wt/"
     else
         warn "  Source skills not found: $src_skills"
