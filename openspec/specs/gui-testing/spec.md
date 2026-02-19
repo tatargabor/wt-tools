@@ -70,6 +70,13 @@
 - Theme switch updates window stylesheet
 - Each theme sets correct background color in stylesheet
 
+#### FeatureWorker Cache Rendering Tests
+- Project header with populated feature cache renders without exceptions, Memory [M] and OpenSpec [O] buttons show correct colors
+- Project header with empty feature cache shows gray "checking..." state for both buttons
+
+#### Opaque Row Background Tests
+- All row backgrounds are opaque (alpha == 255) after `update_status()` processes idle, running, and waiting rows
+
 ### Non-Requirements (out of scope)
 - Team sync testing
 - Chat functionality testing
