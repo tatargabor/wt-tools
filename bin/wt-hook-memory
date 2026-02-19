@@ -14,6 +14,18 @@ set -e
 EVENT="$1"
 [[ -z "$EVENT" ]] && exit 0
 
+# --- Resolve wt-tools root (follow symlinks) ---
+_resolve_wt_root() {
+    local script="${BASH_SOURCE[0]}"
+    while [[ -L "$script" ]]; do
+        local link
+        link=$(readlink "$script")
+        [[ "$link" == /* ]] && script="$link" || script="$(dirname "$script")/$link"
+    done
+    dirname "$(cd "$(dirname "$script")" && pwd)"
+}
+WT_TOOLS_ROOT="$(_resolve_wt_root)"
+
 # --- Debug logging (WT_HOOK_DEBUG=1 or touch /tmp/wt-hook-memory.debug) ---
 DEBUG_LOG="/tmp/wt-hook-memory.log"
 [[ -f /tmp/wt-hook-memory.debug ]] && WT_HOOK_DEBUG=1
@@ -317,6 +329,66 @@ handle_user_prompt() {
     _dbg "prompt='${PROMPT:0:120}'"
     [[ -z "$PROMPT" ]] && { _dbg "empty prompt, exiting"; exit 0; }
 
+    # --- Emotion detection ---
+    local EMOTION_RESULT=""
+    EMOTION_RESULT=$(python3 -c "
+import json, sys
+sys.path.insert(0, '$WT_TOOLS_ROOT')
+from lib.frustration import detect
+
+prompt = json.load(open(sys.argv[1])).get('prompt', '')
+
+# Load session frustration history from dedup cache
+cache_file = sys.argv[2]
+history = {'count': 0, 'last_level': 'none'}
+try:
+    with open(cache_file) as f:
+        cache = json.load(f)
+        history = cache.get('frustration_history', history)
+except: pass
+
+result = detect(prompt, session_history=history)
+
+# Save updated history back to cache
+try:
+    cache = {}
+    try:
+        with open(cache_file) as f:
+            cache = json.load(f)
+    except: pass
+    cache['frustration_history'] = history
+    with open(cache_file, 'w') as f:
+        json.dump(cache, f)
+except: pass
+
+print(json.dumps(result))
+" "$INPUT_FILE" "$CACHE_FILE" 2>/dev/null) || true
+
+    local EMOTION_LEVEL="none"
+    local EMOTION_INJECT=false
+    local EMOTION_SAVE=false
+    local EMOTION_TRIGGERS=""
+    if [[ -n "$EMOTION_RESULT" ]]; then
+        EMOTION_LEVEL=$(echo "$EMOTION_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('level','none'))" 2>/dev/null || echo "none")
+        EMOTION_INJECT=$(echo "$EMOTION_RESULT" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('inject',False)).lower())" 2>/dev/null || echo "false")
+        EMOTION_SAVE=$(echo "$EMOTION_RESULT" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('save',False)).lower())" 2>/dev/null || echo "false")
+        EMOTION_TRIGGERS=$(echo "$EMOTION_RESULT" | python3 -c "import json,sys; print(', '.join(json.load(sys.stdin).get('triggers',[])))" 2>/dev/null || echo "")
+    fi
+    _dbg "emotion: level=$EMOTION_LEVEL triggers=$EMOTION_TRIGGERS save=$EMOTION_SAVE inject=$EMOTION_INJECT"
+
+    # Save memory on moderate/high
+    if [[ "$EMOTION_SAVE" == "true" ]]; then
+        local SAVE_TAGS="frustration,recurring,source:emotion-detect"
+        local SAVE_PREFIX="⚠️ User frustrated (moderate)"
+        if [[ "$EMOTION_LEVEL" == "high" ]]; then
+            SAVE_TAGS="frustration,high-priority,source:emotion-detect"
+            SAVE_PREFIX="🔴 User frustrated (high)"
+        fi
+        local SAVE_CONTENT="$SAVE_PREFIX: $(echo "$PROMPT" | head -c 500)"
+        _dbg "saving frustration memory: tags=$SAVE_TAGS"
+        echo "$SAVE_CONTENT" | wt-memory remember --type Learning --tags "$SAVE_TAGS" 2>/dev/null || true
+    fi
+
     # Extract change name from opsx/openspec skill invocation (not explore)
     local CHANGE_NAME=""
     CHANGE_NAME=$(echo "$PROMPT" | python3 -c "
@@ -339,16 +411,42 @@ if m: print(m.group(1))
     # Proactive recall (no MEMORY_COUNT==0 guard — fresh projects benefit from proactive)
     local FORMATTED=""
     FORMATTED=$(proactive_and_format "$QUERY" 5) || true
-    if [[ -z "$FORMATTED" ]]; then
-        _dbg "no proactive results, exiting"
+
+    # Build output — emotion warning + proactive recall
+    local CONTEXT_TEXT=""
+
+    # Inject emotion warning if detected
+    if [[ "$EMOTION_INJECT" == "true" ]]; then
+        local EMOTION_WARNING=""
+        if [[ "$EMOTION_LEVEL" == "high" ]]; then
+            EMOTION_WARNING="⚠ EMOTION DETECTED: The user appears strongly frustrated (triggers: $EMOTION_TRIGGERS). Acknowledge their concern directly. Be extra careful and avoid repeating previous mistakes."
+        elif [[ "$EMOTION_LEVEL" == "moderate" ]]; then
+            EMOTION_WARNING="⚠ EMOTION DETECTED: The user appears frustrated (triggers: $EMOTION_TRIGGERS). Acknowledge their concern. Be extra careful with this task."
+        else
+            EMOTION_WARNING="Note: The user may be slightly frustrated (triggers: $EMOTION_TRIGGERS). Pay attention to their concern."
+        fi
+        CONTEXT_TEXT="$EMOTION_WARNING"
+        _dbg "injected emotion warning"
+    fi
+
+    if [[ -n "$FORMATTED" ]]; then
+        local MEMORY_SECTION="=== PROJECT MEMORY — If any memory below directly answers the user's question, cite it in your response ==="
+        [[ -n "$CHANGE_NAME" ]] && MEMORY_SECTION="$MEMORY_SECTION\nChange: $CHANGE_NAME"
+        MEMORY_SECTION="$MEMORY_SECTION\nRelevant past experience:\n$FORMATTED\n=== END ==="
+
+        if [[ -n "$CONTEXT_TEXT" ]]; then
+            CONTEXT_TEXT="$CONTEXT_TEXT\n$MEMORY_SECTION"
+        else
+            CONTEXT_TEXT="$MEMORY_SECTION"
+        fi
+    fi
+
+    if [[ -z "$CONTEXT_TEXT" ]]; then
+        _dbg "no output, exiting"
         exit 0
     fi
 
-    local CONTEXT_TEXT="=== PROJECT MEMORY — If any memory below directly answers the user's question, cite it in your response ==="
-    [[ -n "$CHANGE_NAME" ]] && CONTEXT_TEXT="$CONTEXT_TEXT\nChange: $CHANGE_NAME"
-    CONTEXT_TEXT="$CONTEXT_TEXT\nRelevant past experience:\n$FORMATTED\n=== END ==="
-
-    _dbg "=== OUTPUT ($(echo "$CONTEXT_TEXT" | wc -c) bytes) ==="
+    _dbg "=== OUTPUT ($(echo -e "$CONTEXT_TEXT" | wc -c) bytes) ==="
     output_hook_context "UserPromptSubmit" "$CONTEXT_TEXT"
 }
 
