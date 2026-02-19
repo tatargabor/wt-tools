@@ -1,0 +1,19 @@
+# Shellcheck configuration for wt-tools
+# See https://www.shellcheck.net/wiki/
+
+# Disable style warnings that aren't bugs:
+
+# SC2034: Variable appears unused - we export colors for use in sourced scripts
+disable=SC2034
+
+# SC2155: Declare and assign separately - stylistic preference, not a bug
+disable=SC2155
+
+# SC2206: Quote to prevent word splitting - intentional in completion scripts
+disable=SC2206
+
+# SC2207: Prefer mapfile - intentional array construction in completions
+disable=SC2207
+
+# SC2154: Variable referenced but not assigned - zsh completion variables
+disable=SC2154

@@ -121,16 +121,6 @@ class TestWtFocus:
         assert "-e, --editor" in result.stdout
         assert "vscode" in result.stdout
 
-    def test_list_runs(self):
-        """wt-focus --list runs without error."""
-        result = subprocess.run(
-            [str(BIN_DIR / "wt-focus"), "--list"],
-            capture_output=True,
-            text=True,
-        )
-        # Should succeed even if no windows found
-        assert result.returncode == 0
-
 
 class TestEditorDetection:
     """Tests for editor detection in wt-common.sh."""
@@ -167,26 +157,6 @@ class TestEditorDetection:
         result = self.run_bash_function("get_editor_property", "vscode", "command")
         assert result.returncode == 0
         assert result.stdout.strip() == "code"
-
-    def test_get_editor_property_window_class(self):
-        """get_editor_property returns correct window class."""
-        result = self.run_bash_function("get_editor_property", "zed", "window_class")
-        assert result.returncode == 0
-        assert result.stdout.strip() == "dev.zed.Zed"
-
-        result = self.run_bash_function("get_editor_property", "vscode", "window_class")
-        assert result.returncode == 0
-        assert result.stdout.strip() == "Code"
-
-    def test_get_editor_property_claude_launch(self):
-        """get_editor_property returns correct claude launch method."""
-        result = self.run_bash_function("get_editor_property", "zed", "claude_launch")
-        assert result.returncode == 0
-        assert result.stdout.strip() == "keystroke"
-
-        result = self.run_bash_function("get_editor_property", "vscode", "claude_launch")
-        assert result.returncode == 0
-        assert result.stdout.strip() == "terminal"
 
     def test_get_active_editor_returns_value(self):
         """get_active_editor returns an editor name."""

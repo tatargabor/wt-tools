@@ -19,6 +19,19 @@ class _MenuCapture:
         self.menus = []
         self._original_init = None
 
+    def _collect_actions_recursive(self, menu):
+        """Recursively collect all actions including from submenus."""
+        actions = []
+        for act in menu.actions():
+            if act.isSeparator():
+                continue
+            actions.append(act.text())
+            # If this action has a submenu, recurse into it
+            submenu = act.menu()
+            if submenu:
+                actions.extend(self._collect_actions_recursive(submenu))
+        return actions
+
     def __enter__(self):
         self._original_init = QMenu.__init__
         capture = self
@@ -29,12 +42,16 @@ class _MenuCapture:
             original_exec = menu_self.exec
 
             def non_blocking_exec(*a, **kw):
+                # Get direct actions (non-recursive for backwards compat)
                 actions = [act.text() for act in menu_self.actions() if not act.isSeparator()]
                 submenus = [act.text() for act in menu_self.actions() if act.menu()]
+                # Also collect all actions recursively (including submenus)
+                all_actions = capture._collect_actions_recursive(menu_self)
                 capture.menus.append({
                     "menu": menu_self,
-                    "actions": actions,
+                    "actions": all_actions,  # Now includes submenu actions
                     "submenus": submenus,
+                    "direct_actions": actions,  # Keep original behavior available
                 })
                 return None
 
