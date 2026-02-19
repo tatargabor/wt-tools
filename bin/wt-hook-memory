@@ -119,9 +119,9 @@ make_dedup_key() {
 
 proactive_and_format() {
     local query="$1" limit="${2:-5}"
-    _dbg "proactive_and_format: query='${query:0:100}' limit=$limit"
+    _log "proactive: query='${query:0:80}' limit=$limit"
 
-    wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || { _dbg "proactive_and_format: wt-memory proactive FAILED"; return 1; }
+    wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || { _log "proactive: FAILED"; return 1; }
 
     local result
     result=$(python3 -c "
@@ -137,19 +137,23 @@ for m in memories:
     if score is not None and score != 'N/A':
         try:
             if float(score) < 0.3:
-                print(f'  skip: score={score} content={m.get(\"content\",\"\")[:60]}', file=sys.stderr)
+                print(f'  skip [{score:.2f}]: {m.get(\"content\",\"\")[:60]}', file=sys.stderr)
                 continue
         except (ValueError, TypeError): pass
     filtered.append(m)
 if not filtered: sys.exit(1)
-print(f'filtered={len(filtered)} scores={[m.get(\"relevance_score\",\"?\") for m in filtered]}', file=sys.stderr)
 seen = set()
 for m in filtered:
     c = m.get('content','').replace('\n',' ')[:300]
     key = c[:50]
     if key in seen: continue
     seen.add(key)
+    score = m.get('relevance_score', '?')
+    try: score = f'{float(score):.2f}'
+    except: pass
+    print(f'  [{score}] {c[:100]}', file=sys.stderr)
     print(f'  - {c}')
+print(f'filtered={len(filtered)}', file=sys.stderr)
 " "$TMPFILE" 2>"$TMPFILE.err")
     local rc=$?
     if [[ -f "$TMPFILE.err" ]]; then
@@ -159,15 +163,14 @@ for m in filtered:
     fi
     rm -f "$TMPFILE.err"
     [[ $rc -ne 0 ]] && { _log "proactive: no results after filtering"; return 1; }
-    _log "proactive: query='${query:0:80}' → $(echo "$result" | wc -l) results"
     echo "$result"
 }
 
 recall_and_format() {
     local query="$1" limit="${2:-3}" mode="${3:-hybrid}"
-    _dbg "recall_and_format: query='${query:0:100}' limit=$limit mode=$mode"
+    _log "recall: query='${query:0:80}' mode=$mode limit=$limit"
 
-    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _log "recall: FAILED query='${query:0:80}' mode=$mode"; return 1; }
+    wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _log "recall: FAILED"; return 1; }
 
     local result
     result=$(python3 -c "
@@ -183,15 +186,17 @@ for m in memories:
     if score is not None and score != 'N/A':
         try:
             if float(score) < 0.3:
-                print(f'  skip: score={score} content={m.get(\"content\",\"\")[:60]}', file=sys.stderr)
+                print(f'  skip [{float(score):.2f}]: {m.get(\"content\",\"\")[:60]}', file=sys.stderr)
                 continue
         except (ValueError, TypeError): pass
     c = m.get('content','').replace('\n',' ')[:300]
     key = c[:50]
     if key in seen: continue
     seen.add(key)
-    score = m.get('relevance_score', '?')
-    print(f'  - [{score}] {c}', file=sys.stderr)
+    s = m.get('relevance_score', '?')
+    try: s = f'{float(s):.2f}'
+    except: pass
+    print(f'  [{s}] {c[:100]}', file=sys.stderr)
     print(f'  - {c}')
 " "$TMPFILE" 2>"$TMPFILE.err")
     local rc=$?
@@ -201,8 +206,7 @@ for m in memories:
         done < "$TMPFILE.err"
     fi
     rm -f "$TMPFILE.err"
-    [[ $rc -ne 0 ]] && { _log "recall: no results query='${query:0:80}' mode=$mode"; return 1; }
-    _log "recall: query='${query:0:80}' mode=$mode → $(echo "$result" | wc -l) results"
+    [[ $rc -ne 0 ]] && { _log "recall: no results"; return 1; }
     echo "$result"
 }
 
