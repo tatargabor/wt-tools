@@ -176,7 +176,7 @@ install_scripts() {
 
     mkdir -p "$INSTALL_DIR"
 
-    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-hook-memory wt-hook-memory-save wt-hook-memory-recall wt-hook-memory-warmstart wt-hook-memory-pretool wt-hook-memory-posttool wt-deploy-hooks wt-memory wt-memory-mcp-server.py wt-openspec)
+    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-hook-memory wt-hook-memory-save wt-hook-memory-recall wt-hook-memory-warmstart wt-hook-memory-pretool wt-hook-memory-posttool wt-deploy-hooks wt-memory wt-openspec)
 
     for script in "${scripts[@]}"; do
         local src="$SCRIPT_DIR/bin/$script"
@@ -705,13 +705,10 @@ EOF
                 info "  Setting up MCP server dependencies..."
                 (cd "$mcp_server_dir" && uv sync 2>/dev/null) || true
 
-                # Add MCP server to Claude Code
-                if ! claude mcp list 2>/dev/null | grep -q "wt-tools"; then
-                    claude mcp add --scope user --transport stdio wt-tools -- uv --directory "$mcp_server_dir" run python wt_mcp_server.py 2>/dev/null || true
-                    success "  Added: wt-tools MCP server"
-                else
-                    info "  wt-tools MCP server already configured"
-                fi
+                # Clean up legacy global MCP registrations (now per-project via wt-project init)
+                claude mcp remove --scope user wt-tools 2>/dev/null || true
+                claude mcp remove --scope user wt-memory 2>/dev/null || true
+                info "  MCP server is registered per-project via wt-project init"
             else
                 warn "  uv installation failed. MCP server requires uv."
                 echo "    Try manually: curl -LsSf https://astral.sh/uv/install.sh | sh"

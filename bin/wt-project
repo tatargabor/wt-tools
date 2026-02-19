@@ -113,25 +113,28 @@ if old in content:
         success "  Updated Persistent Memory citation instruction in CLAUDE.md"
     fi
 
-    # 6. Register wt-memory MCP server for the project path (and any extra paths, e.g. worktree)
+    # 6. Register unified wt-tools MCP server for the project path (and any extra paths, e.g. worktree)
     _register_mcp_server "$project_path" "$@"
 }
 
-# Register the wt-memory MCP server scoped to one or more project paths.
+# Register the unified wt-tools MCP server scoped to one or more project paths.
 # Usage: _register_mcp_server <path> [<extra-path> ...]
 # claude mcp add uses PWD as the scope key, so we cd into each path before registering.
+# CLAUDE_PROJECT_DIR env var propagates project context to memory tools.
 _register_mcp_server() {
     if ! command -v claude &>/dev/null; then
         return 0  # claude CLI not available, skip
     fi
-    local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
     local mcp_server_dir="$WT_TOOLS_ROOT/mcp-server"
-    [[ -f "$mcp_server" ]] || return 0
+    [[ -d "$mcp_server_dir" ]] || return 0
     for reg_path in "$@"; do
         [[ -d "$reg_path" ]] || continue
-        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp add wt-memory -- uv --directory "$mcp_server_dir" run python "$mcp_server" 2>/dev/null) || true
+        (cd "$reg_path" \
+            && claude mcp remove wt-memory 2>/dev/null \
+            && claude mcp remove wt-tools 2>/dev/null \
+            ; claude mcp add wt-tools -- env CLAUDE_PROJECT_DIR="$reg_path" uv --directory "$mcp_server_dir" run python wt_mcp_server.py 2>/dev/null) || true
     done
-    success "  Registered wt-memory MCP server"
+    success "  Registered wt-tools MCP server"
 }
 
 # Clean up deprecated memory references from skill/command files
