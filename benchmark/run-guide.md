@@ -4,7 +4,7 @@ Complete step-by-step guide for executing the shodh-memory benchmark v2.
 
 ## Prerequisites
 
-- **wt-tools** installed and on PATH (`wt-loop`, `wt-deploy-hooks`, `wt-memory`, `wt-memory-hooks` all available)
+- **wt-tools** installed and on PATH (`wt-loop`, `wt-deploy-hooks`, `wt-memory` all available)
 - **Node.js 18+** (`node --version`)
 - **Claude Code CLI** installed (`claude --version`)
 - **openspec CLI** installed (`openspec --version`; install: `npm install -g @fission-ai/openspec`)
@@ -32,7 +32,7 @@ What it does: `git init` → `npm init` → `openspec init --tools claude` → `
 # Default: ~/benchmark/run-b/craftbazaar-memory
 ```
 
-Same as Run A plus: `wt-memory-hooks install` → copies `with-memory.md` as CLAUDE.md (PORT=4001) → verifies `wt-memory health`.
+Same as Run A plus: copies `with-memory.md` as CLAUDE.md (PORT=4001, hook-driven persistent memory) → verifies `wt-memory health`.
 
 ### What the scripts check
 

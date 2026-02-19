@@ -147,24 +147,6 @@ Target archive directory already exists.
 3. Wait until a different date to archive
 ```
 
-7. **Save to developer memory (automatic)**
-
-   If `wt-memory health` succeeds:
-   a. Extract key decisions from design.md → save each as a memory:
-      ```bash
-      echo "<decision summary and rationale>" | wt-memory remember --type Decision --tags change:<change-name>,phase:archive,source:agent,decision
-      ```
-   b. Extract lessons learned from tasks.md/design.md (gotchas, surprising outcomes, useful patterns) → save each as:
-      ```bash
-      echo "<lesson description>" | wt-memory remember --type Learning --tags change:<change-name>,phase:archive,source:agent,lesson
-      ```
-   c. Save a change completion event summarizing the change:
-      ```bash
-      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Context --tags change:<change-name>,phase:archive,source:agent,completion
-      ```
-
-   If `wt-memory health` fails, skip this step silently — no error, no warning.
-
 **Guardrails**
 - Always prompt for change selection if not provided
 - Use artifact graph (openspec status --json) for completion checking

@@ -13,9 +13,11 @@ done
 WT_TOOLS_ROOT="$(cd "$(dirname "$_wt_project_script")/.." && pwd)"
 
 # Deploy wt-tools hooks, commands, and skills to a project's .claude/ directory.
-# Usage: deploy_wt_tools <project-path>
+# Usage: deploy_wt_tools <project-path> [<extra-mcp-path> ...]
+# extra-mcp-path: additional paths to register MCP for (e.g. current worktree)
 deploy_wt_tools() {
     local project_path="$1"
+    shift
     local claude_dir="$project_path/.claude"
 
     # 1. Deploy hooks via wt-deploy-hooks
@@ -24,9 +26,12 @@ deploy_wt_tools() {
 
     # 2. Deploy /wt:* commands
     local src_commands="$WT_TOOLS_ROOT/.claude/commands/wt"
+    local dst_commands="$claude_dir/commands/wt"
     if [[ -d "$src_commands" ]]; then
-        mkdir -p "$claude_dir/commands/wt"
-        cp -r "$src_commands"/* "$claude_dir/commands/wt/"
+        mkdir -p "$dst_commands"
+        if [[ "$(realpath "$src_commands")" != "$(realpath "$dst_commands")" ]]; then
+            cp -r "$src_commands"/* "$dst_commands/"
+        fi
         local cmd_count
         cmd_count=$(ls -1 "$src_commands"/*.md 2>/dev/null | wc -l)
         success "  Deployed $cmd_count command(s) to .claude/commands/wt/"
@@ -36,12 +41,146 @@ deploy_wt_tools() {
 
     # 3. Deploy wt skills
     local src_skills="$WT_TOOLS_ROOT/.claude/skills/wt"
+    local dst_skills="$claude_dir/skills/wt"
     if [[ -d "$src_skills" ]]; then
-        mkdir -p "$claude_dir/skills/wt"
-        cp -r "$src_skills"/* "$claude_dir/skills/wt/"
+        mkdir -p "$dst_skills"
+        if [[ "$(realpath "$src_skills")" != "$(realpath "$dst_skills")" ]]; then
+            cp -r "$src_skills"/* "$dst_skills/"
+        fi
         success "  Deployed skills to .claude/skills/wt/"
     else
         warn "  Source skills not found: $src_skills"
+    fi
+
+    # 4. Remove deprecated inline memory hooks from OpenSpec skill/command files
+    if command -v wt-memory-hooks &>/dev/null; then
+        (cd "$project_path" && wt-memory-hooks remove --quiet) 2>/dev/null || true
+    fi
+
+    # 4b. Clean up deprecated memory references
+    _cleanup_deprecated_memory_refs "$project_path"
+
+    # 5. Ensure CLAUDE.md has the Persistent Memory section
+    local claude_md="$project_path/CLAUDE.md"
+    local memory_marker="## Persistent Memory"
+    local current_important='Start by summarizing what you already know from the injected memory, then fill in gaps.'
+    local correct_important='If a memory directly answers the user'"'"'s question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch.'
+    if [[ ! -f "$claude_md" ]] || ! grep -q "$memory_marker" "$claude_md" 2>/dev/null; then
+        local snippet
+        snippet=$(cat << 'MEMORY_SNIPPET'
+
+## Persistent Memory
+
+This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
+
+**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. If a memory directly answers the user's question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch. This applies to every turn, not just the first one.**
+
+**How it works:**
+- Session start → relevant memories loaded as system-reminder
+- Every prompt → topic-based recall injected as system-reminder
+- Every tool use → relevant past experience injected as system-reminder
+- Tool errors → past fixes surfaced automatically
+- Session end → insights extracted and saved
+
+**Active (MCP tools):** You also have MCP memory tools available (`remember`, `recall`, `proactive_context`, etc.) for deeper memory interactions when automatic context isn't enough.
+
+**Emphasis (use sparingly):**
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:user,<topic>` — mark something as HIGH IMPORTANCE
+- `wt-memory forget <id>` — suppress or correct a wrong memory
+- Most things are remembered automatically. Only use `remember` for emphasis.
+MEMORY_SNIPPET
+)
+        if [[ -f "$claude_md" ]]; then
+            # Append to existing CLAUDE.md
+            echo "$snippet" >> "$claude_md"
+        else
+            # Create new CLAUDE.md (strip leading newline)
+            echo "${snippet#$'\n'}" > "$claude_md"
+        fi
+        success "  Added Persistent Memory section to CLAUDE.md"
+    elif grep -qF "$current_important" "$claude_md" 2>/dev/null; then
+        # Patch outdated IMPORTANT line to include explicit "From memory:" citation rule
+        python3 -c "
+import sys
+old = sys.argv[1]
+new = sys.argv[2]
+with open(sys.argv[3]) as f:
+    content = f.read()
+if old in content:
+    with open(sys.argv[3], 'w') as f:
+        f.write(content.replace(old, new, 1))
+" "$current_important" "$correct_important" "$claude_md" 2>/dev/null || true
+        success "  Updated Persistent Memory citation instruction in CLAUDE.md"
+    fi
+
+    # 6. Register wt-memory MCP server for the project path (and any extra paths, e.g. worktree)
+    _register_mcp_server "$project_path" "$@"
+}
+
+# Register the wt-memory MCP server scoped to one or more project paths.
+# Usage: _register_mcp_server <path> [<extra-path> ...]
+# claude mcp add uses PWD as the scope key, so we cd into each path before registering.
+_register_mcp_server() {
+    if ! command -v claude &>/dev/null; then
+        return 0  # claude CLI not available, skip
+    fi
+    local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
+    [[ -f "$mcp_server" ]] || return 0
+    for reg_path in "$@"; do
+        [[ -d "$reg_path" ]] || continue
+        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp add wt-memory -- "$mcp_server" 2>/dev/null) || true
+    done
+    success "  Registered wt-memory MCP server"
+}
+
+# Clean up deprecated memory references from skill/command files
+_cleanup_deprecated_memory_refs() {
+    local project_path="$1"
+
+    # Remove <!-- wt-memory hooks --> blocks from SKILL.md files
+    if [[ -d "$project_path/.claude/skills" ]]; then
+        find "$project_path/.claude/skills" -name "SKILL.md" -type f 2>/dev/null | while read -r f; do
+            if grep -q '<!-- wt-memory hooks' "$f" 2>/dev/null; then
+                python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove all wt-memory hooks blocks (including variants like hooks-midflow, hooks-remember, etc.)
+cleaned = re.sub(r'<!--\s*wt-memory hooks[^>]*-->.*?<!--\s*/wt-memory hooks[^>]*-->\s*\n?', '', content, flags=re.DOTALL)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Remove manual wt-memory recall/remember instructions from command .md files
+    # Exclude commands/wt/ — those are wt-tools' own commands that legitimately use wt-memory
+    if [[ -d "$project_path/.claude/commands" ]]; then
+        find "$project_path/.claude/commands" -name "*.md" -type f 2>/dev/null | while read -r f; do
+            # Skip wt-tools command files (commands/wt/*.md) — they use wt-memory intentionally
+            [[ "$f" == */commands/wt/*.md ]] && continue
+            if grep -qE 'wt-memory (recall|remember)' "$f" 2>/dev/null; then
+                python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove lines containing wt-memory recall or wt-memory remember instructions
+lines = content.split('\n')
+cleaned_lines = [l for l in lines if not re.search(r'wt-memory\s+(recall|remember)', l)]
+cleaned = '\n'.join(cleaned_lines)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Delete .claude/hot-topics.json if it exists
+    if [[ -f "$project_path/.claude/hot-topics.json" ]]; then
+        rm -f "$project_path/.claude/hot-topics.json"
     fi
 }
 
@@ -148,10 +287,18 @@ cmd_init() {
         echo "  Path: $git_root"
     fi
 
-    # Deploy wt-tools to project
+    # Deploy wt-tools to main repo
     echo ""
     info "Deploying wt-tools to $git_root..."
     deploy_wt_tools "$git_root"
+
+    # If called from a worktree, also deploy to the worktree's own .claude/ dir
+    # and register MCP for the worktree path scope
+    if $in_worktree; then
+        echo ""
+        info "Deploying wt-tools to worktree $current_dir..."
+        deploy_wt_tools "$current_dir"
+    fi
     echo ""
     success "wt-tools deployment complete for '$name'"
 }

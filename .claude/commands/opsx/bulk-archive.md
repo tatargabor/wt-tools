@@ -228,27 +228,6 @@ Failed K changes:
 No active changes found. Use `/opsx:new` to create a new change.
 ```
 
-10. **Save to developer memory (automatic)**
-
-   If `wt-memory health` succeeds:
-
-   a. For **each archived change**, save a completion context:
-      ```bash
-      echo "<change-name>: <brief summary of what was built, schema used, outcome>" | wt-memory remember --type Context --tags change:<change-name>,phase:bulk-archive,source:agent,completion
-      ```
-
-   b. If **conflict resolutions** were made during the batch, save each as a decision:
-      ```bash
-      echo "<conflict description and resolution rationale>" | wt-memory remember --type Decision --tags phase:bulk-archive,source:agent,conflict-resolution
-      ```
-
-   c. If **lessons or patterns** emerged from the batch process (gotchas, surprising outcomes), save each as:
-      ```bash
-      echo "<lesson description>" | wt-memory remember --type Learning --tags phase:bulk-archive,source:agent,lesson
-      ```
-
-   If `wt-memory health` fails, skip this step silently — no error, no warning.
-
 **Guardrails**
 - Allow any number of changes (1+ is fine, 2+ is the typical use case)
 - Always prompt for selection, never auto-select

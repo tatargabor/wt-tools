@@ -129,39 +129,6 @@ def test_memory_button_purple_when_memories_exist(control_center, git_env, qtbot
     assert "5 memories" in mem_btn.toolTip()
 
 
-def test_memory_button_hooks_installed_tooltip(control_center, git_env, qtbot):
-    """[M] button tooltip should show hooks status when OpenSpec is present."""
-    _set_feature_cache(
-        control_center,
-        memory={"available": True, "count": 3, "hooks_installed": True},
-        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
-    )
-    control_center.update_status(_make_status_data(git_env))
-    qtbot.wait(200)
-
-    header_widget = control_center.table.cellWidget(0, 0)
-    mem_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"][0]
-
-    assert "hooks installed" in mem_btn.toolTip()
-    assert "3 memories" in mem_btn.toolTip()
-
-
-def test_memory_button_hooks_not_installed_tooltip(control_center, git_env, qtbot):
-    """[M] button tooltip should warn when hooks not installed but OpenSpec present."""
-    _set_feature_cache(
-        control_center,
-        memory={"available": True, "count": 0},
-        openspec={"installed": True, "changes_active": 1, "skills_present": True, "cli_available": True},
-    )
-    control_center.update_status(_make_status_data(git_env))
-    qtbot.wait(200)
-
-    header_widget = control_center.table.cellWidget(0, 0)
-    mem_btn = [btn for btn in header_widget.findChildren(QPushButton) if btn.text() == "M"][0]
-
-    assert "hooks not installed" in mem_btn.toolTip()
-
-
 def test_project_header_context_menu(control_center, git_env, qtbot):
     """Right-click on project header row should show project header context menu with Memory submenu."""
     _set_feature_cache(control_center, memory={"available": True, "count": 3})

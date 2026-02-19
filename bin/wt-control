@@ -36,16 +36,39 @@ LOG_FILE="$HOME/.cache/wt-control.log"
 # shellcheck source=wt-common.sh
 source "$SCRIPT_DIR/wt-common.sh"
 
-PYTHON=$(find_python)
+# Find a python3 that can import PySide6.
+# find_python() may return a venv python (e.g. PlatformIO) that lacks PySide6,
+# so we probe well-known paths as fallback.
+_find_gui_python() {
+    local candidate
+    candidate=$(find_python 2>/dev/null)
+    if [[ -n "$candidate" ]] && "$candidate" -c "import PySide6" 2>/dev/null; then
+        echo "$candidate"
+        return 0
+    fi
+    for p in "${_PYTHON_PROBE_PATHS[@]}"; do
+        if [[ -x "$p" ]] && "$p" -c "import PySide6" 2>/dev/null; then
+            echo "$p"
+            return 0
+        fi
+    done
+    # No python with PySide6 found — return best candidate for install attempt
+    if [[ -n "$candidate" ]]; then
+        echo "$candidate"
+    fi
+    return 1
+}
+
+PYTHON=$(_find_gui_python)
 if [[ -z "$PYTHON" ]]; then
     echo "Error: python3 not found" | tee -a "$LOG_FILE" >&2
     exit 1
 fi
 
-# Check if PySide6 is installed
+# Check if PySide6 is installed (may still need install if no probe had it)
 if ! "$PYTHON" -c "import PySide6" 2>/dev/null; then
     echo "PySide6 not found. Installing dependencies..." | tee -a "$LOG_FILE"
-    pip3 install -r "$GUI_DIR/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
+    "$PYTHON" -m pip install -r "$GUI_DIR/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
 fi
 
 # Set PYTHONPATH to ensure gui package can be imported

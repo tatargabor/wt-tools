@@ -176,7 +176,7 @@ install_scripts() {
 
     mkdir -p "$INSTALL_DIR"
 
-    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-hook-memory-save wt-hook-memory-recall wt-deploy-hooks wt-memory wt-memory-hooks wt-openspec)
+    local scripts=(wt-common.sh wt-project wt-new wt-work wt-add wt-list wt-merge wt-close wt-version wt-status wt-focus wt-config wt-control wt-control-gui wt-control-init wt-control-sync wt-control-chat wt-loop wt-usage wt-skill-start wt-hook-stop wt-hook-skill wt-hook-memory wt-hook-memory-save wt-hook-memory-recall wt-hook-memory-warmstart wt-hook-memory-pretool wt-hook-memory-posttool wt-deploy-hooks wt-memory wt-memory-mcp-server.py wt-openspec)
 
     for script in "${scripts[@]}"; do
         local src="$SCRIPT_DIR/bin/$script"
@@ -284,10 +284,25 @@ install_shodh_memory() {
         return 0
     fi
 
-    # Already installed in a reachable Python?
+    # Read version pin from pyproject.toml (single source of truth)
+    local shodh_pkg=""
+    local pyproject="$SCRIPT_DIR/pyproject.toml"
+    if [[ -f "$pyproject" ]]; then
+        shodh_pkg=$(grep 'shodh-memory' "$pyproject" | head -1 | sed 's/.*"\(shodh-memory[^"]*\)".*/\1/')
+    fi
+    if [[ -z "$shodh_pkg" ]]; then
+        shodh_pkg='shodh-memory>=0.1.81'  # fallback
+    fi
+
+    # Already installed? Check if version satisfies the pin.
     if "$PYTHON" -c "import sys; sys._shodh_star_shown = True; from shodh_memory import Memory" 2>/dev/null; then
         save_shodh_python "$PYTHON"
-        success "Shodh-Memory already installed ($(basename "$PYTHON"))"
+        # Try upgrade to satisfy the pin (pip handles "already satisfied" cheaply)
+        if "$PYTHON" -m pip install "$shodh_pkg" >/dev/null 2>&1; then
+            success "Shodh-Memory up to date ($(basename "$PYTHON"))"
+        else
+            success "Shodh-Memory already installed ($(basename "$PYTHON"))"
+        fi
         return 0
     fi
 
@@ -304,7 +319,6 @@ install_shodh_memory() {
 
     info "Installing Shodh-Memory into $PYTHON..."
     # Use $PYTHON -m pip to guarantee pip matches the target Python
-    local shodh_pkg='shodh-memory>=0.1.75,!=0.1.80'
     if "$PYTHON" -m pip install "$shodh_pkg" >/dev/null 2>&1; then
         :
     elif "$PYTHON" -m pip install --user "$shodh_pkg" >/dev/null 2>&1; then
@@ -562,6 +576,18 @@ install_projects() {
         if [[ -d "$project_path" ]]; then
             info "  Updating: $project_path"
             (cd "$project_path" && "$SCRIPT_DIR/bin/wt-project" init) || warn "  Failed: $project_path"
+
+            # Also deploy to each worktree of this project
+            local worktree_paths
+            worktree_paths=$(git -C "$project_path" worktree list --porcelain 2>/dev/null \
+                | grep '^worktree ' | cut -d' ' -f2- | grep -v "^$project_path$")
+            while IFS= read -r wt_path; do
+                [[ -z "$wt_path" ]] && continue
+                if [[ -d "$wt_path" ]]; then
+                    info "  Updating worktree: $wt_path"
+                    (cd "$wt_path" && "$SCRIPT_DIR/bin/wt-project" init) || warn "  Failed worktree: $wt_path"
+                fi
+            done <<< "$worktree_paths"
         else
             warn "  Project path not found: $project_path"
         fi

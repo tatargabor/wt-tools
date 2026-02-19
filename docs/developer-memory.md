@@ -212,101 +212,98 @@ The first migration adds `branch:unknown` to all pre-existing memories that don'
 
 ---
 
-## OpenSpec Integration
+## Hook-Driven Memory (5 Layers)
 
-If you use [OpenSpec](https://github.com/tatargabor/wt-tools) workflows (`/opsx:new`, `/opsx:apply`, etc.), memory hooks add automatic recall and remember at key points in each phase. Install them once:
-
-```bash
-wt-memory-hooks install
-```
-
-### How it works
+Memory is fully automated via Claude Code hooks — no agent discipline required, no inline skill instructions needed. Five layers cover the complete agent lifecycle:
 
 ```
-  /opsx:new                /opsx:continue          /opsx:ff
-  ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
-  │ recall       │        │ recall       │        │ recall       │
-  │ related work │        │ + mid-flow   │        │ + mid-flow   │
-  │              │        │   remember   │        │   remember   │
-  └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-  /opsx:apply              /opsx:archive           /opsx:explore
-  ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
-  │ recall       │        │ extract      │        │ recall       │
-  │ + mid-flow   │        │ decisions +  │        │ + remember   │
-  │   remember   │        │ lessons from │        │   insights   │
-  │ + remember   │        │ artifacts    │        │              │
-  │   on done    │        │              │        │              │
-  └──────────────┘        └──────────────┘        └──────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    SESSION TIMELINE                          │
+  │                                                              │
+  │  Session Start                                               │
+  │  ┌────────────────────────────────────────────┐              │
+  │  │ L1: wt-hook-memory-warmstart               │              │
+  │  │  • Load cheat-sheet memories               │              │
+  │  │  • Discover project hot topics             │              │
+  │  │  • Inject proactive project context        │              │
+  │  └────────────────────────────────────────────┘              │
+  │       ↓                                                      │
+  │  Every User Prompt                                           │
+  │  ┌────────────────────────────────────────────┐              │
+  │  │ L2: wt-hook-memory-recall                  │              │
+  │  │  • Extract topic from prompt text          │              │
+  │  │  • Recall relevant memories                │              │
+  │  │  • Inject as additionalContext             │              │
+  │  └────────────────────────────────────────────┘              │
+  │       ↓                                                      │
+  │  Before Hot-Topic Bash Commands                              │
+  │  ┌────────────────────────────────────────────┐              │
+  │  │ L3: wt-hook-memory-pretool                 │              │
+  │  │  • Pattern-match against discovered topics │              │
+  │  │  • Recall command-specific memories        │              │
+  │  │  • Skip non-matching (< 5ms overhead)      │              │
+  │  └────────────────────────────────────────────┘              │
+  │       ↓                                                      │
+  │  On Bash Errors                                              │
+  │  ┌────────────────────────────────────────────┐              │
+  │  │ L4: wt-hook-memory-posttool                │              │
+  │  │  • Parse error text as recall query        │              │
+  │  │  • Surface past fixes for this error       │              │
+  │  │  • Auto-promote command to hot topics      │              │
+  │  └────────────────────────────────────────────┘              │
+  │       ↓                                                      │
+  │  Session End                                                 │
+  │  ┌────────────────────────────────────────────┐              │
+  │  │ L5: wt-hook-memory-save                    │              │
+  │  │  • Haiku extracts session insights         │              │
+  │  │  • Promotes conventions to cheat-sheet     │              │
+  │  │  • Extracts design choices from commits    │              │
+  │  └────────────────────────────────────────────┘              │
+  └─────────────────────────────────────────────────────────────┘
 ```
 
-### Phase detail
+### Layer detail
 
-| Phase | Hook | What happens automatically | Example |
-|-------|------|---------------------------|---------|
-| `/opsx:new` | Recall | Searches for related past work before creating a proposal | "add auth" → recalls past decisions about auth approaches |
-| `/opsx:continue` | Recall + Mid-flow + Agent reflect | Recalls relevant experience; saves user corrections; agent saves own insights at session end | User says "we tried Redux, it was too complex" → saved as Learning |
-| `/opsx:ff` | Recall + Mid-flow + Agent reflect | Same as continue, but during fast-forward artifact generation | Agent discovers codebase uses event sourcing → saved as Learning |
-| `/opsx:apply` | Recall + Mid-flow + Agent reflect | Recalls implementation patterns/errors; saves user corrections; on completion saves errors encountered and patterns learned | After finishing: "Learning: the menu system requires WindowStaysOnTopHint for all dialogs" |
-| `/opsx:verify` | Recall + Agent remember | Recalls past issues before verification; saves problems found or quality patterns discovered | "Learning: verification revealed missing error handling in all API endpoints" |
-| `/opsx:sync-specs` | Agent remember | Saves merge decisions when resolving spec conflicts | "Decision: merged overlapping requirements by combining scenarios" |
-| `/opsx:archive` | Extract + Remember | Extracts decisions from design.md and lessons from tasks.md, saves as memories | design.md says "chose marker-based hooks" → saved as Decision |
-| `/opsx:explore` | Recall + User save + Agent reflect | Recalls related knowledge; saves user insights; agent saves own discoveries at session end | Agent discovers hidden coupling between modules → saved as Learning |
+| Layer | Hook Event | Script | When | Latency |
+|-------|-----------|--------|------|---------|
+| L1 | SessionStart | `wt-hook-memory-warmstart` | Once at session start | ~500ms |
+| L2 | UserPromptSubmit | `wt-hook-memory-recall` | Every user prompt | ~200ms |
+| L3 | PreToolUse (Bash) | `wt-hook-memory-pretool` | Hot-topic Bash match | 2ms (skip) / 150ms (match) |
+| L4 | PostToolUseFailure (Bash) | `wt-hook-memory-posttool` | Bash errors only | ~200ms |
+| L5 | Stop | `wt-hook-memory-save` | Every stop (background) | 5-10s (async) |
 
-### Coverage matrix
+### Hot-topic discovery
 
-| Skill | Recall | Mid-flow User Save | Agent Self-Reflection | Structured Tags |
-|-------|--------|--------------------|-----------------------|-----------------|
-| new | hybrid | — | — | — |
-| continue | hybrid + tags | source:user | source:agent (session end) | change, phase, source |
-| ff | hybrid + tags | source:user | source:agent (session end) | change, phase, source |
-| explore | hybrid | source:user | source:agent (session end) | change, phase, source |
-| apply | hybrid + tags | source:user | source:agent (Step 7) | change, phase, source |
-| verify | hybrid + tags | — | source:agent | change, phase, source |
-| sync-specs | — | — | source:agent | change, phase, source |
-| archive | — | — | source:agent | change, phase, source |
+L3 only fires on commands that match hot-topic patterns. Patterns come from two sources:
 
-### Mid-flow remember
+**At session start (L1 discovers):**
+- `bin/*` scripts → command prefixes (e.g., `wt-*`, `openspec`)
+- `package.json` / `Makefile` / `pyproject.toml` → project commands
+- Memory tags → frequently-discussed topics
+- Error memories → commands that failed before
 
-During `/opsx:continue`, `/opsx:ff`, and `/opsx:apply`, the agent watches for knowledge worth saving. When you share something like:
+**Mid-session (L4 promotes):**
+- When a Bash command fails, L4 extracts its prefix and adds it to the hot-topics cache
+- Next time that command runs, L3 will match and inject context
 
-- "We tried X and it didn't work because Y"
-- "Always do Z in this project"
-- "Watch out for this edge case"
+Generic base patterns (always active): `ssh`, `rm -rf`, `sudo`, `docker/kubectl`
 
-The agent recognizes it as valuable, saves it with `wt-memory remember`, and confirms:
+Cache file: `.claude/hot-topics.json`
 
-```
-[Memory saved: Learning — <one-line summary>]
-```
+### Cheat sheet
 
-Then continues with the current work. No interruption, no extra steps.
+Memories tagged `cheat-sheet` are loaded at every session start by L1. The tag is applied:
+- Automatically by L5 when it extracts `Convention` or `CheatSheet` entries
+- Manually by the user: `echo "..." | wt-memory remember --type Learning --tags cheat-sheet,...`
 
-### Stop hook memory reminder
+### Skills and CLAUDE.md
 
-The memory instructions in SKILL.md are "soft hooks" — prompt-level instructions that the agent can skip. To reinforce compliance, the Claude Code Stop hook (`wt-hook-stop`) outputs a reminder when the active skill has memory steps.
+Skills (OpenSpec) contain **no inline memory instructions**. The hooks handle everything:
+- L2 replaces skill-level "recall past experience" steps
+- L5 replaces skill-level "save insights" and "agent self-reflection" steps
+- CLAUDE.md's "Persistent Memory" section explains the system; agent uses `wt-memory remember` only for emphasis
 
-**How it works:**
-1. When a skill starts, `wt-skill-start` checks if the skill's SKILL.md contains `wt-memory`
-2. If yes, it writes a `.wt-tools/agents/<pid>.memory` marker file
-3. On every Stop event (after each agent response), `wt-hook-stop` checks for the marker
-4. If found, it outputs: `[MEMORY REMINDER] Active skill has wt-memory hooks. Run your recall/remember steps before finishing.`
-5. The agent sees this as a system message and is prompted to run its recall/remember steps
-
-This is automatic — no configuration needed. The reminder fires for any skill with `wt-memory` in its SKILL.md.
-
-### Hooks are idempotent
-
-Running `wt-memory-hooks install` again replaces existing hooks (useful after `wt-openspec update` which overwrites SKILL.md files). The GUI can also reinstall hooks automatically after an OpenSpec update.
-
-### Automatic memory hooks
-
-Two Claude Code hooks run automatically via `.claude/settings.json` — no agent discipline required:
-
-**`wt-hook-memory-save`** (Stop event, timeout 30s)
-
-Fires after every agent response. Has two paths:
+### L5 detail (Stop hook)
 
 **PATH 1 — Transcript extraction** (via Haiku LLM): Extracts insights from the active Claude session transcript. Uses a staging+debounce pattern to avoid duplicate memories:
 1. Writes extracted insights to a staging file (`.wt-tools/.staged-extract-{transcript-id}`)
@@ -317,32 +314,9 @@ Fires after every agent response. Has two paths:
 
 **PATH 2 — Design choice extraction**: Detects new git commits, extracts **Choice** lines from `design.md`, and saves ONE concise Decision memory per change (~300 chars max). Idempotent — won't re-save for the same change.
 
-How PATH 2 works:
-1. Compares HEAD against `.wt-tools/.last-memory-commit` marker
-2. For each new commit, extracts change name from message format `change-name: description`
-3. Reads `openspec/changes/<change-name>/design.md`, extracts `**Choice**:` lines
-4. Saves a single Decision memory tagged `change:<name>,phase:apply,source:hook,decisions`
-5. Marks the change in `.wt-tools/.saved-designs` to prevent duplicates
+### Deployment
 
-**`wt-hook-memory-recall`** (UserPromptSubmit event, timeout 15s)
-
-Fires before every agent response. Recalls past decisions as actionable context.
-
-How it works:
-1. Extracts completed change names from git log (commit message format `change-name: description`)
-2. Queries `wt-memory recall` with those change names (up to 8 results, hybrid mode)
-3. Outputs a deduplicated bulleted list under `=== PROJECT MEMORY ===` header
-4. Falls back to prompt-based recall if no openspec directory or no committed changes
-
-Both hooks self-degrade gracefully — they exit 0 immediately if `wt-memory` is not installed. Deployed by default via `wt-deploy-hooks`. Use `wt-deploy-hooks --no-memory` to skip them (e.g., for benchmark baselines).
-
-**How the three memory layers work together:**
-
-| Layer | Mechanism | What it captures |
-|-------|-----------|-----------------|
-| Automatic hooks | `wt-hook-memory-save/recall` in settings.json | Design choices (save) + prior decisions (recall) |
-| Skill hooks | `wt-memory` steps in SKILL.md | Mid-flow learnings, user knowledge, self-reflection |
-| Stop reminder | `.memory` marker + `wt-hook-stop` | Reminds agent to run skill-level memory steps |
+All 5 hooks are deployed automatically via `wt-deploy-hooks`. Use `wt-deploy-hooks --no-memory` to skip memory hooks (e.g., for benchmark baselines). All hooks self-degrade gracefully — they exit 0 immediately if `wt-memory` is not installed.
 
 ---
 
@@ -385,43 +359,22 @@ Quick way to save a memory from the GUI:
 - Enter content (multi-line)
 - Add tags (optional, comma-separated)
 
-### Install Memory Hooks
-
-**Menu → Memory → Install Memory Hooks**
-
-Runs `wt-memory-hooks install` for the current project. Only appears when OpenSpec is detected and hooks are not yet installed.
-
 ---
 
-## Ambient Memory
+## Emphasis Memory
 
-Developer memory works outside of OpenSpec too. The project's `CLAUDE.md` instructs agents to recognize and save valuable knowledge during any conversation.
+The hooks handle automatic recall and save. Agents can additionally use explicit `wt-memory remember` for high-importance items — things the automatic extraction might miss or that need immediate emphasis:
 
-### When agents save automatically
+- Critical user decisions or preferences
+- Non-obvious gotchas discovered during investigation
+- Project constraints that affect future work
 
-Agents watch for these patterns in conversation:
+```
+echo "PySide6 QTimer must only be called from the main thread" \
+  | wt-memory remember --type Learning --tags pyside6,threading
+```
 
-| Pattern | Type | Example |
-|---------|------|---------|
-| "We tried X and it didn't work" | Learning | "We tried websockets but Cloudflare Workers don't support them" |
-| "Always / never do X in this project" | Decision | "Always use absolute imports in this codebase" |
-| "Watch out for X" / "X is a gotcha" | Learning | "The CI cache invalidates when you change package.json" |
-| "We decided X because Y" | Decision | "We chose pnpm over yarn because of workspace support" |
-
-### When agents don't save
-
-- Simple confirmations or task instructions ("fix this typo", "run tests")
-- General knowledge any developer would know
-- Session-specific context that won't help future agents
-- When an OpenSpec skill is already running its own memory hooks (to avoid duplicates)
-
-### How it works
-
-1. Agent recognizes knowledge worth saving
-2. Runs `wt-memory health` — if it fails, skips silently
-3. Saves with appropriate type and tags
-4. Confirms in one line: `[Memory saved: <Type> — <summary>]`
-5. Continues with current work
+Use `wt-memory forget <id>` to suppress or correct wrong memories.
 
 ---
 
@@ -528,15 +481,17 @@ wt-memory forget --older-than 180
 wt-memory status --json
 ```
 
-### wt-memory-hooks
+### wt-memory-hooks (Legacy)
 
 | Command | Description |
 |---------|-------------|
-| `wt-memory-hooks install` | Patch memory hooks into OpenSpec SKILL.md files (idempotent) |
-| `wt-memory-hooks check [--json]` | Check whether hooks are installed |
-| `wt-memory-hooks remove` | Remove memory hooks from OpenSpec SKILL.md files |
+| `wt-memory-hooks install` | **Deprecated** — the 5-layer hook system in settings.json handles all memory operations. Use `wt-deploy-hooks` instead. |
+| `wt-memory-hooks check [--json]` | Check whether inline hooks are present in skill files |
+| `wt-memory-hooks remove [--quiet]` | Remove inline memory hooks from OpenSpec skill files |
 
 **Global option:** `--project NAME` — override auto-detected project name.
+
+> **Note:** `wt-project init` now automatically runs `wt-memory-hooks remove` to clean up legacy inline hooks.
 
 ### /wt:memory slash command
 
@@ -567,34 +522,23 @@ wt-memory health
 wt-memory status
 ```
 
-### 3. Install OpenSpec hooks (optional)
-
-If you use OpenSpec workflows:
-
-```bash
-wt-memory-hooks install
-wt-memory-hooks check   # verify
-```
-
 ### Quick Setup Flows
 
 #### A. Fresh project — OpenSpec + memory from scratch
 
 ```bash
 pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend
-wt-project init                       # 2. Register project + deploy hooks/commands/skills
+wt-project init                       # 2. Register project + deploy 5-layer hooks to settings.json
 wt-openspec init                      # 3. Initialize OpenSpec
-wt-memory-hooks install               # 4. Patch memory hooks into OpenSpec skills
-wt-memory-hooks check                 # 5. Verify hooks installed
+wt-memory health                      # 4. Verify shodh-memory is available
 ```
 
 #### B. Existing OpenSpec project — enable memory
 
 ```bash
 pip install 'shodh-memory>=0.1.75,!=0.1.80'  # 1. Install memory backend (if not installed)
-wt-project init                       # 2. Re-run to update deployment (adds memory hooks to settings.json)
-wt-memory-hooks install               # 3. Patch memory hooks into OpenSpec skills
-wt-memory-hooks check                 # 4. Verify
+wt-project init                       # 2. Re-run to deploy 5-layer hooks + auto-remove legacy inline hooks
+wt-memory health                      # 3. Verify shodh-memory is available
 ```
 
 #### C. Brownfield project — seed memory from existing OpenSpec artifacts
@@ -608,17 +552,13 @@ wt-memory health                      # 2. Verify it works
 
 See the full [Memory Seeding Guide](memory-seeding-guide.md) for step-by-step instructions.
 
-#### D. After `wt-openspec update` — re-install memory hooks
+#### D. After `wt-openspec update` — no action needed
 
-`wt-openspec update` overwrites SKILL.md files, removing memory hook patches. Re-install:
+The 5-layer hook system lives in `settings.json`, not in SKILL.md files. OpenSpec updates don't affect it:
 
 ```bash
-wt-openspec update                    # 1. Update OpenSpec skills
-wt-memory-hooks install               # 2. Re-patch memory hooks
-wt-memory-hooks check                 # 3. Verify
+wt-openspec update                    # Update OpenSpec skills — memory hooks stay active
 ```
-
-> **Tip:** The GUI can also reinstall hooks automatically after an OpenSpec update (Menu → Memory → Install Memory Hooks).
 
 ### Graceful degradation
 
@@ -644,45 +584,46 @@ You can install shodh-memory at any time — existing commands and hooks will st
 ┌────────────────────────────────────────────────────────────┐
 │                      Agent Session                          │
 │                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐ │
-│  │  Auto hooks   │  │  CLAUDE.md   │  │  OpenSpec skill   │ │
-│  │ (settings.json│  │  (ambient    │  │  hooks (6 phases) │ │
-│  │  Save+Recall) │  │   memory)    │  │  + /wt:memory     │ │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬──────────┘ │
-│         │                  │                    │            │
-│         │     ┌────────────┴────────────┐      │            │
-│         │     │  Stop hook reminder     │      │            │
-│         │     │  (.memory marker file)  │      │            │
-│         │     └────────────┬────────────┘      │            │
-│         │                  │                    │            │
-│         └──────────┬───────┴────────┬───────────┘           │
-│                    ▼                ▼                        │
-│             ┌────────────┐  ┌──────────────┐               │
-│             │ wt-memory  │  │ wt-memory    │               │
-│             │ (CLI)      │  │ -hooks (CLI) │               │
-│             └─────┬──────┘  └──────────────┘               │
-│                   │                                         │
-│             ┌─────▼──────────────────┐                     │
-│             │   shodh-memory         │                     │
-│             │   (Python library)     │                     │
-│             └─────┬──────────────────┘                     │
-│                   │                                         │
-│             ┌─────▼──────────────────┐                     │
-│             │   RocksDB              │                     │
-│             │   Per-project storage  │                     │
-│             │   ~/.local/share/      │                     │
-│             │   wt-tools/memory/     │                     │
-│             │   <project-name>/      │                     │
-│             └────────────────────────┘                     │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  5-Layer Hook System (settings.json)                  │  │
+│  │  L1 SessionStart    → warmstart + discovery           │  │
+│  │  L2 UserPromptSubmit → topic recall                   │  │
+│  │  L3 PreToolUse[Bash] → hot-topic recall               │  │
+│  │  L4 PostToolUseFailure[Bash] → error recall + promote │  │
+│  │  L5 Stop             → haiku extract + design choices │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                          │                                   │
+│  ┌──────────────┐       │       ┌──────────────────────┐   │
+│  │  CLAUDE.md   │       │       │  .claude/            │   │
+│  │  (persistent │       │       │  hot-topics.json     │   │
+│  │   memory)    │       │       │  (L1 writes, L3/L4   │   │
+│  └──────────────┘       │       │   reads/updates)     │   │
+│                          │       └──────────────────────┘   │
+│                          ▼                                   │
+│                   ┌────────────┐                            │
+│                   │ wt-memory  │                            │
+│                   │ (CLI)      │                            │
+│                   └─────┬──────┘                            │
+│                         │                                    │
+│                   ┌─────▼──────────────────┐               │
+│                   │   shodh-memory         │               │
+│                   │   (Python library)     │               │
+│                   └─────┬──────────────────┘               │
+│                         │                                    │
+│                   ┌─────▼──────────────────┐               │
+│                   │   RocksDB              │               │
+│                   │   Per-project storage  │               │
+│                   └────────────────────────┘               │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ### Key design choices
 
+- **Hook-driven, not skill-driven**: All memory operations happen via Claude Code hooks. Skills contain no inline memory instructions.
 - **Per-project isolation**: Each project gets its own RocksDB database. Worktrees of the same repo share memory (detected via `git worktree list`).
 - **File locking**: Uses `/tmp/wt-memory-<project>.lock` to prevent concurrent RocksDB access from multiple agents.
 - **Semantic search**: `recall` uses shodh-memory's built-in embedding and similarity search.
-- **Marker-based hooks**: OpenSpec SKILL.md files are patched with HTML comment markers (`<!-- wt-memory hooks start/end -->`), making installation and removal clean.
+- **Bash-only for L3/L4**: PreToolUse and PostToolUseFailure only match Bash due to CLI latency (~150ms). Future MCP integration could extend to Edit/Read/Write.
 - **No hard dependency**: Everything degrades gracefully. Memory is an enhancement, not a requirement.
 
 </details>

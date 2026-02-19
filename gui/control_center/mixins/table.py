@@ -202,13 +202,6 @@ class TableMixin:
         else:
             mem_color = self.get_color("status_idle")
             mem_tooltip = "Memory: not installed"
-        # Append hook status if openspec is present
-        os_status = self.get_openspec_status(project)
-        if has_cache and os_status.get("installed") and os_status.get("skills_present"):
-            if mem_status.get("hooks_installed"):
-                mem_tooltip += " (hooks installed)"
-            else:
-                mem_tooltip += " (hooks not installed)"
         mem_btn.setStyleSheet(f"QPushButton {{ background-color: {mem_color}; color: white; border-radius: 4px; font-weight: bold; font-size: 11px; }}")
         mem_btn.setToolTip(mem_tooltip)
         mem_btn.clicked.connect(lambda checked, p=project: self.show_memory_browse_dialog(p))
@@ -313,12 +306,8 @@ class TableMixin:
 
         # Status with icon
         icon, color = self.get_status_icon(status)
-        hooks_missing = not wt.get("hooks_installed", True)
-        hooks_warn = " \u26a0\ufe0f" if hooks_missing else ""
-        status_item = QTableWidgetItem(f"{icon} {status}{hooks_warn}")
+        status_item = QTableWidgetItem(f"{icon} {status}")
         status_item.setForeground(color)
-        if hooks_missing:
-            status_item.setToolTip("Claude hooks not installed\nRight-click \u2192 Install Hooks")
         self.table.setItem(row, COL_STATUS, status_item)
 
         # Determine row background and text color

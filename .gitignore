@@ -26,6 +26,7 @@ loop-state.json
 .wt-tools/.saved-codemaps
 .wt-tools/.transcript-extraction.lock
 .wt-tools/transcript-extraction.log
+.wt-tools/.staged-extract-*
 
 # Project-specific JIRA/Confluence config (contains credentials/project keys)
 .wt-tools/jira.json

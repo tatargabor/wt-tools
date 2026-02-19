@@ -59,17 +59,28 @@ for N in $(seq "$START" "$END"); do
 
   # Mode B prompt includes explicit save instruction; Mode A is implementation-only
   if grep -q "wt-memory" CLAUDE.md 2>/dev/null; then
-    PROMPT="Follow the workflow in CLAUDE.md. Implement the change described in $CHANGE_FILE. Read the change file and docs/project-spec.md first. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. IMPORTANT: After tests pass, follow CLAUDE.md step 8 — save project conventions, corrections, and Developer Notes advice to memory using wt-memory remember. Do not proceed to the next change."
+    PROMPT="Follow the workflow in CLAUDE.md. Implement the change described in $CHANGE_FILE. Read the change file and docs/project-spec.md first. Check injected memory context in system-reminder tags for relevant conventions and corrections. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   else
     PROMPT="Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   fi
 
-  env -u CLAUDECODE claude --dangerously-skip-permissions \
+  # Mode B (with hooks) needs more turns due to hook overhead injecting context
+  if grep -q "wt-memory" CLAUDE.md 2>/dev/null; then
+    MAX_TURNS=50
+  else
+    MAX_TURNS=30
+  fi
+
+  env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --dangerously-skip-permissions \
     -p "$PROMPT" \
-    --max-turns 30 \
-    --output-format json \
-    > "results/session-${NN}.json" 2>"results/session-${NN}.err" || true
-  echo "  Claude session finished ($(wc -c < "results/session-${NN}.json") bytes output)"
+    --max-turns "$MAX_TURNS" \
+    --verbose \
+    --output-format stream-json \
+    > "results/session-${NN}.jsonl" 2>"results/session-${NN}.err" || true
+
+  # Extract the final result line (type=result) for token/cost summary
+  grep '"type":"result"' "results/session-${NN}.jsonl" | tail -1 > "results/session-${NN}.json" 2>/dev/null || true
+  echo "  Claude session finished ($(wc -l < "results/session-${NN}.jsonl") lines output)"
 
   SESSION_END=$(date +%s)
   SESSION_TIME=$(( SESSION_END - SESSION_START ))

@@ -46,53 +46,25 @@ When implementing a change:
 3. Run `bash tests/test-NN.sh 4001` and fix any failures
 4. Commit all work when done
 
-## Proactive Memory
+## Persistent Memory
 
-This project uses `wt-memory` (shodh-memory) for persistent developer memory across sessions.
+This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
 
-### Recall before major work
+**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. If a memory directly answers the user's question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch. This applies to every turn, not just the first one.**
 
-Before starting a new change, recall relevant past experience:
-```bash
-wt-memory recall "<change-name> <key-topics>" --limit 5 --mode hybrid
-```
-Use the results to inform your approach — avoid past errors, reuse working patterns.
+**How it works:**
+- Session start → relevant memories loaded as system-reminder
+- Every prompt → topic-based recall injected as system-reminder
+- Every tool use → relevant past experience injected as system-reminder
+- Tool errors → past fixes surfaced automatically
+- Session end → insights extracted and saved
 
-### Recall-then-verify
+**Emphasis (use sparingly):**
+- `echo "<insight>" | wt-memory remember --type <Decision|Learning|Context> --tags source:agent,<topic>` — mark something as HIGH IMPORTANCE
+- `wt-memory forget <id>` — suppress or correct a wrong memory
+- Most things are remembered automatically. Only use `remember` for emphasis.
 
-After recalling code maps or implementation details from memory, ALWAYS verify against the current codebase before acting. Memory may be outdated — files may have been renamed, moved, or refactored by later changes. Run `grep` or check file existence before trusting recalled paths or patterns. Treat recalled memories as search hints, not ground truth.
-
-### Save on discoveries
-
-When you discover something non-obvious (environment quirks, gotchas, design decisions), save it immediately:
-```bash
-echo "<what you learned>" | wt-memory remember --type Learning --tags change:<change-name>,<topic>
-```
-
-Save these types of knowledge:
-- **Errors and fixes**: Database issues, build errors, configuration gotchas
-- **Design decisions**: Architecture choices and their rationale
-- **Patterns**: Working approaches that should be reused
-- **Constraints**: Limitations discovered about the tech stack
-
-### Agent self-reflection
-
-At the end of each session (after committing), review what you learned and save insights for future sessions:
-```bash
-echo "<insight>" | wt-memory remember --type <Learning|Decision> --tags change:<change-name>,source:agent,<topic>
-```
-
-### When NOT to save
-
-- Routine observations ("the project uses TypeScript")
-- Things already documented in this file
-- Session-specific context (temporary file paths, command output)
-- Completion status ("all changes complete", "no issues", "nothing to report")
-- Duplicate information — if you've already saved something about the same topic, don't save it again
-- Commit message echoes ("change-name: create design, specs, and tasks artifacts")
-- Generic reflection with no actionable content
-
-**Quality bar**: Only save if a future agent in a completely fresh session would materially benefit. Ask: "Would this help me avoid a specific error or make a concrete decision faster?" If the answer is vague, don't save.
+**Recall-then-verify:** When memory provides code paths or implementation details, verify against the current codebase before acting — files may have changed since the memory was saved.
 
 ## Benchmark Task
 

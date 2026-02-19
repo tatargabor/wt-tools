@@ -40,6 +40,8 @@ Core Commands:
                                   Save a memory (reads content from stdin)
   recall "query" [--limit N] [--mode MODE] [--tags t1,t2] [--tags-only] [--min-importance F]
                                   Semantic search (JSON stdout)
+  recall --since ISO [--until ISO] [--limit N]
+                                  Date-range recall (JSON stdout)
   proactive "context" [--limit N] Context-aware retrieval with relevance scores (JSON stdout)
   list [--type TYPE] [--limit N]  List memories (JSON stdout)
   status [--json]                 Show config, health, and memory count
@@ -51,6 +53,8 @@ Forget / Cleanup:
   forget --older-than <days>      Delete memories older than N days
   forget --tags <t1,t2>           Delete memories matching tags
   forget --pattern <regex>        Delete memories matching regex pattern
+  forget --since ISO [--until ISO] --confirm
+                                  Delete memories within date range
 
 Diagnostics:
   stats [--json]                  Memory quality diagnostics (types, tags, importance)
@@ -64,6 +68,15 @@ Introspection:
   get <id>                        Get a single memory by ID (JSON stdout)
   context [topic]                 Condensed summary by category
   brain                           3-tier memory visualization
+  consolidation [--since ISO] [--events]
+                                  Memory consolidation report (strengthening/decay)
+  graph-stats                     Knowledge graph statistics
+
+Todo:
+  todo add [--tags t1,t2] < text  Save a todo (reads from stdin)
+  todo list [--json]              List open todos
+  todo done <id>                  Mark todo as done (deletes it)
+  todo clear --confirm            Delete all todos
 
 Export / Import:
   export [--output FILE]          Export all memories to JSON (stdout or file)
@@ -81,7 +94,9 @@ Migration:
 
 Maintenance:
   health --index                  Check index health (JSON stdout)
+  verify                          Verify index integrity (find orphans)
   repair                          Repair index integrity
+  flush                           Flush pending writes to disk
 
 Recall modes (--mode):
   semantic     Meaning-based search (default)
@@ -248,11 +263,16 @@ import sys; sys._shodh_star_shown = True
 import json, os
 from shodh_memory import Memory
 m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+result = {}
 try:
-    result = m.index_health()
-    print(json.dumps(result, default=str))
+    result['index_health'] = m.index_health()
 except AttributeError:
-    print(json.dumps({'error': 'index_health not available in this shodh-memory version'}))
+    result['index_health'] = {'error': 'index_health not available in this shodh-memory version'}
+try:
+    result['verify'] = m.verify_index()
+except AttributeError:
+    pass
+print(json.dumps(result, default=str))
 " || echo "{}"
     else
         echo "ok"
@@ -386,6 +406,8 @@ cmd_forget() {
     local older_than=""
     local tags=""
     local pattern=""
+    local since=""
+    local until=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -394,6 +416,8 @@ cmd_forget() {
             --older-than) older_than="$2"; shift 2 ;;
             --tags) tags="$2"; shift 2 ;;
             --pattern) pattern="$2"; shift 2 ;;
+            --since) since="$2"; shift 2 ;;
+            --until) until="$2"; shift 2 ;;
             -*)
                 echo "Error: Unknown option '$1'" >&2
                 return 1
@@ -484,6 +508,38 @@ print(json.dumps({'deleted_count': count}))
         return 0
     fi
 
+    # forget --since/--until (date range delete)
+    if [[ -n "$since" || -n "$until" ]]; then
+        if [[ "$confirm" != "true" ]]; then
+            echo "Error: date-range forget requires --confirm" >&2
+            return 1
+        fi
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_SINCE="$since" \
+        _SHODH_UNTIL="$until" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from datetime import datetime, timezone
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+since = os.environ.get('_SHODH_SINCE', '') or None
+until = os.environ.get('_SHODH_UNTIL', '') or None
+
+if not since:
+    since = '2000-01-01T00:00:00Z'
+if not until:
+    until = datetime.now(timezone.utc).isoformat()
+
+if hasattr(m, 'forget_by_date'):
+    count = m.forget_by_date(since, until)
+    print(json.dumps({'deleted_count': count}))
+else:
+    print(json.dumps({'error': 'forget_by_date not available in this shodh-memory version'}))
+" || echo '{"deleted_count": 0}'
+        return 0
+    fi
+
     # forget <id> — single memory delete
     if [[ -n "$memory_id" ]]; then
         _SHODH_STORAGE="$storage_path" \
@@ -499,7 +555,7 @@ print(json.dumps({'deleted': bool(result), 'id': os.environ['_SHODH_ID']}))
         return 0
     fi
 
-    echo "Error: specify a memory ID, or use --all, --older-than, --tags, or --pattern" >&2
+    echo "Error: specify a memory ID, or use --all, --older-than, --tags, --pattern, or --since/--until" >&2
     return 1
 }
 
@@ -512,6 +568,8 @@ cmd_recall() {
     local tags=""
     local tags_only=false
     local min_importance=""
+    local since=""
+    local until=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -520,6 +578,8 @@ cmd_recall() {
             --tags) tags="$2"; shift 2 ;;
             --tags-only) tags_only=true; shift ;;
             --min-importance) min_importance="$2"; shift 2 ;;
+            --since) since="$2"; shift 2 ;;
+            --until) until="$2"; shift 2 ;;
             -*)
                 shift
                 ;;
@@ -531,6 +591,63 @@ cmd_recall() {
                 ;;
         esac
     done
+
+    # Date-range recall (recall_by_date)
+    if [[ -n "$since" || -n "$until" ]]; then
+        if ! cmd_health >/dev/null 2>&1; then
+            echo "[]"
+            return 0
+        fi
+        auto_migrate
+        local storage_path
+        storage_path=$(get_storage_path)
+
+        _SHODH_STORAGE="$storage_path" \
+        _SHODH_SINCE="$since" \
+        _SHODH_UNTIL="$until" \
+        _SHODH_LIMIT="$limit" \
+        _SHODH_QUERY="$query" \
+        run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from datetime import datetime, timezone
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+since = os.environ.get('_SHODH_SINCE', '') or None
+until = os.environ.get('_SHODH_UNTIL', '') or None
+limit = int(os.environ['_SHODH_LIMIT'])
+query = os.environ.get('_SHODH_QUERY', '')
+
+# Default open ends
+if not since:
+    since = '2000-01-01T00:00:00Z'
+if not until:
+    until = datetime.now(timezone.utc).isoformat()
+
+if hasattr(m, 'recall_by_date'):
+    results = m.recall_by_date(since, until, limit=limit)
+else:
+    # Fallback: use regular recall and post-filter
+    results = m.recall(query or 'date range', limit=limit * 3)
+    from datetime import datetime as dt
+    s = dt.fromisoformat(since.replace('Z', '+00:00'))
+    u = dt.fromisoformat(until.replace('Z', '+00:00'))
+    filtered = []
+    for r in results:
+        ts = r.get('timestamp', r.get('created_at', ''))
+        if ts:
+            try:
+                t = dt.fromisoformat(str(ts).replace('Z', '+00:00'))
+                if s <= t <= u:
+                    filtered.append(r)
+            except (ValueError, TypeError):
+                pass
+    results = filtered[:limit]
+
+print(json.dumps(results[:limit], default=str))
+" || echo "[]"
+        return 0
+    fi
 
     # --tags-only requires --tags
     if [[ "$tags_only" == "true" && -z "$tags" ]]; then
@@ -715,14 +832,29 @@ limit = int(os.environ['_SHODH_LIMIT'])
 context = os.environ['_SHODH_CONTEXT']
 
 if hasattr(m, 'proactive_context'):
-    raw = m.proactive_context(context, max_results=limit, auto_ingest=False)
-    # proactive_context returns a dict with 'memories' list
+    raw = m.proactive_context(context, max_results=limit, auto_ingest=False, semantic_threshold=0.3)
     results = raw.get('memories', []) if isinstance(raw, dict) else raw
+
+    # Always augment with hybrid recall to catch keyword matches that semantic misses
+    hybrid = m.recall(context, limit=limit, mode='hybrid')
+    seen = {r.get('content', '')[:50] for r in results}
+    hybrid_new = []
+    for h in hybrid:
+        key = h.get('content', '')[:50]
+        if key not in seen:
+            seen.add(key)
+            h['relevance_score'] = 0.35
+            hybrid_new.append(h)
+
+    # Reserve slots for hybrid-only results (up to 2), trim proactive if needed
+    if hybrid_new:
+        reserve = min(len(hybrid_new), 2)
+        results = results[:max(limit - reserve, 0)] + hybrid_new[:reserve]
+    results = results[:limit]
     print(json.dumps(results, default=str))
 else:
-    # Fallback: use recall with hybrid mode
+    # Fallback: use recall with hybrid mode (old shodh-memory without proactive_context)
     results = m.recall(context, limit=limit, mode='hybrid')
-    # Add placeholder relevance fields for consistent output
     for r in results:
         r['relevance_score'] = 'N/A'
     print(json.dumps(results, default=str))
@@ -1579,6 +1711,407 @@ except AttributeError:
     return 0
 }
 
+# Todo management — lightweight task capture built on memory API
+# Usage: wt-memory todo add|list|done|clear [options]
+cmd_todo() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        add)  cmd_todo_add "$@" ;;
+        list) cmd_todo_list "$@" ;;
+        done) cmd_todo_done "$@" ;;
+        clear) cmd_todo_clear "$@" ;;
+        "")
+            echo "Usage: wt-memory todo <add|list|done|clear>" >&2
+            echo "  add [--tags t1,t2] < text    Save a todo (reads from stdin)" >&2
+            echo "  list [--json]                 List open todos" >&2
+            echo "  done <id>                     Mark todo as done (deletes it)" >&2
+            echo "  clear --confirm               Delete all todos" >&2
+            return 1
+            ;;
+        *)
+            echo "Error: Unknown todo subcommand '$subcmd'" >&2
+            return 1
+            ;;
+    esac
+}
+
+# todo add — save a todo from stdin
+cmd_todo_add() {
+    local extra_tags=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tags) extra_tags="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Read content from stdin
+    local content=""
+    if [[ ! -t 0 ]]; then
+        content=$(cat)
+    fi
+
+    if [[ -z "$content" ]]; then
+        echo "Error: No todo text provided. Pipe content: echo \"text\" | wt-memory todo add" >&2
+        return 1
+    fi
+
+    # Health check
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "Memory system not available."
+        return 0
+    fi
+
+    auto_migrate
+
+    # Build tags: always include todo,backlog + optional extras + auto-detect change
+    local tags="todo,backlog"
+    if [[ -n "$extra_tags" ]]; then
+        tags="$tags,$extra_tags"
+    fi
+
+    # Auto-detect active OpenSpec change
+    local change_name=""
+    if command -v openspec >/dev/null 2>&1; then
+        change_name=$(openspec list --json 2>/dev/null | jq -r '[.changes[] | select(.status == "in-progress")] | .[0].name // empty' 2>/dev/null) || true
+    fi
+    if [[ -n "$change_name" ]]; then
+        tags="$tags,change:$change_name"
+    fi
+
+    # Save using remember with metadata
+    local storage_path
+    storage_path=$(get_storage_path)
+    local branch
+    branch=$(get_current_branch)
+
+    local tags_py
+    tags_py=$(echo "$tags" | tr ',' '\n' | jq -R . | jq -s .)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_CONTENT="$content" \
+    _SHODH_TAGS="$tags_py" \
+    _SHODH_BRANCH="$branch" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+tags = json.loads(os.environ['_SHODH_TAGS'])
+branch = os.environ.get('_SHODH_BRANCH', '')
+if branch:
+    tags.append('branch:' + branch)
+m.remember(
+    os.environ['_SHODH_CONTENT'],
+    memory_type='Context',
+    tags=tags,
+    metadata={'todo_status': 'open'}
+)
+print('Todo saved: \"' + os.environ['_SHODH_CONTENT'][:80] + '\"')
+" || echo "Error: failed to save todo" >&2
+
+    return 0
+}
+
+# todo list — show open todos
+cmd_todo_list() {
+    local json_mode=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if ! cmd_health >/dev/null 2>&1; then
+        if [[ "$json_mode" == "true" ]]; then
+            echo "[]"
+        else
+            echo "No open todos."
+        fi
+        return 0
+    fi
+
+    auto_migrate
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_JSON="$json_mode" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+json_mode = os.environ.get('_SHODH_JSON', 'false') == 'true'
+
+# Get all memories tagged with 'todo'
+if hasattr(m, 'recall_by_tags'):
+    results = m.recall_by_tags(['todo'], limit=100)
+else:
+    results = m.recall('todo', limit=100, tags=['todo'])
+
+# Filter to open todos only
+todos = []
+for r in results:
+    meta = r.get('metadata', {}) or {}
+    status = meta.get('todo_status', 'open')
+    if status == 'open':
+        todos.append(r)
+
+if json_mode:
+    print(json.dumps(todos, default=str))
+else:
+    if not todos:
+        print('No open todos.')
+    else:
+        for t in todos:
+            tid = t.get('id', '???')[:8]
+            content = t.get('content', t.get('description', ''))
+            ts = str(t.get('timestamp', t.get('created_at', '')))[:10]
+            tags = [tg for tg in t.get('tags', []) if tg not in ('todo', 'backlog')]
+            tag_str = ' [' + ', '.join(tags) + ']' if tags else ''
+            print(f'  {tid}  {content[:72]}{tag_str}  ({ts})')
+        print(f'\n{len(todos)} open todo(s)')
+" || {
+        if [[ "$json_mode" == "true" ]]; then
+            echo "[]"
+        else
+            echo "No open todos."
+        fi
+    }
+
+    return 0
+}
+
+# todo done — delete a todo by ID (prefix match)
+cmd_todo_done() {
+    local todo_id="${1:-}"
+
+    if [[ -z "$todo_id" ]]; then
+        echo "Error: specify a todo ID (use 'wt-memory todo list' to see IDs)" >&2
+        return 1
+    fi
+
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "Memory system not available."
+        return 0
+    fi
+
+    auto_migrate
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_ID="$todo_id" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+prefix = os.environ['_SHODH_ID']
+
+# Get all todos to find prefix match
+if hasattr(m, 'recall_by_tags'):
+    results = m.recall_by_tags(['todo'], limit=200)
+else:
+    results = m.recall('todo', limit=200, tags=['todo'])
+
+# Find matching todo by ID prefix
+matches = [r for r in results if r.get('id', '').startswith(prefix)]
+
+if len(matches) == 0:
+    print(f'Todo not found: {prefix}', file=sys.stderr)
+    sys.exit(1)
+elif len(matches) > 1:
+    print(f'Ambiguous ID prefix \"{prefix}\" matches {len(matches)} todos. Use a longer prefix.', file=sys.stderr)
+    sys.exit(1)
+
+todo = matches[0]
+full_id = todo['id']
+content = todo.get('content', todo.get('description', ''))
+m.forget(full_id)
+print(f'Todo done: \"{content[:80]}\"')
+" || { echo "Error: failed to complete todo" >&2; return 1; }
+
+    return 0
+}
+
+# todo clear — delete all todos
+cmd_todo_clear() {
+    local confirm=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --confirm) confirm=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ "$confirm" != "true" ]]; then
+        echo "Error: Use --confirm to clear all todos" >&2
+        return 1
+    fi
+
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "Memory system not available."
+        return 0
+    fi
+
+    auto_migrate
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+count = m.forget_by_tags(['todo'])
+print(f'Cleared {count} todos.')
+" || echo "Error: failed to clear todos" >&2
+
+    return 0
+}
+
+# Verify index integrity — find orphaned memories not in vector index
+# Usage: wt-memory verify
+cmd_verify() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.verify_index()
+    print(json.dumps(result, default=str))
+    if not result.get('is_healthy', True):
+        import sys as _sys
+        print('Hint: run \"wt-memory repair\" to fix orphaned memories', file=_sys.stderr)
+except AttributeError:
+    print(json.dumps({'error': 'verify_index not available — upgrade shodh-memory to >=0.1.81'}))
+" || echo "{}"
+
+    return 0
+}
+
+# Show consolidation report — memory strengthening/decay events
+# Usage: wt-memory consolidation [--since ISO] [--events]
+cmd_consolidation() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local since=""
+    local events_only=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --since) since="$2"; shift 2 ;;
+            --events) events_only=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    _SHODH_SINCE="$since" \
+    _SHODH_EVENTS="$events_only" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+since = os.environ.get('_SHODH_SINCE', '') or None
+events_only = os.environ.get('_SHODH_EVENTS', 'false') == 'true'
+try:
+    if events_only:
+        result = m.consolidation_events(since=since) if since else m.consolidation_events()
+    else:
+        if since:
+            result = m.consolidation_report(since=since)
+        else:
+            result = m.consolidation_report()
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'consolidation not available in this shodh-memory version'}))
+" || echo "{}"
+
+    return 0
+}
+
+# Knowledge graph statistics
+# Usage: wt-memory graph-stats
+cmd_graph_stats() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo "{}"
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.graph_stats()
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'graph_stats not available in this shodh-memory version'}))
+" || echo "{}"
+
+    return 0
+}
+
+# Flush pending writes to disk
+# Usage: wt-memory flush
+cmd_flush() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo '{"flushed": false}'
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+m.flush()
+print(json.dumps({'flushed': True}))
+" || echo '{"flushed": false}'
+
+    return 0
+}
+
 # Show configuration and health status
 cmd_status() {
     local json_mode=false
@@ -2307,6 +2840,11 @@ main() {
         sync)     cmd_sync "$@" ;;
         migrate)  cmd_migrate "$@" ;;
         repair)   cmd_repair "$@" ;;
+        verify)   cmd_verify "$@" ;;
+        consolidation) cmd_consolidation "$@" ;;
+        graph-stats) cmd_graph_stats "$@" ;;
+        flush)    cmd_flush "$@" ;;
+        todo)     cmd_todo "$@" ;;
         status)   cmd_status "$@" ;;
         projects) cmd_projects "$@" ;;
         -h|--help|help) usage ;;

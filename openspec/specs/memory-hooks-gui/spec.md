@@ -1,7 +1,7 @@
-# memory-hooks-gui Specification
+# memory-hooks-gui Specification (Deprecated)
 
 ## Purpose
-TBD - created by archiving change shodh-openspec-hooks. Update Purpose after archive.
+**DEPRECATED** — The "Install/Reinstall Memory Hooks" GUI actions have been removed. The 5-layer hook system in `settings.json` is automatically deployed by `wt-project init` and requires no GUI interaction. The `_poll_memory_hooks` feature worker check has also been removed.
 ## Requirements
 ### Requirement: Install Memory Hooks action in Memory submenu
 The Memory submenu in the project header context menu SHALL include an "Install Memory Hooks" action when OpenSpec is detected but hooks are not installed. When hooks are already installed, a disabled "Memory Hooks: installed" status line SHALL appear instead.

@@ -17,7 +17,6 @@ command -v node >/dev/null || missing+=("node")
 command -v openspec >/dev/null || missing+=("openspec (npm i -g @fission-ai/openspec)")
 command -v wt-deploy-hooks >/dev/null || missing+=("wt-deploy-hooks")
 command -v wt-memory >/dev/null || missing+=("wt-memory")
-command -v wt-memory-hooks >/dev/null || missing+=("wt-memory-hooks")
 if [ ${#missing[@]} -gt 0 ]; then
   echo "ERROR: Missing prerequisites: ${missing[*]}" >&2
   exit 1
@@ -46,9 +45,6 @@ openspec init --tools claude
 echo "schema: spec-driven" > openspec/config.yaml
 
 wt-deploy-hooks .
-
-# --- Install memory hooks into OpenSpec skills ---
-wt-memory-hooks install
 
 # --- Directories ---
 mkdir -p docs/benchmark results tests
@@ -116,10 +112,10 @@ git commit -m "Initial CraftBazaar setup (memory run)"
 echo ""
 echo "=== Done ==="
 echo "  Directory: $TARGET"
-echo "  CLAUDE.md: with-memory (PORT=4001, proactive memory enabled)"
+echo "  CLAUDE.md: with-memory (PORT=4001, persistent memory via hooks)"
 echo "  Changes:   12 OpenSpec changes with proposals"
 echo "  Tests:     12 acceptance test scripts in tests/"
-echo "  Memory:    hooks installed"
+echo "  Memory:    hooks deployed"
 echo ""
 echo "Next steps:"
 echo "  1. Trust the project (required before wt-loop can work):"
