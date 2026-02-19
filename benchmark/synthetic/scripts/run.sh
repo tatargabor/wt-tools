@@ -64,9 +64,16 @@ for N in $(seq "$START" "$END"); do
     PROMPT="Implement the change described in $CHANGE_FILE. Read it first, then read docs/project-spec.md for conventions. Implement the requirements. Start the server with: PORT=$PORT node src/server.js & — then run: bash tests/test-${NN}.sh $PORT — fix any failures until all tests pass. Do not proceed to the next change."
   fi
 
+  # Mode B (with hooks) needs more turns due to hook overhead injecting context
+  if grep -q "wt-memory" CLAUDE.md 2>/dev/null; then
+    MAX_TURNS=50
+  else
+    MAX_TURNS=30
+  fi
+
   env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --dangerously-skip-permissions \
     -p "$PROMPT" \
-    --max-turns 30 \
+    --max-turns "$MAX_TURNS" \
     --output-format json \
     > "results/session-${NN}.json" 2>"results/session-${NN}.err" || true
   echo "  Claude session finished ($(wc -c < "results/session-${NN}.json") bytes output)"
