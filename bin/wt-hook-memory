@@ -43,6 +43,91 @@ _dbg() {
 
 _dbg "=== START ==="
 
+# --- Metrics collection ---
+METRICS_ENABLED_FLAG="${HOME}/.local/share/wt-tools/metrics/.enabled"
+METRICS_ENABLED=0
+[[ -f "$METRICS_ENABLED_FLAG" ]] && METRICS_ENABLED=1
+_METRICS_TIMER_START=0
+
+_metrics_timer_start() {
+    [[ "$METRICS_ENABLED" -eq 0 ]] && return 0
+    _METRICS_TIMER_START=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+}
+
+_metrics_timer_elapsed() {
+    [[ "$METRICS_ENABLED" -eq 0 ]] && { echo 0; return 0; }
+    local now
+    now=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+    echo $(( now - _METRICS_TIMER_START ))
+}
+
+# Append a metrics record to session cache _metrics array.
+# Args: layer event query result_count filtered_count relevance_scores_json duration_ms token_estimate dedup_hit
+_metrics_append() {
+    [[ "$METRICS_ENABLED" -eq 0 ]] && return 0
+    local layer="$1" event="$2" query="${3:0:500}" result_count="${4:-0}" filtered_count="${5:-0}"
+    local scores_json="${6:-[]}" duration_ms="${7:-0}" token_estimate="${8:-0}" dedup_hit="${9:-0}"
+
+    python3 -c "
+import json, sys, os
+from datetime import datetime, timezone
+
+cache_file = sys.argv[1]
+cache = {}
+if os.path.exists(cache_file):
+    try:
+        with open(cache_file) as f:
+            cache = json.load(f)
+    except: pass
+
+metrics = cache.get('_metrics', [])
+if len(metrics) >= 500:
+    sys.exit(0)
+
+scores = json.loads(sys.argv[8])
+avg_r = sum(scores)/len(scores) if scores else None
+max_r = max(scores) if scores else None
+min_r = min(scores) if scores else None
+
+metrics.append({
+    'ts': datetime.now(timezone.utc).isoformat(),
+    'layer': sys.argv[2],
+    'event': sys.argv[3],
+    'query': sys.argv[4],
+    'result_count': int(sys.argv[5]),
+    'filtered_count': int(sys.argv[6]),
+    'avg_relevance': round(avg_r, 4) if avg_r is not None else None,
+    'max_relevance': round(max_r, 4) if max_r is not None else None,
+    'min_relevance': round(min_r, 4) if min_r is not None else None,
+    'duration_ms': int(sys.argv[7]),
+    'token_estimate': int(sys.argv[9]),
+    'dedup_hit': int(sys.argv[10]),
+})
+cache['_metrics'] = metrics
+with open(cache_file, 'w') as f:
+    json.dump(cache, f)
+" "$CACHE_FILE" "$layer" "$event" "$query" "$result_count" "$filtered_count" \
+  "$duration_ms" "$scores_json" "$token_estimate" "$dedup_hit" 2>/dev/null || true
+}
+
+# Extract relevance scores from proactive/recall JSON output.
+# Reads from $TMPFILE, outputs JSON array of floats.
+_extract_scores() {
+    python3 -c "
+import json, sys
+try:
+    memories = json.load(open(sys.argv[1]))
+except: memories = []
+scores = []
+for m in memories:
+    s = m.get('relevance_score')
+    if s is not None and s != 'N/A':
+        try: scores.append(round(float(s), 4))
+        except: pass
+print(json.dumps(scores))
+" "$TMPFILE" 2>/dev/null || echo "[]"
+}
+
 # --- Health check (single, shared) ---
 if ! command -v wt-memory &>/dev/null; then
     _dbg "SKIP: wt-memory not in PATH"
@@ -348,6 +433,7 @@ print(json.dumps({'additionalContext': sys.argv[1]}))" "$1" 2>/dev/null
 # ============================================================
 
 handle_session_start() {
+    _metrics_timer_start
     local SOURCE
     SOURCE=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('source',''))" 2>/dev/null)
     _dbg "source=$SOURCE"
@@ -411,10 +497,21 @@ for m in memories:
 
     if [[ -z "$OUTPUT" ]]; then
         _dbg "no output, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" 0 0 "[]" "$_dur" 0 0
         exit 0
     fi
+
+    local _output_text
+    _output_text=$(echo -e "$OUTPUT")
+    local _tok_est=$(( ${#_output_text} / 4 ))
+    local _dur; _dur=$(_metrics_timer_elapsed)
+    local _scores; _scores=$(_extract_scores)
+    local _res_count; _res_count=$(echo "$PROJECT_CONTEXT" | grep -c '^  - ' 2>/dev/null || echo 0)
+    _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+
     _dbg "=== OUTPUT ($(echo -e "$OUTPUT" | wc -c) bytes) ==="
-    output_hook_context "SessionStart" "$(echo -e "$OUTPUT")"
+    output_hook_context "SessionStart" "$_output_text"
 }
 
 # ============================================================
@@ -422,6 +519,7 @@ for m in memories:
 # ============================================================
 
 handle_user_prompt() {
+    _metrics_timer_start
     local PROMPT
     PROMPT=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('prompt',''))" 2>/dev/null)
     _dbg "prompt='${PROMPT:0:120}'"
@@ -554,8 +652,16 @@ if m: print(m.group(1))
 
     if [[ -z "$CONTEXT_TEXT" ]]; then
         _dbg "no output, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 0
         exit 0
     fi
+
+    local _tok_est=$(( ${#CONTEXT_TEXT} / 4 ))
+    local _dur; _dur=$(_metrics_timer_elapsed)
+    local _scores; _scores=$(_extract_scores)
+    local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
+    _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
 
     _dbg "=== OUTPUT ($(echo -e "$CONTEXT_TEXT" | wc -c) bytes) ==="
     output_hook_context "UserPromptSubmit" "$CONTEXT_TEXT"
@@ -566,6 +672,7 @@ if m: print(m.group(1))
 # ============================================================
 
 handle_pre_tool() {
+    _metrics_timer_start
     local TOOL_NAME
     TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
     _dbg "tool=$TOOL_NAME"
@@ -581,6 +688,8 @@ handle_pre_tool() {
     KEY=$(make_dedup_key "PreToolUse" "$TOOL_NAME" "$QUERY")
     if dedup_check "$KEY"; then
         _dbg "dedup hit, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        _metrics_append "L3" "PreToolUse" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 1
         exit 0
     fi
 
@@ -588,12 +697,22 @@ handle_pre_tool() {
     FORMATTED=$(proactive_and_format "$QUERY" 2) || true
     if [[ -z "$FORMATTED" ]]; then
         _dbg "no proactive results, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        local _scores; _scores=$(_extract_scores)
+        _metrics_append "L3" "PreToolUse" "${QUERY:0:200}" 0 0 "$_scores" "$_dur" 0 0
         exit 0
     fi
 
     dedup_add "$KEY"
+    local _output_text="=== MEMORY: Context for this command ===\n$FORMATTED"
+    local _tok_est=$(( ${#_output_text} / 4 ))
+    local _dur; _dur=$(_metrics_timer_elapsed)
+    local _scores; _scores=$(_extract_scores)
+    local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
+    _metrics_append "L3" "PreToolUse" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+
     _dbg "=== OUTPUT ==="
-    output_hook_context "PreToolUse" "=== MEMORY: Context for this command ===\n$FORMATTED"
+    output_hook_context "PreToolUse" "$_output_text"
 }
 
 # ============================================================
@@ -601,6 +720,7 @@ handle_pre_tool() {
 # ============================================================
 
 handle_post_tool() {
+    _metrics_timer_start
     local TOOL_NAME
     TOOL_NAME=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('tool_name',''))" 2>/dev/null)
     _dbg "tool=$TOOL_NAME"
@@ -644,6 +764,8 @@ if re.search(r'(?i)\b(error|failed|warning)\b', to):
     KEY=$(make_dedup_key "PostToolUse" "$TOOL_NAME" "$QUERY")
     if dedup_check "$KEY"; then
         _dbg "dedup hit, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 1
         exit 0
     fi
 
@@ -651,12 +773,22 @@ if re.search(r'(?i)\b(error|failed|warning)\b', to):
     FORMATTED=$(proactive_and_format "$QUERY" 2) || true
     if [[ -z "$FORMATTED" ]]; then
         _dbg "no proactive results, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        local _scores; _scores=$(_extract_scores)
+        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "$_scores" "$_dur" 0 0
         exit 0
     fi
 
     dedup_add "$KEY"
+    local _output_text="=== MEMORY: Context for this file/command ===\n$FORMATTED"
+    local _tok_est=$(( ${#_output_text} / 4 ))
+    local _dur; _dur=$(_metrics_timer_elapsed)
+    local _scores; _scores=$(_extract_scores)
+    local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
+    _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+
     _dbg "=== OUTPUT ==="
-    output_hook_context "PostToolUse" "=== MEMORY: Context for this file/command ===\n$FORMATTED"
+    output_hook_context "PostToolUse" "$_output_text"
 }
 
 # ============================================================
@@ -664,6 +796,7 @@ if re.search(r'(?i)\b(error|failed|warning)\b', to):
 # ============================================================
 
 handle_post_tool_failure() {
+    _metrics_timer_start
     local PARSED
     PARSED=$(python3 -c "
 import json, sys
@@ -693,11 +826,21 @@ print(error[:300])
     FORMATTED=$(recall_and_format "$ERROR_TEXT" 3 hybrid) || true
     if [[ -z "$FORMATTED" ]]; then
         _dbg "no recall results for error, exiting"
+        local _dur; _dur=$(_metrics_timer_elapsed)
+        local _scores; _scores=$(_extract_scores)
+        _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" 0 0 "$_scores" "$_dur" 0 0
         exit 0
     fi
 
+    local _output_text="=== MEMORY: Past fix for this error ===\n$FORMATTED"
+    local _tok_est=$(( ${#_output_text} / 4 ))
+    local _dur; _dur=$(_metrics_timer_elapsed)
+    local _scores; _scores=$(_extract_scores)
+    local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
+    _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+
     _dbg "=== OUTPUT ==="
-    output_hook_context "PostToolUseFailure" "=== MEMORY: Past fix for this error ===\n$FORMATTED"
+    output_hook_context "PostToolUseFailure" "$_output_text"
 }
 
 # ============================================================
@@ -768,6 +911,9 @@ handle_stop() {
         exit 0
     fi
 
+    # Flush metrics to SQLite before clearing dedup cache
+    _stop_flush_metrics
+
     # Clean up dedup cache
     dedup_clear
 
@@ -791,6 +937,59 @@ handle_stop() {
     _dbg "running commit extraction"
     _stop_commit_extraction
     _dbg "=== DONE ==="
+}
+
+# --- Stop: Flush metrics to SQLite ---
+
+_stop_flush_metrics() {
+    [[ "$METRICS_ENABLED" -eq 0 ]] && return 0
+    [[ ! -f "$CACHE_FILE" ]] && { _dbg "metrics: no cache file"; return 0; }
+
+    local TRANSCRIPT_PATH
+    TRANSCRIPT_PATH=$(python3 -c "import json; print(json.load(open('$INPUT_FILE')).get('transcript_path',''))" 2>/dev/null)
+    TRANSCRIPT_PATH="${TRANSCRIPT_PATH/#\~/$HOME}"
+
+    python3 -c "
+import sys, json, os
+sys.path.insert(0, '$WT_TOOLS_ROOT')
+from lib.metrics import flush_session, scan_transcript_citations
+
+cache_file = sys.argv[1]
+session_id = sys.argv[2]
+transcript_path = sys.argv[3]
+
+# Read metrics from session cache
+try:
+    with open(cache_file) as f:
+        cache = json.load(f)
+except Exception:
+    sys.exit(0)
+
+metrics = cache.get('_metrics', [])
+if not metrics:
+    sys.exit(0)
+
+# Resolve project name
+project = 'unknown'
+try:
+    import subprocess
+    result = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                          capture_output=True, text=True, timeout=5)
+    if result.returncode == 0:
+        project = os.path.basename(result.stdout.strip())
+except Exception:
+    pass
+
+# Scan transcript for citations
+citations = []
+if transcript_path and os.path.exists(transcript_path):
+    citations = scan_transcript_citations(transcript_path, session_id)
+
+# Flush to SQLite
+flush_session(session_id, project, metrics, citations)
+print(f'Flushed {len(metrics)} metrics, {len(citations)} citations', file=sys.stderr)
+" "$CACHE_FILE" "$SESSION_ID" "$TRANSCRIPT_PATH" 2>/dev/null || true
+    _log "metrics: flushed to SQLite"
 }
 
 # --- Stop: Background transcript extraction ---

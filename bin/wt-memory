@@ -56,6 +56,12 @@ Forget / Cleanup:
   forget --since ISO [--until ISO] --confirm
                                   Delete memories within date range
 
+Metrics & Reporting:
+  metrics [--since Nd] [--json]   Injection quality report (default: last 7 days)
+  metrics --enable                Enable metrics collection
+  metrics --disable               Disable metrics collection
+  dashboard [--since Nd]          Generate HTML dashboard and open in browser
+
 Diagnostics:
   stats [--json]                  Memory quality diagnostics (types, tags, importance)
   cleanup [--threshold F] [--min-length N] [--dry-run]
@@ -3047,6 +3053,138 @@ cmd_sync_status() {
     fi
 }
 
+# ============================================================
+# Metrics & Reporting
+# ============================================================
+
+cmd_metrics() {
+    local since_days=7
+    local json_output=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --enable)
+                local py
+                py=$(find_python)
+                "$py" -c "
+import sys
+sys.path.insert(0, '$_wt_memory_bin_dir/..')
+from lib.metrics import enable
+enable()
+print('Metrics collection enabled.')
+print('Injection data will be recorded in session caches and flushed to SQLite on session end.')
+"
+                return 0
+                ;;
+            --disable)
+                local py
+                py=$(find_python)
+                "$py" -c "
+import sys
+sys.path.insert(0, '$_wt_memory_bin_dir/..')
+from lib.metrics import disable
+disable()
+print('Metrics collection disabled.')
+"
+                return 0
+                ;;
+            --since)
+                shift
+                since_days="${1%d}"  # strip trailing 'd' if present
+                shift
+                ;;
+            --json)
+                json_output=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    local py
+    py=$(find_python)
+    "$py" -c "
+import sys, json
+sys.path.insert(0, '$_wt_memory_bin_dir/..')
+from lib.metrics import query_report, format_tui_report, is_enabled
+
+data = query_report(since_days=$since_days)
+
+if data is None:
+    if not is_enabled():
+        print('Metrics collection is disabled.')
+        print('Enable with: wt-memory metrics --enable')
+    else:
+        print('No metrics data yet. Data is collected after sessions end.')
+    sys.exit(0)
+
+if $([[ "$json_output" == "true" ]] && echo "True" || echo "False"):
+    print(json.dumps(data, indent=2))
+else:
+    print(format_tui_report(data))
+"
+}
+
+cmd_dashboard() {
+    local since_days=30
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --since)
+                shift
+                since_days="${1%d}"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    local py
+    py=$(find_python)
+    local html_file="/tmp/wt-memory-dashboard.html"
+
+    "$py" -c "
+import sys, json, os
+sys.path.insert(0, '$_wt_memory_bin_dir/..')
+from lib.metrics import query_report, query_session_injections, is_enabled
+from lib.dashboard import generate_dashboard
+
+data = query_report(since_days=$since_days)
+if data is None:
+    if not is_enabled():
+        print('Metrics collection is disabled. Enable with: wt-memory metrics --enable')
+    else:
+        print('No metrics data yet.')
+    sys.exit(0)
+
+# Enrich with per-session injection details for drill-down
+for session in data.get('sessions', []):
+    session['injections'] = query_session_injections(session['id'])
+
+html = generate_dashboard(data)
+with open('$html_file', 'w') as f:
+    f.write(html)
+print(f'Dashboard written to: $html_file')
+"
+
+    # Open in browser
+    if [[ -f "$html_file" ]]; then
+        if command -v xdg-open &>/dev/null; then
+            xdg-open "$html_file" 2>/dev/null &
+        elif command -v open &>/dev/null; then
+            open "$html_file" 2>/dev/null &
+        else
+            echo "Open in browser: $html_file"
+        fi
+    fi
+}
+
 # Main dispatch — parse global --project flag before command
 main() {
     # Parse global options before command
@@ -3100,6 +3238,8 @@ main() {
         todo)     cmd_todo "$@" ;;
         rules)    cmd_rules "$@" ;;
         status)   cmd_status "$@" ;;
+        metrics)  cmd_metrics "$@" ;;
+        dashboard) cmd_dashboard "$@" ;;
         projects) cmd_projects "$@" ;;
         -h|--help|help) usage ;;
         *)
