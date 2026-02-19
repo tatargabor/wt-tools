@@ -5,12 +5,14 @@ A Python MCP server (`bin/wt-memory-mcp-server.py`) SHALL expose the full `wt-me
 
 #### Scenario: MCP server registration
 - **WHEN** `wt-project init` runs on a project
-- **THEN** it SHALL register the MCP server via `claude mcp add wt-memory -- python <path>/wt-memory-mcp-server.py`
+- **THEN** it SHALL register the MCP server via `claude mcp add wt-memory -- <path>/wt-memory-mcp-server.py` (no explicit python interpreter)
 - **AND** the server SHALL use stdio transport (standard MCP protocol)
+- **AND** the script SHALL be executed directly via its `#!/usr/bin/env python3` shebang
 
-#### Scenario: MCP server already registered
+#### Scenario: MCP server re-registration on init
 - **WHEN** `wt-project init` runs and wt-memory MCP is already registered
-- **THEN** it SHALL NOT duplicate the registration
+- **THEN** it SHALL re-register (overwrite) to ensure the command is correct
+- **AND** this SHALL fix any stale `"command": "python"` entries from previous installs
 
 #### Scenario: LLM can use memory tools
 - **WHEN** Claude Code starts a session with the MCP server active

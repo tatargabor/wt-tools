@@ -113,12 +113,9 @@ _register_mcp_server() {
     if ! command -v claude &>/dev/null; then
         return 0  # claude CLI not available, skip
     fi
-    if _is_mcp_registered; then
-        return 0  # already registered
-    fi
     local mcp_server="$WT_TOOLS_ROOT/bin/wt-memory-mcp-server.py"
     if [[ -f "$mcp_server" ]]; then
-        claude mcp add wt-memory -- python "$mcp_server" 2>/dev/null || true
+        claude mcp add wt-memory -- "$mcp_server" 2>/dev/null || true
         success "  Registered wt-memory MCP server"
     fi
 }
