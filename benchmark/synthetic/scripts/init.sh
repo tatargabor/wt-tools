@@ -102,7 +102,7 @@ fi
 if [[ "$MODE" == "b" ]]; then
   echo "Setting up memory hooks..."
   if command -v wt-deploy-hooks >/dev/null 2>&1; then
-    wt-deploy-hooks --memory . 2>/dev/null || true
+    wt-deploy-hooks . 2>/dev/null || true
   fi
 fi
 
