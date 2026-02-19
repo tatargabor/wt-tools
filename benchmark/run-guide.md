@@ -244,3 +244,24 @@ After annotating all changes:
 4. For Run B, complete the diagnostic gap analysis using `benchmark/diagnostic-framework.md`
 
 Alternatively, use `benchmark/collect-results.md` for agent-assisted evaluation.
+
+## 9. Current Status (v6)
+
+The v6 real-world benchmark (CraftBazaar, 12 changes) did **not** show a measurable memory advantage:
+
+| Metric | Run A (baseline) | Run B (memory) |
+|--------|-----------------|----------------|
+| Changes completed | 12/12 | 12/12 |
+| Trap score | 11.5/13 | 11/13 |
+| C12 bugs fixed | 11/12 | 9/12 |
+
+**Root cause: test infrastructure too weak.** 71% of test-12 checks pass without a running server. Key gaps:
+- Pagination checks match `import` statements instead of verifying rendered `<Pagination>` components
+- Toast checks don't verify global mounting in `layout.tsx`
+- Payout algorithm auto-passes when no multi-vendor orders exist
+
+These gaps mask potential memory benefits — Run B's convention knowledge (error codes, soft-delete) cannot be measured when the tests don't distinguish import-only from actual usage.
+
+**v7 plan:** Stronger behavioral tests (render checks, payout verification, global mount validation) to properly measure whether memory improves implementation quality at scale.
+
+Note: The **synthetic benchmark** (MemoryProbe) consistently shows +34% weighted improvement — see `benchmark/synthetic/run-guide.md` for details. The synthetic benchmark's targeted convention traps provide a cleaner signal because they test cross-session knowledge transfer directly.

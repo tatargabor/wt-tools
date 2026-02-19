@@ -758,6 +758,26 @@ wait
 
 See `benchmark/synthetic/run-guide.md` for full protocol, n=3 methodology, and expected scores.
 
+### Current results
+
+**Synthetic benchmark (MemoryProbe)** — consistent +34% weighted improvement:
+
+| Run | Mode A (baseline) | Mode B (memory) | Delta |
+|-----|-------------------|-----------------|-------|
+| SYN-05 | 45% | 79% | **+34%** |
+| SYN-06 (hook-driven) | 45% | 79% | **+34%** |
+
+SYN-06 also showed 20% fewer tokens and 17% fewer turns with memory enabled. The biggest saving was session S03: 72 → 34 turns, 2.67M → 1.02M tokens (-62%). Category C traps (human-override conventions invisible in code) drive the delta — memory is the only way to recall them across sessions.
+
+**Real-world benchmark (CraftBazaar v6)** — no measurable delta yet:
+
+| Metric | Run A (baseline) | Run B (memory) |
+|--------|-----------------|----------------|
+| Trap score | 11.5/13 | 11/13 |
+| C12 bugs fixed | 11/12 | 9/12 |
+
+The real-world benchmark does not yet show a memory advantage. Root cause: the test infrastructure is too weak to detect the difference — 71% of test-12 checks pass without a running server, pagination checks match `import` statements instead of rendered components, and toast checks don't verify global mounting. These infrastructure gaps mask potential memory benefits. The v7 benchmark will address this with stronger behavioral tests (P0: render checks instead of import checks, payout algorithm verification, global mount validation).
+
 ---
 
 ## Architecture

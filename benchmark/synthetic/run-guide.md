@@ -228,6 +228,19 @@ Mode D hypotheses:
 - **Topic matching limitation**: D may miss T9 (Category C) if "batch" topic doesn't appear in the prompt
 - **Key comparison**: C vs D — same conventions, different delivery mechanism
 
+### Observed Results (SYN-05, SYN-06)
+
+Two completed runs show a consistent **+34% weighted improvement** with memory:
+
+| Run | Mode A | Mode B | Delta | Notes |
+|-----|--------|--------|-------|-------|
+| SYN-05 | 45% | 79% | +34% | Manual recall, post-session extraction |
+| SYN-06 | 45% | 79% | +34% | Hook-driven recall, 20% fewer tokens |
+
+Category C traps (human-override conventions invisible in code) account for nearly all of the delta. Mode A consistently scores 45% (code-readable conventions only), while Mode B reaches 79% by recalling corrections from C02. SYN-06 additionally showed that hook-driven recall reduces token usage by 20% and turns by 17% compared to baseline.
+
+T10 (order parameter convention) remains unsolved in both runs — the advice is too vague for agents to apply without explicit per-endpoint instructions.
+
 ## Troubleshooting
 
 **Server won't start**: Check if port is in use: `lsof -i :3000`. Kill: `pkill -f "node src/server.js"`.
