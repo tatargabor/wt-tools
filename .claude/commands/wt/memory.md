@@ -70,6 +70,7 @@ Maintenance:
 
    **recall** (rest of arguments is the query and flags):
    ```bash
+   wt-memory recall "<query>" --limit 5 $REMAINING_FLAGS
    ```
    Recall modes (`--mode`): `semantic` (default), `temporal`, `hybrid`, `causal`, `associative`.
    Parse the JSON output. For each memory, display:
@@ -90,6 +91,7 @@ Maintenance:
    - Optionally ask for comma-separated tags (or skip)
    - Then run:
      ```bash
+     echo "<content>" | wt-memory remember --type <type> --tags <tags>
      ```
    - Confirm: "Memory saved."
 
