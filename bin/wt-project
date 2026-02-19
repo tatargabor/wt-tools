@@ -141,8 +141,11 @@ if cleaned != content:
     fi
 
     # Remove manual wt-memory recall/remember instructions from command .md files
+    # Exclude commands/wt/ — those are wt-tools' own commands that legitimately use wt-memory
     if [[ -d "$project_path/.claude/commands" ]]; then
         find "$project_path/.claude/commands" -name "*.md" -type f 2>/dev/null | while read -r f; do
+            # Skip wt-tools command files (commands/wt/*.md) — they use wt-memory intentionally
+            [[ "$f" == */commands/wt/*.md ]] && continue
             if grep -qE 'wt-memory (recall|remember)' "$f" 2>/dev/null; then
                 python3 -c "
 import re, sys
