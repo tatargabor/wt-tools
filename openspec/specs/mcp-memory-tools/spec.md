@@ -1,23 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: Own MCP server wrapping full wt-memory CLI
-A Python MCP server (`bin/wt-memory-mcp-server.py`) SHALL expose the full `wt-memory` CLI as MCP tools. It SHALL shell out to `wt-memory` commands, ensuring all custom logic (branch boosting, auto-tagging, dedup, sync) applies to MCP calls.
+The unified MCP server (`mcp-server/wt_mcp_server.py`) SHALL expose the full `wt-memory` CLI as MCP tools. It SHALL shell out to `wt-memory` commands with `cwd=CLAUDE_PROJECT_DIR`, ensuring all custom logic (branch boosting, auto-tagging, dedup, sync) applies to MCP calls and resolves to the correct project storage.
 
 #### Scenario: MCP server registration
 - **WHEN** `wt-project init` runs on a project
-- **THEN** it SHALL register the MCP server via `claude mcp add wt-memory -- <path>/wt-memory-mcp-server.py` (no explicit python interpreter)
+- **THEN** it SHALL register the unified MCP server via `claude mcp add wt-tools -- env CLAUDE_PROJECT_DIR="<project-path>" uv --directory "<mcp-server-dir>" run python wt_mcp_server.py`
 - **AND** the server SHALL use stdio transport (standard MCP protocol)
-- **AND** the script SHALL be executed directly via its `#!/usr/bin/env python3` shebang
 
 #### Scenario: MCP server re-registration on init
-- **WHEN** `wt-project init` runs and wt-memory MCP is already registered
-- **THEN** it SHALL re-register (overwrite) to ensure the command is correct
-- **AND** this SHALL fix any stale `"command": "python"` entries from previous installs
+- **WHEN** `wt-project init` runs and a `wt-tools` MCP is already registered
+- **THEN** it SHALL re-register (overwrite) to ensure the command and CLAUDE_PROJECT_DIR are correct
+- **AND** it SHALL remove any legacy `wt-memory` MCP registration
 
 #### Scenario: LLM can use memory tools
-- **WHEN** Claude Code starts a session with the MCP server active
-- **THEN** the LLM SHALL have access to ~20 tools covering the full wt-memory interface
+- **WHEN** Claude Code starts a session with the unified MCP server active
+- **THEN** the LLM SHALL have access to all memory tools covering the full wt-memory interface
 - **AND** these tools SHALL operate through the same `wt-memory` CLI path as hooks
+- **AND** `wt-memory` SHALL run with CWD set to the project root
 
 ### Requirement: Core memory tools
 The MCP server SHALL expose core memory operations as tools.
@@ -124,11 +124,11 @@ The CLAUDE.md Persistent Memory section SHALL document both automatic (hooks) an
 - **AND** SHALL list the key MCP tool names: remember, recall, proactive_context
 
 ### Requirement: Hooks and MCP share the same path
-Both the hook system (via `wt-memory` CLI) and the MCP server (via `wt-memory` CLI) SHALL use the identical code path, ensuring branch boosting, auto-tagging, and all custom logic applies to both.
+Both the hook system (via `wt-memory` CLI) and the unified MCP server (via `wt-memory` CLI with `cwd=CLAUDE_PROJECT_DIR`) SHALL use the identical code path and resolve to the same project storage.
 
 #### Scenario: Memory saved via hook, recalled via MCP
-- **WHEN** the Stop hook saves a memory via `wt-memory remember`
-- **AND** the LLM later calls the MCP `recall` tool
+- **WHEN** the Stop hook saves a memory via `wt-memory remember` (CWD = project root)
+- **AND** the LLM later calls the MCP `recall` tool (CWD = CLAUDE_PROJECT_DIR = project root)
 - **THEN** the saved memory SHALL be findable via MCP recall
 
 #### Scenario: Memory saved via MCP, surfaced via hook

@@ -31,10 +31,19 @@ The `wt-deploy-hooks` script SHALL add new memory hooks (warmstart, pretool, pos
 - **THEN** the script SHALL add SessionStart, PreToolUse, and PostToolUseFailure hook entries
 - **AND** SHALL create a backup before modification
 
-#### Scenario: Existing config with all hooks is not modified
+#### Scenario: Canonical config is not modified
 - **WHEN** `wt-deploy-hooks /path/to/project` is called
-- **AND** settings.json already contains all 5 memory hooks
+- **AND** settings.json PreToolUse has only `Skill` matcher (activity-track.sh, no wt-hook-memory entries)
+- **AND** settings.json PostToolUse has only `Read` and `Bash` matchers (wt-hook-memory)
 - **THEN** the script SHALL exit 0 without modification
+
+#### Scenario: Over-provisioned config is downgraded
+- **WHEN** `wt-deploy-hooks /path/to/project` is called
+- **AND** settings.json PreToolUse has wt-hook-memory entries for Read, Edit, Write, Bash, Task, Grep
+- **AND** settings.json PostToolUse has wt-hook-memory entries for Read, Edit, Write, Bash, Task, Grep
+- **THEN** the script SHALL remove stale entries and exit 0
+- **AND** PreToolUse SHALL contain only the Skill/activity-track.sh entry
+- **AND** PostToolUse SHALL contain only Read and Bash wt-hook-memory entries
 
 ### Requirement: No-memory flag skips memory hooks
 The `wt-deploy-hooks` script SHALL accept a `--no-memory` flag that deploys only the base hooks without any memory hooks.

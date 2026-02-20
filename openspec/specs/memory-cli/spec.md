@@ -55,7 +55,7 @@ The CLI SHALL read configuration from environment variables: `SHODH_HOST` (defau
 - **THEN** the health check targets `http://192.168.1.5:8080/health`
 
 ### Requirement: Installation via install.sh
-The `wt-memory` script SHALL be included in the `scripts` array of `install_scripts()` in `install.sh`, so it is symlinked to `~/.local/bin/` during installation. The CLI SHALL support the `audit` and `dedup` subcommands in its main dispatch and usage text.
+The `wt-memory` script SHALL be included in the `scripts` array of `install_scripts()` in `install.sh`, so it is symlinked to `~/.local/bin/` during installation. The CLI SHALL support the `audit`, `dedup`, `metrics`, and `dashboard` subcommands in its main dispatch and usage text.
 
 #### Scenario: Fresh install
 - **WHEN** `install.sh` is run
@@ -69,7 +69,15 @@ The `wt-memory` script SHALL be included in the `scripts` array of `install_scri
 - **WHEN** `wt-memory dedup` is run
 - **THEN** the main dispatch routes to `cmd_dedup`
 
+#### Scenario: Metrics command dispatch
+- **WHEN** `wt-memory metrics` is run
+- **THEN** the main dispatch routes to `cmd_metrics`
+
+#### Scenario: Dashboard command dispatch
+- **WHEN** `wt-memory dashboard` is run
+- **THEN** the main dispatch routes to `cmd_dashboard`
+
 #### Scenario: Help text includes new commands
 - **WHEN** `wt-memory --help` is run
-- **THEN** the usage text lists `audit` and `dedup` under the Diagnostics section
+- **THEN** the usage text lists `metrics` and `dashboard` under a "Metrics & Reporting" section
 
