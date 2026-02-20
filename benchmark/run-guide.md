@@ -245,9 +245,11 @@ After annotating all changes:
 
 Alternatively, use `benchmark/collect-results.md` for agent-assisted evaluation.
 
-## 9. Current Status (v6)
+## 9. Current Status (v7)
 
-The v6 real-world benchmark (CraftBazaar, 12 changes) did **not** show a measurable memory advantage:
+### v6 Results (2026-02-17)
+
+The v6 benchmark showed no measurable memory advantage:
 
 | Metric | Run A (baseline) | Run B (memory) |
 |--------|-----------------|----------------|
@@ -255,13 +257,58 @@ The v6 real-world benchmark (CraftBazaar, 12 changes) did **not** show a measura
 | Trap score | 11.5/13 | 11/13 |
 | C12 bugs fixed | 11/12 | 9/12 |
 
-**Root cause: test infrastructure too weak.** 71% of test-12 checks pass without a running server. Key gaps:
-- Pagination checks match `import` statements instead of verifying rendered `<Pagination>` components
-- Toast checks don't verify global mounting in `layout.tsx`
-- Payout algorithm auto-passes when no multi-vendor orders exist
+### v7 Changes (2026-02-20)
 
-These gaps mask potential memory benefits — Run B's convention knowledge (error codes, soft-delete) cannot be measured when the tests don't distinguish import-only from actual usage.
+**Test fixes (implemented):** All 5 P0/P1 test weaknesses from v6-results.md have been fixed:
 
-**v7 plan:** Stronger behavioral tests (render checks, payout verification, global mount validation) to properly measure whether memory improves implementation quality at scale.
+| Fix | File | What changed |
+|-----|------|-------------|
+| TRAP-M render check | test-12.sh | Checks `<Pagination` render, not just import |
+| TRAP-N global mount | test-12.sh | Verifies Toast in layout.tsx |
+| Payout fail on no data | test-12.sh | Fails instead of auto-passing when no multi-vendor orders |
+| Vendor fail not skip | test-12.sh | Fails instead of silently skipping |
+| TRAP-G checkout link | test-02.sh | Checks cart has checkout navigation |
+
+**C12 acceptance criteria (implemented):** Bug 11 requires `<Pagination .../>` rendered (not just imported). Bug 12 requires Toast globally mounted in layout.tsx.
+
+**Metrics integration (v7):** Both init scripts now enable metrics collection (`~/.local/share/wt-tools/metrics/.enabled`). This captures per-hook injection quality data (query, relevance scores, dedup hits, duration) during benchmark runs.
+
+**Recall-verify emphasis (v7):** with-memory.md CLAUDE.md strengthened to address v6 finding that memory-induced overconfidence led to worse C12 implementations (Run B used half the tokens but missed 3 bugs).
+
+**Expected v7 impact:** Stronger tests should reveal whether memory genuinely helps with convention compliance and drift trap resolution. The v6 result where Run A beat Run B on drift traps may have been an artifact of weak test checks.
 
 Note: The **synthetic benchmark** (MemoryProbe) consistently shows +34% weighted improvement — see `benchmark/synthetic/run-guide.md` for details. The synthetic benchmark's targeted convention traps provide a cleaner signal because they test cross-session knowledge transfer directly.
+
+## 10. Post-Run Metrics Analysis
+
+After both runs complete, analyze injection quality:
+
+```bash
+# Injection quality report (covers both runs if they share the same machine)
+wt-memory metrics --since 2d
+
+# JSON output for scripting
+wt-memory metrics --since 2d --json
+
+# Full dashboard (requires lib/dashboard.py from wt-tools)
+PYTHONPATH=/path/to/wt-tools python3 /path/to/wt-tools/lib/dashboard.py
+```
+
+### What to look for
+
+| Metric | Good | Bad | Why it matters |
+|--------|------|-----|----------------|
+| Avg relevance score | > 0.4 | < 0.3 | Low relevance = noise injections |
+| Dedup hit rate | > 30% | < 10% | Low dedup = repeated injections |
+| Citation count (Run B) | > 5 | 0 | Zero citations = agent ignoring memory |
+| Injection count ratio (B/A) | 2-5x | > 10x | Too many injections = overhead |
+
+### Cleanup after benchmark
+
+```bash
+# Disable metrics collection
+wt-memory metrics --disable
+
+# Or remove the flag file directly
+rm ~/.local/share/wt-tools/metrics/.enabled
+```

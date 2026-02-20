@@ -107,6 +107,12 @@ else
   PORT=4001
 fi
 
+# --- Enable metrics collection (all modes with hooks) ---
+if [[ "$MODE" == "b" || "$MODE" == "c" || "$MODE" == "d" ]]; then
+  mkdir -p "$HOME/.local/share/wt-tools/metrics"
+  touch "$HOME/.local/share/wt-tools/metrics/.enabled"
+fi
+
 # --- Mode-specific setup ---
 if [[ "$MODE" == "b" ]]; then
   echo "Setting up memory hooks..."

@@ -46,6 +46,10 @@ echo "schema: spec-driven" > openspec/config.yaml
 
 wt-deploy-hooks .
 
+# --- Enable metrics collection ---
+mkdir -p "$HOME/.local/share/wt-tools/metrics"
+touch "$HOME/.local/share/wt-tools/metrics/.enabled"
+
 # --- Directories ---
 mkdir -p docs/benchmark results tests
 
