@@ -15,7 +15,9 @@ All `wt-memory` operations that open the RocksDB storage SHALL be serialized thr
 
 #### Scenario: Lock timeout
 - **WHEN** a lock cannot be acquired within 10 seconds
-- **THEN** the command SHALL fail with a non-zero exit code
+- **THEN** the command SHALL check for stale locks (dead PID or age > 60s) before failing
+- **AND** if a stale lock is found, remove it and retry acquisition once
+- **AND** if retry also fails, the command SHALL fail with a non-zero exit code
 - **AND** an error message SHALL be logged
 
 ### Requirement: Visible Error Reporting
