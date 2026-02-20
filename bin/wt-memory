@@ -205,8 +205,48 @@ run_shodh_python() {
     "$SHODH_PYTHON" "$@" 2>>"$log_file"
 }
 
+# Check if a lock directory is stale (owner dead or too old).
+# Returns 0 (true) if stale, 1 (false) if active.
+is_lock_stale() {
+    local lock_dir="$1"
+    [[ -d "$lock_dir" ]] || return 1
+
+    # Primary check: PID file with dead owner
+    local pid_file="$lock_dir/pid"
+    if [[ -f "$pid_file" ]]; then
+        local owner_pid
+        owner_pid=$(cat "$pid_file" 2>/dev/null) || true
+        if [[ -n "$owner_pid" ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
+            return 0  # PID is dead → stale
+        fi
+        # If pid file empty/unreadable or PID alive → not stale
+        [[ -n "$owner_pid" ]] && return 1
+        # Empty pid file — fall through to age check
+    fi
+
+    # Fallback: no pid file — check age (>60s = stale)
+    local lock_age
+    lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+    if (( lock_age > 60 )); then
+        return 0  # Too old with no PID → stale
+    fi
+
+    return 1  # Recent, no PID info → assume active
+}
+
+# Remove a stale lock directory with warning.
+remove_stale_lock() {
+    local lock_dir="$1"
+    local lock_age
+    lock_age=$(( $(date +%s) - $(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+    rm -f "$lock_dir/pid" 2>/dev/null
+    rmdir "$lock_dir" 2>/dev/null
+    echo "wt-memory: removed stale lock (age: ${lock_age}s)" >&2
+}
+
 # Run a command under a per-project lock to prevent concurrent RocksDB access.
 # Uses mkdir-based lock (portable across Linux and macOS — no flock dependency).
+# Includes stale-lock recovery: detects dead owner PIDs and aged-out locks.
 # Usage: run_with_lock <command> [args...]
 run_with_lock() {
     local project
@@ -214,20 +254,37 @@ run_with_lock() {
     local lock_dir="/tmp/wt-memory-${project}.lock"
     local deadline=$((SECONDS + 10))
 
+    # Pre-check: remove stale lock before even trying
+    if is_lock_stale "$lock_dir"; then
+        remove_stale_lock "$lock_dir"
+    fi
+
     while ! mkdir "$lock_dir" 2>/dev/null; do
         if (( SECONDS >= deadline )); then
+            # Timeout — one last staleness check before giving up
+            if is_lock_stale "$lock_dir"; then
+                remove_stale_lock "$lock_dir"
+                # Retry once
+                if mkdir "$lock_dir" 2>/dev/null; then
+                    break
+                fi
+            fi
             echo "wt-memory: lock timeout after 10s" >&2
             return 1
         fi
         sleep 0.1
     done
 
+    # Track lock owner for staleness detection
+    echo $$ > "$lock_dir/pid" 2>/dev/null
+
     # Ensure lock is removed on exit (including signals)
-    trap 'rmdir "$lock_dir" 2>/dev/null' EXIT
+    trap 'rm -f "$lock_dir/pid" 2>/dev/null; rmdir "$lock_dir" 2>/dev/null' EXIT
 
     "$@"
     local rc=$?
 
+    rm -f "$lock_dir/pid" 2>/dev/null
     rmdir "$lock_dir" 2>/dev/null
     trap - EXIT
     return $rc
