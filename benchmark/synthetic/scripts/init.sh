@@ -122,8 +122,11 @@ if [[ "$MODE" == "b" ]]; then
 fi
 
 if [[ "$MODE" == "c" ]]; then
-  echo "Pre-seeding convention memories..."
+  echo "Pre-seeding convention memories and deploying hooks..."
   bash "$BENCH_DIR/scripts/pre-seed.sh"
+  if command -v wt-deploy-hooks >/dev/null 2>&1; then
+    wt-deploy-hooks . 2>/dev/null || true
+  fi
 fi
 
 if [[ "$MODE" == "d" ]]; then

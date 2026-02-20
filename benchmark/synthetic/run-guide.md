@@ -191,11 +191,21 @@ Score  = Raw / Max × 100%
 | C (pre-seeded) | 8-10/10 | 7-8/8 | 2-3/3 | 4-5/5 | 2-3/3 | 85-100% |
 | D (rules) | 9-10/10 | 6-8/8 | 1-3/3 | 4-5/5 | 2-3/3 | 75-100% |
 
+**WARNING — SYN-07 showed Mode A = 97%, same as Mode C (0% delta).**
+This happens when C02 is implemented thoroughly — all "code-invisible" conventions become code-visible. The expected scores above assume a less-thorough C02 implementation (which happened in SYN-05/06). Results are **non-deterministic** depending on how well the C02 agent implements Developer Notes into code. See `syn-07-results.md` for details.
+
 **Key signals:**
 - Categories C and E provide the strongest signal (code-invisible, high weight)
 - Category B provides the spec-vs-memory conflict signal
 - Category A is the baseline — both modes should pass most A probes
-- The expected delta between Mode A and Mode B should be **>30%**
+- The expected delta between Mode A and Mode B should be **>30%** (but may be 0% if C02 is thorough)
+
+### Known Limitations (from SYN-07)
+
+- **Code persistence defeats memory**: When Opus 4.6 implements C02 conventions into code, subsequent sessions read them from code, not memory
+- **Non-deterministic C02 quality**: The baseline score ranges from 45% (SYN-05/06) to 97% (SYN-07) depending on how thorough the C02 implementation is
+- **score.sh server bug**: The Node server's event loop empties and exits immediately — use inline test results from run.sh, not score.sh
+- **Benchmark v3 needed**: Probes should test knowledge genuinely impossible to derive from code inspection (negative constraints, rationale-dependent decisions, conflict resolution)
 
 ### Automated Scoring
 
@@ -246,7 +256,42 @@ git add -A && git commit -m "Change 02 complete"
 
 **Claude session times out**: Increase `--max-turns` in run.sh (default 30 for baseline, 50 for memory mode).
 
-**C/E probes all fail (Mode A)**: This is expected. C and E traps are code-invisible — only memory agents should pass them.
+**C/E probes all fail (Mode A)**: This was expected in SYN-05/06, but **SYN-07 showed Mode A can pass all C/E probes** if C02 is implemented thoroughly. See Known Limitations above.
+
+**score.sh shows very low score but inline tests pass**: The Node server's event loop empties and exits immediately after `app.listen()`. score.sh can't keep it alive. Use inline test results from run.sh output — those are reliable.
+
+## C-first Execution Protocol (Recommended)
+
+When validating memory system changes, use the C-first protocol instead of running A+B in parallel:
+
+```
+Step 1: Mode C (pre-seeded recall, ~15 min)
+  → Tests recall quality without save dependency
+  → GATE: C-category probes > 0? Weighted > 75%?
+  → If NO: debug hooks, don't waste time on A/B
+
+Step 2: Mode A (baseline, ~30 min)
+  → Tests what the baseline achieves
+  → COMPARE: A vs C delta
+
+Step 3 (optional): Mode B (full save+recall, ~30 min)
+  → Tests end-to-end including save
+  → COMPARE: B ≈ C? Then save works too
+```
+
+This saves ~15-30 min per failed run by catching recall failures early.
+
+## Results History
+
+| Run | Mode A | Mode B/C | Delta | Notes |
+|-----|--------|----------|-------|-------|
+| SYN-01 | n/a | n/a | ~0% | Pre-v8 design |
+| SYN-02 | 83% | 83% | 0% | Code persistence + probe leak |
+| SYN-03 | 45% | 45% | 0% | Agent never saved to memory |
+| SYN-04 | 45% | 38% | -7% | Tainted run |
+| SYN-05 | 45% | 79% | +34% | Post-session extraction works |
+| SYN-06 | 45% | 79% | +34% | Hook-driven recall, -20% tokens |
+| SYN-07 | **97%** | **97% (C)** | **0%** | Code persistence wins — test design flaw |
 
 ## Cleanup
 

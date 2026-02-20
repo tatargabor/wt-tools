@@ -277,7 +277,19 @@ The v6 benchmark showed no measurable memory advantage:
 
 **Expected v7 impact:** Stronger tests should reveal whether memory genuinely helps with convention compliance and drift trap resolution. The v6 result where Run A beat Run B on drift traps may have been an artifact of weak test checks.
 
-Note: The **synthetic benchmark** (MemoryProbe) consistently shows +34% weighted improvement — see `benchmark/synthetic/run-guide.md` for details. The synthetic benchmark's targeted convention traps provide a cleaner signal because they test cross-session knowledge transfer directly.
+Note: The **synthetic benchmark** (MemoryProbe) showed +34% weighted improvement in SYN-05/06, but **SYN-07 showed 0% delta** (Mode A = Mode C = 97%). Root cause: Opus 4.6 implements C02 Developer Notes so thoroughly into code that "code-invisible" probes become code-readable. The +34% delta in SYN-05/06 was likely from a less-thorough C02 implementation (non-deterministic variance). See `benchmark/synthetic/syn-07-results.md` for analysis. The benchmark probe design needs hardening — current probes measure code-reading ability, not memory-dependent knowledge.
+
+### SYN-07 Results (2026-02-20)
+
+| Metric | Mode A (baseline) | Mode C (pre-seeded) | Delta |
+|--------|------------------|-------------------|-------|
+| Weighted score | 97% (57/59) | 97% (57/59) | 0% |
+| Cat B (human override) | 9/9 | 9/9 | 0 |
+| Cat C (debug knowledge) | 3/3 | 3/3 | 0 |
+| Cat E (stakeholder) | 3/3 | 3/3 | 0 |
+| Total time | 15m | 16m | +1m |
+
+**Key finding**: The 0% delta is likely a combination of (1) Opus 4.6 being exceptionally good at implementing conventions into code, and (2) test probes not being truly code-invisible. Memory recall works perfectly (Mode C confirms), but the baseline doesn't need it because the code already contains the knowledge. Benchmark v3 needs probes that are genuinely impossible to derive from code inspection.
 
 ## 10. Post-Run Metrics Analysis
 
