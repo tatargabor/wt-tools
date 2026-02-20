@@ -8,9 +8,10 @@ LogBook is a lightweight event logging service. Teams use it to record and track
 
 - **Runtime**: Node.js (v18+)
 - **Framework**: Express
-- **Database**: SQLite via `better-sqlite3` (file: `data/logbook.db`)
+- **Database**: SQLite via `better-sqlite3` (file: `data/logbook.db`). WAL mode enabled for concurrent reads.
 - **IDs**: `nanoid` package — prefixed format (see conventions)
 - **No ORM** — raw SQL via better-sqlite3
+- **Body parsing**: Express `express.json()` middleware (default settings)
 
 ## Core Entities
 
@@ -45,6 +46,21 @@ Comment (cmt_*)
   ├── author      TEXT NOT NULL
   ├── body        TEXT NOT NULL
   ├── removedAt   DATETIME (nullable, soft-delete)
+  └── createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
+
+Notification (ntf_*)
+  ├── id          TEXT PRIMARY KEY
+  ├── type        TEXT NOT NULL
+  ├── message     TEXT NOT NULL
+  ├── read        INTEGER DEFAULT 0
+  ├── removedAt   DATETIME (nullable, soft-delete)
+  └── createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
+
+Batch (bat_*)
+  ├── id          TEXT PRIMARY KEY
+  ├── operation   TEXT NOT NULL
+  ├── count       INTEGER NOT NULL
+  ├── detail      TEXT
   └── createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
 ```
 
@@ -100,6 +116,12 @@ node src/server.js
 # Run tests for change N
 bash tests/test-0N.sh 3000
 ```
+
+## Architecture Notes
+
+- **DB query layer**: All SQL queries live in `db/*.js` modules. Route handlers call db functions — they don't write inline SQL.
+- **Error middleware**: Centralized error handling in `middleware/errors.js`. Routes throw or call `next(err)` — they don't format error responses themselves.
+- **Categories are flat**: No hierarchy, no parent-child relationships.
 
 ## Constraints
 

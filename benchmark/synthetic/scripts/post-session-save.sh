@@ -37,16 +37,40 @@ if grep -q "Developer Notes" "$CHANGE_FILE" 2>/dev/null; then
   TAGS="convention,correction,change:C${CHANGE_NUM},source:devnotes"
   case "$clean" in
     *error*code*|*dot.notation*|*SCREAMING*)
-      TAGS="$TAGS,error-codes"
+      TAGS="$TAGS,error-codes,cat:B"
       ;;
     *result*key*|*nesting*|*wrapper*)
-      TAGS="$TAGS,response-format"
-      ;;
-    *batch*|*POST*body*|*bulk*)
-      TAGS="$TAGS,batch-operations"
+      TAGS="$TAGS,response-format,cat:B"
       ;;
     *sort*|*order*|*newest*|*oldest*)
-      TAGS="$TAGS,sort-order"
+      TAGS="$TAGS,sort-order,cat:B"
+      ;;
+    *removedAt*|*deletedAt*|*soft-delete*|*Soft-delete*)
+      TAGS="$TAGS,soft-delete,cat:B"
+      ;;
+    *busy_timeout*|*SQLITE_BUSY*|*concurrent*)
+      TAGS="$TAGS,sqlite,concurrency,cat:C"
+      ;;
+    *nanoid*|*collision*)
+      TAGS="$TAGS,id-format,cat:C"
+      ;;
+    *body-parser*|*413*|*Payload*Too*Large*|*limit*)
+      TAGS="$TAGS,body-parser,cat:C"
+      ;;
+    *flat*categor*|*hierarchical*|*parent_id*)
+      TAGS="$TAGS,architecture,cat:D"
+      ;;
+    *query*layer*|*inline*SQL*|*db/*.js*)
+      TAGS="$TAGS,architecture,cat:D"
+      ;;
+    *centralized*error*|*try-catch*|*next.err*)
+      TAGS="$TAGS,architecture,cat:D"
+      ;;
+    *ISO*8601*|*mobile*app*|*backward*compat*)
+      TAGS="$TAGS,stakeholder,cat:E"
+      ;;
+    *bulk*|*batch*|*100*item*|*max*)
+      TAGS="$TAGS,stakeholder,cat:E"
       ;;
     *date*|*fmtDate*|*format*)
       TAGS="$TAGS,date-format"

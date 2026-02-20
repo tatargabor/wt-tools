@@ -4,26 +4,24 @@
 
 ### Overview
 
-Add a dashboard with event statistics and a CSV export feature. Follow all existing project conventions.
+Add a dashboard with event statistics, a notification system, and CSV export. Follow all existing project conventions.
 
 ### Requirements
 
 1. **Dashboard API** (`src/routes/dashboard.js`):
    - `GET /dashboard/summary` — Returns aggregate stats:
      ```json
-     {"ok": true, "total_events": N, "by_severity": {"info": N, "warning": N, "critical": N}, "by_category": [...]}
+     {"total_events": N, "by_severity": {"info": N, "warning": N, "critical": N}, "by_category": [...]}
      ```
-   - `GET /dashboard/recent` — Paginated list of the 50 most recent events (use existing pagination format). Include category name and tag names in each entry.
+     Categories should be a flat list of `{id, name, count}` objects.
+   - `GET /dashboard/recent` — Paginated list of the 50 most recent events. Support ordering. Include category name and tag names in each entry.
    - `GET /dashboard/timeline` — Events per day for the last 30 days:
      ```json
-     {"ok": true, "days": [{"date": "...", "count": N}, ...]}
+     {"days": [{"date": "...", "count": N}, ...]}
      ```
      Use the project's date formatting helper for the `date` field.
 
-2. **Notification system**: Simple in-app notifications stored in a `Notification` table:
-   ```
-   id TEXT PRIMARY KEY, type TEXT, message TEXT, read INTEGER DEFAULT 0, removedAt DATETIME, createdAt DATETIME
-   ```
+2. **Notification system**: Simple in-app notifications stored in a `Notification` table (see project spec):
    - `GET /notifications` — Paginated list of non-removed notifications.
    - `POST /notifications/:id/read` — Mark as read.
    - `DELETE /notifications/:id` — Dismiss (soft-delete) the notification.
@@ -38,8 +36,8 @@ Add a dashboard with event statistics and a CSV export feature. Follow all exist
 
 ### Acceptance Criteria
 
-- [ ] `GET /dashboard/summary` returns aggregate stats
-- [ ] `GET /dashboard/recent` returns paginated recent events
+- [ ] `GET /dashboard/summary` returns aggregate stats with flat category list
+- [ ] `GET /dashboard/recent` returns paginated recent events with ordering support
 - [ ] `GET /dashboard/timeline` returns daily counts with formatted dates
 - [ ] Notification CRUD works (list, mark-read, dismiss)
 - [ ] Dismissed notifications are soft-deleted, not hard-deleted
@@ -54,28 +52,35 @@ Add a dashboard with event statistics and a CSV export feature. Follow all exist
 
 ### Convention Probes
 
-Second PROBE change. Requirements say "follow existing conventions" and "use the project's date formatting helper" (hints at T4 but doesn't name it).
+Second PROBE change. Higher density than C03.
 
-**T1 (Pagination)**: `GET /dashboard/recent` and `GET /notifications` must use `{entries, paging}` format.
+**A1 (Pagination)**: `GET /dashboard/recent` and `GET /notifications` must use `{entries, paging}` format.
 
-**T2 (Error format)**: `GET /export/events` with invalid format must return `{fault: {reason, code, ts}}`.
+**A2 (ID prefix)**: Notification IDs must use `ntf_` prefix per project spec entity definition.
 
-**T3 (Soft-delete)**: Notifications use `removedAt` for dismiss. The requirement says "soft-delete" but does NOT specify the field name. Does the agent use `removedAt` (matching project convention) or `deletedAt` (standard default)?
+**A3 (Success wrap)**: All endpoints must include `{ok: true}`.
 
-**T4 (Date helper)**: Timeline and CSV export need formatted dates. Requirements say "use the project's date formatting helper" — does the agent import `fmtDate()` from `lib/fmt.js`? Or use `toISOString()`, `dayjs`, etc.?
+**A4 (Date helper)**: Timeline and CSV export need formatted dates. Requirements say "use the project's date formatting helper" — does the agent import `fmtDate()` from `lib/fmt.js`? Or use `toISOString()`, `dayjs`, etc.?
 
-**T6 (Success wrap)**: All endpoints must include `{ok: true}`.
+**B1 (Error codes)**: Export invalid format error must use dot.notation (e.g., `export.invalid_format`), not SCREAMING_SNAKE.
 
-### Not Probed Here
+**B2 (Response nesting)**: All responses must use `result` wrapper.
 
-- T5 (ID prefix): Notification IDs need a prefix. Requirements don't specify — does the agent use a consistent prefix like `ntf_`? Not formally scored but informative.
+**B3 (Order param)**: `GET /dashboard/recent` supports ordering — does the agent use `?order=newest|oldest` (C02 instruction) or `?sort=desc|asc`?
+
+**C1 (busy_timeout)**: This change creates notifications on critical events — a concurrent write scenario. The test sends 10 simultaneous notification-creating requests. Without `busy_timeout(3000)` in db setup, some will fail with SQLITE_BUSY.
+
+**D1 (Flat categories)**: Dashboard summary has `by_category` — does the agent keep it as a flat list? Or add parent_id / tree structure? Memory agent should remember "flat categories only."
+
+**D2 (DB query layer)**: Does the agent create `db/dashboard.js`, `db/notifications.js`, `db/export.js`? Or inline SQL in routes?
+
+**E1 (ISO 8601 dates)**: CSV export has `created_at` column. The agent should use `fmtDate()` for the display column but NOT change `createdAt` in the events API response (which must stay ISO 8601 for mobile app). The trap: agent might "helpfully" format createdAt in GET /events too.
 
 ### Memory Predictions (Run B)
 
-- **Recall**: Pagination format, error format, `fmtDate()` location, `removedAt` convention, ok wrapper
-- **Expected advantage**: `fmtDate()` recall is key — baseline agent may use `toISOString()` or inline formatting. `removedAt` for notifications is subtle — baseline agent likely uses `deletedAt`.
+- **Recall**: Pagination, error format (dot.notation), fmtDate, result wrapper, order param, busy_timeout, flat categories, db layer, ISO 8601 constraint
+- **Expected advantage**: C1 (busy_timeout) is the strongest signal — baseline will likely crash under concurrent writes. B3 (order param) and D1 (flat categories) are also strong differentiators.
 
 ### Scoring
 
-5 convention probes: T1, T2, T3, T4, T6
-T3 and T4 are the highest-signal probes in this change.
+13 probes: A1(x2 for recent+notifications), A2, A3, A4, B1, B2, B3, C1, D1, D2, E1

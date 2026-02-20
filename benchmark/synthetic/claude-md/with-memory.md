@@ -39,7 +39,14 @@ This project uses persistent memory (shodh-memory) across sessions. Memory conte
 - `wt-memory forget <id>` — suppress or correct a wrong memory
 - Most things are remembered automatically. Only use `remember` for emphasis.
 
-**Recall-then-verify:** When memory provides code paths or implementation details, verify against the current codebase before acting — files may have changed since the memory was saved.
+**Recall-then-verify (CRITICAL):** Memory provides starting points, not final answers. After recalling implementation details, ALWAYS grep or read the current code to verify before acting. Files may have changed since the memory was saved. Do not skip verification even if the recall seems highly relevant — memory-induced overconfidence leads to incomplete implementations.
+
+**What to recall:** Before implementing any change, check your memory for:
+- Convention corrections or overrides from code review
+- Debug findings and workarounds
+- Architecture decisions and rationale
+- Stakeholder constraints and external requirements
+These are all valuable context that may not be visible in the current code.
 
 ## Workflow
 

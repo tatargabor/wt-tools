@@ -38,7 +38,7 @@ check "GET /events/:id returns single event" \
   'EVT_ID=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"entries\",d.get(\"data\",[]))[0][\"id\"])" 2>/dev/null) && [ "$(curl -s -o /dev/null -w "%{http_code}" "$BASE/events/$EVT_ID")" = "200" ]'
 
 check "DELETE /events/:id returns 200" \
-  'EVT_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"title\":\"to-delete\"}" "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"event\",d).get(\"id\",d.get(\"id\",\"\")))" 2>/dev/null) && [ "$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BASE/events/$EVT_ID")" = "200" ]'
+  'EVT_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"title\":\"to-delete\"}" "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get(\"result\",d); e=r.get(\"event\",r); print(e.get(\"id\",\"\"))" 2>/dev/null) && [ "$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BASE/events/$EVT_ID")" = "200" ]'
 
 check "Seed data: at least 5 events exist" \
   'COUNT=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); p=d.get(\"paging\",{}); print(p.get(\"count\",p.get(\"total\",len(d.get(\"entries\",d.get(\"data\",[]))))))" 2>/dev/null) && [ "$COUNT" -ge 5 ]'
@@ -48,37 +48,47 @@ check "Seed data: at least 5 events exist" \
 echo ""
 echo "--- Convention checks ---"
 
-check "T1: Pagination uses 'entries' key" \
-  'curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); assert \"entries\" in d, \"no entries key\""'
-
-check "T1: Pagination has 'paging' object with current/size/count/pages" \
+check "A1: Pagination uses entries+paging keys" \
   'curl -s "$BASE/events" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
+assert \"entries\" in d, \"no entries key\"
 p=d[\"paging\"]
 assert \"current\" in p and \"size\" in p and \"count\" in p and \"pages\" in p
 "'
 
-check "T2: Error response uses 'fault' format" \
-  'RESP=$(curl -s "$BASE/events/nonexistent-id") && echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert \"fault\" in d and \"reason\" in d[\"fault\"]"'
-
-check "T3: Soft-delete uses removedAt (deleted event not in listing)" \
-  'OLD_COUNT=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"paging\",{}).get(\"count\",len(d.get(\"entries\",[]))))" 2>/dev/null) && EVT_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"title\":\"soft-del-test\"}" "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"event\",d).get(\"id\",d.get(\"id\",\"\")))" 2>/dev/null) && curl -s -X DELETE "$BASE/events/$EVT_ID" > /dev/null && NEW_COUNT=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"paging\",{}).get(\"count\",len(d.get(\"entries\",[]))))" 2>/dev/null) && [ "$NEW_COUNT" = "$OLD_COUNT" ]'
-
-check "T4: lib/fmt.js exists with fmtDate" \
-  '[ -f src/lib/fmt.js ] || [ -f lib/fmt.js ]'
-
-check "T5: Event IDs use evt_ prefix" \
+check "A2: Event IDs use evt_ prefix" \
   'curl -s "$BASE/events" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 entries=d.get(\"entries\",d.get(\"data\",[]))
 assert len(entries) > 0
-assert entries[0][\"id\"].startswith(\"evt_\"), f\"ID {entries[0][\"id\"]} does not start with evt_\"
+assert entries[0][\"id\"].startswith(\"evt_\"), f\"ID does not start with evt_\"
 "'
 
-check "T6: Responses include ok: true" \
+check "A3: Responses include ok: true" \
   'curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"ok\") is True"'
+
+check "A4: lib/fmt.js exists with fmtDate" \
+  '[ -f src/lib/fmt.js ] || [ -f lib/fmt.js ]'
+
+check "Error response uses fault format with SCREAMING_SNAKE code" \
+  'RESP=$(curl -s "$BASE/events/nonexistent-id") && echo "$RESP" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert \"fault\" in d and \"reason\" in d[\"fault\"] and \"code\" in d[\"fault\"]
+code=d[\"fault\"][\"code\"]
+assert code == code.upper() and \"_\" in code, f\"code {code} is not SCREAMING_SNAKE\"
+"'
+
+check "Soft-delete: deleted event not in listing" \
+  'OLD_COUNT=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"paging\",{}).get(\"count\",len(d.get(\"entries\",[]))))" 2>/dev/null) && EVT_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"title\":\"soft-del-test\"}" "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get(\"result\",d); e=r.get(\"event\",r); print(e.get(\"id\",\"\"))" 2>/dev/null) && curl -s -X DELETE "$BASE/events/$EVT_ID" > /dev/null && NEW_COUNT=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"paging\",{}).get(\"count\",len(d.get(\"entries\",[]))))" 2>/dev/null) && [ "$NEW_COUNT" = "$OLD_COUNT" ]'
+
+check "DB query layer: db/events.js exists" \
+  '[ -f src/db/events.js ] || [ -f db/events.js ]'
+
+check "Centralized errors: middleware/errors.js exists" \
+  '[ -f src/middleware/errors.js ] || [ -f middleware/errors.js ]'
 
 # --- Results ---
 echo ""

@@ -1,5 +1,6 @@
 #!/bin/bash
 # test-02.sh — Tags & Filtering (GAP change — no convention probes)
+# C02 uses C01 conventions, NOT C02 Developer Notes corrections
 # Usage: bash tests/test-02.sh [PORT]
 
 PORT="${1:-3000}"
@@ -32,14 +33,15 @@ check "Seed tags exist (at least 3)" \
   'COUNT=$(curl -s "$BASE/tags" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-tags=d.get(\"tags\",d.get(\"entries\",d.get(\"data\",d if isinstance(d,list) else [])))
+r=d.get(\"result\",d)
+tags=r.get(\"tags\",r.get(\"entries\",r.get(\"data\",r if isinstance(r,list) else [])))
 if isinstance(tags, list): print(len(tags))
 else: print(0)
 " 2>/dev/null) && [ "$COUNT" -ge 3 ]'
 
 # Tag an event
 check "POST /events/:id/tags attaches a tag" \
-  'EVT_ID=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"entries\",d.get(\"data\",[]))[0][\"id\"])" 2>/dev/null) && TAG_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"name\":\"attach-test-$(date +%s)\"}" "$BASE/tags" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"tag\",d).get(\"id\",d.get(\"id\",\"\")))" 2>/dev/null) && STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"tagId\":\"$TAG_ID\"}" "$BASE/events/$EVT_ID/tags") && [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]'
+  'EVT_ID=$(curl -s "$BASE/events" | python3 -c "import json,sys; d=json.load(sys.stdin); entries=d.get(\"entries\",d.get(\"data\",[])); print(entries[0][\"id\"])" 2>/dev/null) && TAG_ID=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"name\":\"attach-test-$(date +%s)\"}" "$BASE/tags" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get(\"result\",d); t=r.get(\"tag\",r); print(t.get(\"id\",\"\"))" 2>/dev/null) && STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "{\"tagId\":\"$TAG_ID\"}" "$BASE/events/$EVT_ID/tags") && [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]'
 
 # Filter by severity
 check "GET /events?severity=info filters correctly" \
@@ -55,7 +57,8 @@ check "GET /events?category=... filters correctly" \
   'CAT_ID=$(curl -s "$BASE/categories" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-cats=d.get(\"categories\",d.get(\"entries\",d.get(\"data\",d if isinstance(d,list) else [])))
+r=d.get(\"result\",d)
+cats=r.get(\"categories\",r.get(\"entries\",r.get(\"data\",r if isinstance(r,list) else [])))
 if isinstance(cats,list) and len(cats)>0: print(cats[0].get(\"id\",\"\"))
 else: print(\"\")
 " 2>/dev/null) && [ -n "$CAT_ID" ] && [ "$(curl -s -o /dev/null -w "%{http_code}" "$BASE/events?category=$CAT_ID")" = "200" ]'
@@ -69,7 +72,6 @@ check "Pagination works with filters" \
   'RESP=$(curl -s "$BASE/events?severity=info&page=1&size=5") && python3 -c "
 import json,sys
 d=json.loads(sys.argv[1])
-# Accept both pagination formats
 assert \"entries\" in d or \"data\" in d, \"no entries/data key\"
 " "$RESP"'
 

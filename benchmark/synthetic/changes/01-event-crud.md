@@ -18,14 +18,16 @@ Build the core LogBook API — events and categories with full CRUD. This change
    ```json
    {"fault": {"reason": "Event not found", "code": "EVT_NOT_FOUND", "ts": "2026-02-17T10:30:00Z"}}
    ```
-   Error codes use SCREAMING_SNAKE format. `ts` is the current ISO timestamp.
+   Error codes use SCREAMING_SNAKE format. `ts` is the current ISO timestamp. Routes should throw or call `next(err)` — they MUST NOT format error responses themselves.
 
-5. **Category API** (`src/routes/categories.js`):
+5. **DB query layer**: Create `src/db/events.js` and `src/db/categories.js` with all SQL queries as exported functions. Routes call these db functions — routes MUST NOT contain inline SQL.
+
+6. **Category API** (`src/routes/categories.js`):
    - `GET /categories` — List all non-removed categories
    - `POST /categories` — Create a category (requires `name`)
    - `DELETE /categories/:id` — Soft-delete: set `removedAt = NOW()`, do NOT hard-delete
 
-6. **Event API** (`src/routes/events.js`):
+7. **Event API** (`src/routes/events.js`):
    - `GET /events` — Paginated list of non-removed events. Query params: `?page=1&size=20`. Response format:
      ```json
      {
@@ -40,16 +42,16 @@ Build the core LogBook API — events and categories with full CRUD. This change
    - `PUT /events/:id` — Update event fields
    - `DELETE /events/:id` — Soft-delete: set `removedAt = NOW()`
 
-7. **Soft-delete convention**: Use `removedAt` column (DATETIME, nullable) on both Event and Category. All list/get queries MUST filter `WHERE removedAt IS NULL`. Use `removedAt` — NOT `deletedAt`.
+8. **Soft-delete convention**: Use `removedAt` column (DATETIME, nullable) on both Event and Category. All list/get queries MUST filter `WHERE removedAt IS NULL`. Use `removedAt` — NOT `deletedAt`.
 
-8. **Success wrapper**: ALL successful API responses (2xx) MUST include `ok: true` at the top level:
+9. **Success wrapper**: ALL successful API responses (2xx) MUST include `ok: true` at the top level:
    - Single item: `{"ok": true, "event": {...}}`
    - List: `{"ok": true, "entries": [...], "paging": {...}}`
    - Action: `{"ok": true, "removed": true}`
 
-9. **Seed data**: Create `src/db/seed.js` that inserts 3 categories and 8 events with varying severities. Run manually with `node src/db/seed.js`.
+10. **Seed data**: Create `src/db/seed.js` that inserts 3 categories and 8 events with varying severities. Run manually with `node src/db/seed.js`.
 
-10. **Server**: Create `src/server.js` — Express app mounting routes, error middleware, listening on `PORT` env var or 3000.
+11. **Server**: Create `src/server.js` — Express app mounting routes, error middleware, listening on `PORT` env var or 3000.
 
 ### Acceptance Criteria
 
@@ -59,9 +61,11 @@ Build the core LogBook API — events and categories with full CRUD. This change
 - [ ] `POST /events` creates event with `evt_*` prefixed ID
 - [ ] `DELETE /events/:id` soft-deletes (sets `removedAt`, not hard delete)
 - [ ] `GET /categories` returns categories, `POST` creates, `DELETE` soft-deletes
-- [ ] Error responses use `{fault: {reason, code, ts}}` format
+- [ ] Error responses use `{fault: {reason, code, ts}}` format with SCREAMING_SNAKE codes
 - [ ] All responses include `ok: true` wrapper
 - [ ] `lib/fmt.js` has `fmtDate()` returning `YYYY/MM/DD HH:mm`
+- [ ] All SQL queries live in `db/*.js` — routes don't contain inline SQL
+- [ ] Error handling is centralized in `middleware/errors.js` — no per-route error formatting
 - [ ] Seed data exists with 3 categories, 8 events
 - [ ] All IDs use prefixed nanoid format
 
@@ -71,27 +75,25 @@ Build the core LogBook API — events and categories with full CRUD. This change
 
 ### Traps Seeded
 
-All 6 project conventions are explicitly stated in requirements. This change SEEDS the traps — the agent should implement all conventions correctly. The real test comes in C03-C05 (probe changes) where conventions must be recalled.
+All conventions are explicitly stated in requirements. This change SEEDS the traps — the agent should implement all conventions correctly. The real test comes in C03-C05.
 
-**T1 (Pagination)**: Requirement 6 specifies exact format. Agent must implement `{entries, paging: {current, size, count, pages}}`. Verify this is NOT `{data, total, page, limit}`.
+**A1 (Pagination)**: Requirement 7 specifies exact format. Agent must implement `{entries, paging: {current, size, count, pages}}`.
 
-**T2 (Error format)**: Requirement 4 specifies `{fault: {reason, code, ts}}`. Verify NOT `{error: string}` or `{message, code}`.
+**A2 (ID prefix)**: Requirement 2 specifies `makeId(prefix)` with nanoid(12). Verify `evt_` and `cat_` prefixes.
 
-**T3 (Soft-delete)**: Requirement 7 explicitly says `removedAt` — NOT `deletedAt`. Verify column name in schema and queries.
+**A3 (Success wrap)**: Requirement 9 specifies `{ok: true, ...payload}`.
 
-**T4 (Date helper)**: Requirement 3 specifies `fmtDate()` in `lib/fmt.js`. Verify function exists and returns slash-separated format.
+**A4 (Date helper)**: Requirement 3 specifies `fmtDate()` in `lib/fmt.js`.
 
-**T5 (ID prefix)**: Requirement 2 specifies `makeId(prefix)` with nanoid. Verify `evt_` and `cat_` prefixes in use.
+**B1 setup**: Error codes use SCREAMING_SNAKE (Requirement 4). C02 will override to dot.notation — creating the B1 trap.
 
-**T6 (Success wrap)**: Requirement 8 specifies `{ok: true, ...payload}`. Verify ALL responses include it.
+**B2 setup**: Response format is flat (no `result` key). C02 will override to add `result` wrapper — creating the B2 trap.
+
+**D2 setup**: Requirement 5 establishes db/ query layer pattern. This is visible in code but the RATIONALE (why) comes in C02.
+
+**D3 setup**: Requirement 4 establishes centralized error middleware. This is visible in code but the RATIONALE comes in C02.
 
 ### Memory Predictions (Run B)
 
-- **Save**: Agent should save all 6 conventions as Decision memories
-- **Save**: Any environment quirks encountered (SQLite WAL, nanoid import)
+- **Save**: Agent should save conventions (pagination, error format, ID prefix, fmtDate, ok wrapper, removedAt, db layer, error middleware)
 - **Recall**: None (first change, no prior context)
-
-### Scoring Focus
-
-- Did agent implement all 6 conventions correctly? (Baseline for probes)
-- Did agent save conventions to memory? (Run B only — count and quality)

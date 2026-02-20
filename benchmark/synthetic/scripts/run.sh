@@ -26,7 +26,7 @@ if grep -q "4001" CLAUDE.md 2>/dev/null; then
   PORT=4001
 fi
 
-echo "=== MemoryProbe Runner ==="
+echo "=== MemoryProbe v2 Runner ==="
 echo "  Project: $PROJECT"
 echo "  Port:    $PORT"
 echo "  Changes: $START → $END"
