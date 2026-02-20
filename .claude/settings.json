@@ -39,66 +39,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -113,47 +53,7 @@
         ]
       },
       {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
         "hooks": [
           {
             "type": "command",
