@@ -608,7 +608,7 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
     def update_usage_bar(self, bar_widget, usage_pct):
         """Update a single usage bar with gradient from green to red"""
         # Clamp to 0-99 for gradient stop position (leave room for +0.01)
-        display_pct = min(max(usage_pct, 0), 198) / 2  # 0-99 range
+        display_pct = min(max(usage_pct, 0), 99)
 
         if usage_pct < 90:
             color = self.get_color("burn_low")
