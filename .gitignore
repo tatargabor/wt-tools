@@ -41,6 +41,9 @@ mcp-server/.venv/
 
 # Shodh memory local data
 shodh_data/
+benchmark/synthetic/**/bm25_index/
+benchmark/synthetic/**/memories/
+benchmark/synthetic/**/memory_index/
 
 # Nested .wt-tools runtime state (any subdirectory)
 **/.wt-tools/
