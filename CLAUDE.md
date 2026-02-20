@@ -8,9 +8,9 @@ This project uses persistent memory (shodh-memory) across sessions. Memory conte
 **How it works:**
 - Session start → relevant memories loaded as system-reminder
 - Every prompt → topic-based recall injected as system-reminder
-- Every tool use → relevant past experience injected as system-reminder
+- After Read/Bash → relevant past experience injected as system-reminder
 - Tool errors → past fixes surfaced automatically
-- Session end → insights extracted and saved
+- Session end → raw conversation filter extracts and saves insights
 
 **Active (MCP tools):** You also have MCP memory tools available (`remember`, `recall`, `proactive_context`, etc.) for deeper memory interactions when automatic context isn't enough.
 

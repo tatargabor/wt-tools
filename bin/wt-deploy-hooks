@@ -6,8 +6,8 @@
 # Deploys 7 hook events to <target-dir>/.claude/settings.json:
 #   - SessionStart: unified memory handler (timeout: 10s)
 #   - UserPromptSubmit: skill detection + unified memory handler (timeout: 15s)
-#   - PreToolUse[Read,Edit,Write,Bash,Task,Grep]: unified memory handler (timeout: 5s)
-#   - PostToolUse[Read,Edit,Write,Bash,Task,Grep]: unified memory handler (timeout: 5s)
+#   - PreToolUse[Skill]: activity tracking only (timeout: 5s)
+#   - PostToolUse[Read,Bash]: unified memory handler (timeout: 5s)
 #   - PostToolUseFailure[Bash]: unified memory handler (timeout: 5s)
 #   - SubagentStop: unified memory handler (timeout: 5s)
 #   - Stop: stop hook + unified memory handler (timeout: 30s)
@@ -92,61 +92,11 @@ hook_json=$(cat << 'HOOKJSON'
     ],
     "PreToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PreToolUse",
+            "command": ".claude/hooks/activity-track.sh",
             "timeout": 5
           }
         ]
@@ -164,47 +114,7 @@ hook_json=$(cat << 'HOOKJSON'
         ]
       },
       {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "wt-hook-memory PostToolUse",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Grep",
         "hooks": [
           {
             "type": "command",
