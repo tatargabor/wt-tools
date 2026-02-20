@@ -215,6 +215,7 @@ if [[ -f "$settings_file" ]]; then
     has_base=false
     has_unified=false
     has_old_individual=false
+    has_stale=false
 
     # Base hooks present?
     if jq -e '.hooks.Stop[0].hooks[] | select(.command == "wt-hook-stop")' "$settings_file" &>/dev/null \
@@ -234,8 +235,19 @@ if [[ -f "$settings_file" ]]; then
         has_old_individual=true
     fi
 
-    # Already complete?
-    if $has_unified && $has_base && ! $NO_MEMORY; then
+    # Stale wt-hook-memory entries? (PreToolUse memory hooks or PostToolUse non-Read/Bash memory hooks)
+    if ! $NO_MEMORY; then
+        # Stale PreToolUse: any entry with wt-hook-memory PreToolUse command
+        stale_pre=$(jq '[.hooks.PreToolUse // [] | .[] | select(.hooks[]?.command == "wt-hook-memory PreToolUse")] | length' "$settings_file" 2>/dev/null || echo 0)
+        # Stale PostToolUse: wt-hook-memory PostToolUse entries whose matcher is NOT Read or Bash
+        stale_post=$(jq '[.hooks.PostToolUse // [] | .[] | select(.hooks[]?.command == "wt-hook-memory PostToolUse") | select(.matcher != "Read" and .matcher != "Bash")] | length' "$settings_file" 2>/dev/null || echo 0)
+        if [[ "$stale_pre" -gt 0 ]] || [[ "$stale_post" -gt 0 ]]; then
+            has_stale=true
+        fi
+    fi
+
+    # Already canonical? (unified + base + no stale entries)
+    if $has_unified && $has_base && ! $has_stale && ! $NO_MEMORY; then
         return 0 2>/dev/null || exit 0
     fi
     if $has_base && $NO_MEMORY && ! $has_old_individual && ! $has_unified; then
@@ -245,10 +257,23 @@ if [[ -f "$settings_file" ]]; then
     # Backup before modification
     cp "$settings_file" "$settings_file.bak"
 
-    if $has_old_individual && ! $NO_MEMORY; then
+    if $has_stale && $has_unified; then
+        # Downgrade path: remove stale wt-hook-memory entries, preserve everything else
+        jq '
+            # Remove stale PreToolUse: any entry whose hooks contain "wt-hook-memory PreToolUse"
+            .hooks.PreToolUse = [.hooks.PreToolUse // [] | .[] | select((.hooks[]?.command == "wt-hook-memory PreToolUse") | not)]
+            # Remove stale PostToolUse: wt-hook-memory PostToolUse entries where matcher is NOT Read or Bash
+            | .hooks.PostToolUse = [.hooks.PostToolUse // [] | .[] | select(
+                ((.hooks[]?.command == "wt-hook-memory PostToolUse") and (.matcher != "Read" and .matcher != "Bash")) | not
+            )]
+            # Ensure Skill/activity-track.sh is present in PreToolUse
+            | if ([.hooks.PreToolUse[]? | select(.matcher == "Skill")] | length) == 0
+              then .hooks.PreToolUse += [{"matcher": "Skill", "hooks": [{"type": "command", "command": ".claude/hooks/activity-track.sh", "timeout": 5}]}]
+              else . end
+        ' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Downgraded: $settings_file (removed $stale_pre stale PreToolUse, $stale_post stale PostToolUse)"
+    elif $has_old_individual && ! $NO_MEMORY; then
         # Upgrade path: replace old individual scripts with unified handler
-        # Preserve any non-memory hooks (like activity-track, wt-hook-skill, wt-hook-stop)
-        # Strategy: merge the full new config over existing, which replaces all hook events
         jq --argjson hooks "$(echo "$deploy_json" | jq '.hooks')" \
             '.hooks = $hooks + (
                 .hooks | to_entries
