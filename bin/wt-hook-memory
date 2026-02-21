@@ -1115,19 +1115,19 @@ _stop_migrate_staged() {
                 (( conv_count >= 2 )) && continue
                 mem_type="Learning"
                 tags="convention,cheat-sheet,$tags"
-                (( conv_count++ ))
+                (( conv_count++ )) || true
             elif [[ "$mem_type" == "CheatSheet" ]]; then
                 (( cheat_count >= 2 )) && continue
                 mem_type="Learning"
                 tags="cheat-sheet,$tags"
-                (( cheat_count++ ))
+                (( cheat_count++ )) || true
             else
                 (( count >= 5 )) && continue
                 case "$mem_type" in
                     Learning|Decision|Context) ;;
                     *) continue ;;
                 esac
-                (( count++ ))
+                (( count++ )) || true
             fi
 
             [[ -z "$content" ]] && continue
