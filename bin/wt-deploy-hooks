@@ -246,8 +246,14 @@ if [[ -f "$settings_file" ]]; then
         fi
     fi
 
-    # Already canonical? (unified + base + no stale entries)
-    if $has_unified && $has_base && ! $has_stale && ! $NO_MEMORY; then
+    # Old activity-track.sh path? (pre-PATH migration)
+    has_old_activity=false
+    if jq -e '.hooks.PreToolUse[]? | .hooks[]? | select(.command == ".claude/hooks/activity-track.sh")' "$settings_file" &>/dev/null; then
+        has_old_activity=true
+    fi
+
+    # Already canonical? (unified + base + no stale entries + no old activity path)
+    if $has_unified && $has_base && ! $has_stale && ! $has_old_activity && ! $NO_MEMORY; then
         return 0 2>/dev/null || exit 0
     fi
     if $has_base && $NO_MEMORY && ! $has_old_individual && ! $has_unified; then
@@ -257,7 +263,17 @@ if [[ -f "$settings_file" ]]; then
     # Backup before modification
     cp "$settings_file" "$settings_file.bak"
 
-    if $has_stale && $has_unified; then
+    if $has_old_activity && $has_unified && ! $has_stale; then
+        # Migrate old activity-track.sh path to wt-hook-activity
+        jq '
+            .hooks.PreToolUse = [.hooks.PreToolUse // [] | .[] |
+                if (.hooks[]?.command == ".claude/hooks/activity-track.sh")
+                then .hooks = [.hooks[] | if .command == ".claude/hooks/activity-track.sh" then .command = "wt-hook-activity" else . end]
+                else . end
+            ]
+        ' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
+        _success "Migrated: $settings_file (activity-track.sh → wt-hook-activity)"
+    elif $has_stale && $has_unified; then
         # Downgrade path: remove stale wt-hook-memory entries, preserve everything else
         jq '
             # Remove stale PreToolUse: any entry whose hooks contain "wt-hook-memory PreToolUse"
