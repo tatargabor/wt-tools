@@ -44,7 +44,7 @@ _dbg() {
 _dbg "=== START ==="
 
 # --- Checkpoint configuration ---
-CHECKPOINT_INTERVAL=15  # Save checkpoint every N user prompts
+CHECKPOINT_INTERVAL=10  # Save checkpoint every N user prompts
 
 # --- Metrics collection ---
 METRICS_ENABLED_FLAG="${HOME}/.local/share/wt-tools/metrics/.enabled"
