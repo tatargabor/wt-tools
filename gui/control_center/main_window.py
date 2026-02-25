@@ -605,15 +605,15 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         session_time_pct = self.calc_time_elapsed_pct(session_reset, 5)
         weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
 
-        # Time labels: "60%, 2h"
+        # Time labels: just remaining time (the bar itself shows the %)
         if session_remaining:
-            self.usage_5h_time_label.setText(f"{session_time_pct:.0f}%, {session_remaining}")
+            self.usage_5h_time_label.setText(session_remaining)
         else:
-            self.usage_5h_time_label.setText(f"{session_time_pct:.0f}%")
+            self.usage_5h_time_label.setText("5h")
         if weekly_remaining:
-            self.usage_7d_time_label.setText(f"{weekly_time_pct:.0f}%, {weekly_remaining}")
+            self.usage_7d_time_label.setText(weekly_remaining)
         else:
-            self.usage_7d_time_label.setText(f"{weekly_time_pct:.0f}%")
+            self.usage_7d_time_label.setText("7d")
 
         # Usage labels: "42%"
         self.usage_5h_label.setText(f"{session_pct:.0f}%")

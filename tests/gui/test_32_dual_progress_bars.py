@@ -132,9 +132,9 @@ def test_api_data_labels_format(control_center):
     # Usage labels should be just percentage
     assert control_center.usage_5h_label.text() == "42%"
     assert control_center.usage_7d_label.text() == "55%"
-    # Time labels should contain comma separator and remaining time
+    # Time labels should show just remaining time (bar shows the %)
     time_5h = control_center.usage_5h_time_label.text()
-    assert "%" in time_5h and "," in time_5h, f"Expected 'X%, Yh' format, got: {time_5h}"
+    assert "h" in time_5h or "m" in time_5h, f"Expected time like '2h 0m', got: {time_5h}"
 
 
 def test_bar_time_color_in_all_profiles(control_center):
