@@ -145,8 +145,11 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         if hasattr(self, 'usage_5h_bar'):
             bar_bg = self.get_color("bar_background")
             bar_border = self.get_color("bar_border")
-            self.usage_5h_bar.setStyleSheet(f"background: {bar_bg}; border: 1px solid {bar_border}; border-radius: 2px;")
-            self.usage_7d_bar.setStyleSheet(f"background: {bar_bg}; border: 1px solid {bar_border}; border-radius: 2px;")
+            bar_style = f"background: {bar_bg}; border: 1px solid {bar_border}; border-radius: 2px;"
+            self.usage_5h_bar.setStyleSheet(bar_style)
+            self.usage_7d_bar.setStyleSheet(bar_style)
+            self.usage_5h_time_bar.setStyleSheet(bar_style)
+            self.usage_7d_time_bar.setStyleSheet(bar_style)
 
         # Force status refresh
         if hasattr(self, 'worktrees'):
@@ -271,26 +274,71 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.status_label.setStyleSheet("font-weight: bold; padding: 2px 5px;")
         layout.addWidget(self.status_label)
 
-        # Usage info row
+        # Usage info — dual bars (time + usage) for 5h and 7d side by side
         usage_row = QHBoxLayout()
         usage_row.setContentsMargins(5, 0, 5, 2)
-        usage_row.setSpacing(5)
+        usage_row.setSpacing(15)
 
+        label_width = 62
+
+        # 5h group: time bar on top, usage bar on bottom, 0px gap
+        group_5h = QVBoxLayout()
+        group_5h.setSpacing(0)
+        group_5h.setContentsMargins(0, 0, 0, 0)
+
+        time_row_5h = QHBoxLayout()
+        time_row_5h.setSpacing(3)
+        self.usage_5h_time_label = QLabel("--")
+        self.usage_5h_time_label.setFixedWidth(label_width)
+        time_row_5h.addWidget(self.usage_5h_time_label)
+        self.usage_5h_time_bar = QLabel()
+        self.usage_5h_time_bar.setFixedHeight(6)
+        self.usage_5h_time_bar.setStyleSheet("background: #e5e7eb; border: 1px solid #ccc; border-radius: 2px;")
+        time_row_5h.addWidget(self.usage_5h_time_bar, 1)
+        group_5h.addLayout(time_row_5h)
+
+        usage_row_5h = QHBoxLayout()
+        usage_row_5h.setSpacing(3)
         self.usage_5h_label = QLabel("--/5h")
-        usage_row.addWidget(self.usage_5h_label)
+        self.usage_5h_label.setFixedWidth(label_width)
+        usage_row_5h.addWidget(self.usage_5h_label)
         self.usage_5h_bar = QLabel()
-        self.usage_5h_bar.setFixedHeight(8)
+        self.usage_5h_bar.setFixedHeight(6)
         self.usage_5h_bar.setStyleSheet("background: #e5e7eb; border: 1px solid #ccc; border-radius: 2px;")
-        usage_row.addWidget(self.usage_5h_bar, 1)
+        usage_row_5h.addWidget(self.usage_5h_bar, 1)
+        group_5h.addLayout(usage_row_5h)
 
-        usage_row.addSpacing(15)
+        usage_row.addLayout(group_5h, 1)
 
+        # 7d group: time bar on top, usage bar on bottom, 0px gap
+        group_7d = QVBoxLayout()
+        group_7d.setSpacing(0)
+        group_7d.setContentsMargins(0, 0, 0, 0)
+
+        time_row_7d = QHBoxLayout()
+        time_row_7d.setSpacing(3)
+        self.usage_7d_time_label = QLabel("--")
+        self.usage_7d_time_label.setFixedWidth(label_width)
+        time_row_7d.addWidget(self.usage_7d_time_label)
+        self.usage_7d_time_bar = QLabel()
+        self.usage_7d_time_bar.setFixedHeight(6)
+        self.usage_7d_time_bar.setStyleSheet("background: #e5e7eb; border: 1px solid #ccc; border-radius: 2px;")
+        time_row_7d.addWidget(self.usage_7d_time_bar, 1)
+        group_7d.addLayout(time_row_7d)
+
+        usage_row_7d = QHBoxLayout()
+        usage_row_7d.setSpacing(3)
         self.usage_7d_label = QLabel("--/7d")
-        usage_row.addWidget(self.usage_7d_label)
+        self.usage_7d_label.setFixedWidth(label_width)
+        usage_row_7d.addWidget(self.usage_7d_label)
         self.usage_7d_bar = QLabel()
-        self.usage_7d_bar.setFixedHeight(8)
+        self.usage_7d_bar.setFixedHeight(6)
         self.usage_7d_bar.setStyleSheet("background: #e5e7eb; border: 1px solid #ccc; border-radius: 2px;")
-        usage_row.addWidget(self.usage_7d_bar, 1)
+        usage_row_7d.addWidget(self.usage_7d_bar, 1)
+        group_7d.addLayout(usage_row_7d)
+
+        usage_row.addLayout(group_7d, 1)
+
         layout.addLayout(usage_row)
 
         # Team label
@@ -501,26 +549,35 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.update_usage_bars()
 
     def update_usage_bars(self):
-        """Update the usage progress bars and labels"""
+        """Update the dual usage progress bars (time + usage) and labels"""
+        bg = self.get_color("bar_background")
+        border = self.get_color("bar_border")
+        empty_style = f"background: {bg}; border: 1px solid {border}; border-radius: 2px;"
+
+        def clear_all_bars():
+            for bar in (self.usage_5h_bar, self.usage_7d_bar,
+                        self.usage_5h_time_bar, self.usage_7d_time_bar):
+                bar.setStyleSheet(empty_style)
+
         if not self.usage_data.get("available"):
-            bg = self.get_color("bar_background")
-            border = self.get_color("bar_border")
-            self.usage_5h_bar.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 2px;")
-            self.usage_7d_bar.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 2px;")
+            clear_all_bars()
+            self.usage_5h_time_label.setText("--")
+            self.usage_7d_time_label.setText("--")
             self.usage_5h_label.setText("--/5h")
             self.usage_7d_label.setText("--/7d")
             self.usage_5h_label.setToolTip("")
             self.usage_7d_label.setToolTip("")
+            self.usage_5h_time_label.setToolTip("")
+            self.usage_7d_time_label.setToolTip("")
             return
 
         is_estimated = self.usage_data.get("is_estimated", False)
 
         # Local-only data: show unknown state (percentages are unreliable)
         if is_estimated:
-            bg = self.get_color("bar_background")
-            border = self.get_color("bar_border")
-            self.usage_5h_bar.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 2px;")
-            self.usage_7d_bar.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 2px;")
+            clear_all_bars()
+            self.usage_5h_time_label.setText("--")
+            self.usage_7d_time_label.setText("--")
             self.usage_5h_label.setText("--/5h")
             self.usage_7d_label.setText("--/7d")
             session_tokens = self.usage_data.get("session_tokens", 0)
@@ -533,9 +590,11 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
                 f"~{weekly_tokens/1000:.0f}k tokens in last 7d\n"
                 "Set session key for exact usage %"
             )
+            self.usage_5h_time_label.setToolTip("")
+            self.usage_7d_time_label.setToolTip("")
             return
 
-        # API data: show exact percentages and progress bars
+        # API data: show exact percentages and dual progress bars
         session_pct = self.usage_data.get("session_pct", 0)
         weekly_pct = self.usage_data.get("weekly_pct", 0)
         session_reset = self.usage_data.get("session_reset")
@@ -543,22 +602,37 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
 
         session_remaining = self.calc_time_remaining(session_reset)
         weekly_remaining = self.calc_time_remaining(weekly_reset)
+        session_time_pct = self.calc_time_elapsed_pct(session_reset, 5)
+        weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
 
+        # Time labels: "60%, 2h"
         if session_remaining:
-            self.usage_5h_label.setText(f"{session_pct:.0f}% | {session_remaining}")
+            self.usage_5h_time_label.setText(f"{session_time_pct:.0f}%, {session_remaining}")
         else:
-            self.usage_5h_label.setText(f"{session_pct:.0f}%/5h")
-
+            self.usage_5h_time_label.setText(f"{session_time_pct:.0f}%")
         if weekly_remaining:
-            self.usage_7d_label.setText(f"{weekly_pct:.0f}% | {weekly_remaining}")
+            self.usage_7d_time_label.setText(f"{weekly_time_pct:.0f}%, {weekly_remaining}")
         else:
-            self.usage_7d_label.setText(f"{weekly_pct:.0f}%/7d")
+            self.usage_7d_time_label.setText(f"{weekly_time_pct:.0f}%")
 
+        # Usage labels: "42%"
+        self.usage_5h_label.setText(f"{session_pct:.0f}%")
+        self.usage_7d_label.setText(f"{weekly_pct:.0f}%")
+
+        # Tooltips
+        self.usage_5h_time_label.setToolTip(f"5h window: {session_time_pct:.0f}% elapsed")
+        self.usage_7d_time_label.setToolTip(f"7d window: {weekly_time_pct:.0f}% elapsed")
         self.usage_5h_label.setToolTip(f"5h session: {session_pct:.0f}% used")
         self.usage_7d_label.setToolTip(f"Weekly: {weekly_pct:.0f}% used")
 
-        self.update_usage_bar(self.usage_5h_bar, session_pct)
-        self.update_usage_bar(self.usage_7d_bar, weekly_pct)
+        # Time bars: neutral color
+        time_color = self.get_color("bar_time")
+        self._fill_bar(self.usage_5h_time_bar, session_time_pct, time_color)
+        self._fill_bar(self.usage_7d_time_bar, weekly_time_pct, time_color)
+
+        # Usage bars: burn-rate-relative color
+        self.update_usage_bar(self.usage_5h_bar, session_pct, session_time_pct)
+        self.update_usage_bar(self.usage_7d_bar, weekly_pct, weekly_time_pct)
 
     def calc_time_remaining(self, reset_time_str):
         """Calculate time remaining until reset"""
@@ -605,25 +679,28 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
 
         self.status_label.setText(" | ".join(parts))
 
-    def update_usage_bar(self, bar_widget, usage_pct):
-        """Update a single usage bar with gradient from green to red"""
-        # Clamp to 0-99 for gradient stop position (leave room for +0.01)
-        display_pct = min(max(usage_pct, 0), 99)
+    def calc_time_elapsed_pct(self, reset_time_str, window_hours):
+        """How far through the time window are we? 0% = just reset, 100% = about to reset."""
+        try:
+            from datetime import datetime, timezone, timedelta
+            if not reset_time_str:
+                return 0
+            reset = datetime.fromisoformat(reset_time_str.replace('Z', '+00:00'))
+            now = datetime.now(timezone.utc)
+            window = timedelta(hours=window_hours)
+            window_start = reset - window
+            elapsed = (now - window_start).total_seconds()
+            return min(max(elapsed / window.total_seconds() * 100, 0), 100)
+        except Exception:
+            return 0
 
-        if usage_pct < 90:
-            color = self.get_color("burn_low")
-        elif usage_pct <= 110:
-            color = self.get_color("burn_medium")
-        else:
-            color = self.get_color("burn_high")
-
+    def _fill_bar(self, bar_widget, pct, color):
+        """Fill a bar with a single color up to pct%"""
+        display_pct = min(max(pct, 0), 99)
         bg_color = self.get_color("bar_background")
         border_color = self.get_color("bar_border")
-
-        # Ensure gradient stops are in valid 0-1 range
         stop1 = min(display_pct / 100, 0.99)
         stop2 = min(stop1 + 0.01, 1.0)
-
         bar_widget.setStyleSheet(f"""
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                 stop:0 {color}, stop:{stop1} {color},
@@ -631,6 +708,27 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
             border: 1px solid {border_color};
             border-radius: 2px;
         """)
+
+    def update_usage_bar(self, bar_widget, usage_pct, time_pct=None):
+        """Update a usage bar with burn-rate-relative color"""
+        # Burn-rate-relative color when time_pct is available
+        if time_pct is not None:
+            if usage_pct < time_pct - 5:
+                color = self.get_color("burn_low")     # green — under pace
+            elif usage_pct <= time_pct + 5:
+                color = self.get_color("burn_medium")   # yellow — on pace
+            else:
+                color = self.get_color("burn_high")     # red — over pace
+        else:
+            # Fallback: absolute thresholds
+            if usage_pct < 90:
+                color = self.get_color("burn_low")
+            elif usage_pct <= 110:
+                color = self.get_color("burn_medium")
+            else:
+                color = self.get_color("burn_high")
+
+        self._fill_bar(bar_widget, usage_pct, color)
 
     def toggle_blink(self):
         """Toggle blink state and update rows that need attention"""
