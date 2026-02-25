@@ -1,14 +1,14 @@
 ## Context
 
-The eg-sales project has 18 sessions over 3 days but only 11 memories — with zero new memories since Feb 23. Investigation revealed three root causes:
+Projects with non-ASCII content (Hungarian, emoji, CJK) lose memories silently. Investigation revealed three root causes:
 
 1. **UTF-8 surrogate corruption**: `head -c N` in `wt-hook-memory` truncates at byte boundaries, splitting multi-byte UTF-8 sequences (Hungarian accented characters: á=0xc3 0xa1, é=0xc3 0xa9, etc.). The orphaned lead byte (e.g., 0xc3) passes through bash variables, gets decoded by Python's `os.environ` with `surrogateescape` error handler, producing `\udcc3`. The Rust/PyO3 `m.remember()` rejects this as invalid UTF-8.
 
 2. **Silent error swallowing**: In `_stop_raw_filter()`, the `except Exception: pass` on line 1078 silently drops entries that fail `subprocess.run(..., text=True)` — which also fails on surrogate content. Additionally, Node.js JSONL transcripts can contain unpaired surrogate escapes from `JSON.stringify`, which `json.loads()` faithfully decodes into Python surrogate codepoints.
 
-3. **RocksDB LOG.old accumulation**: Each `wt-memory` CLI call opens/closes RocksDB, creating a LOG.old file. 18 sessions × many hook calls = ~2000 LOG.old files (67.6 MB) for 11 memories (41 KB actual data).
+3. **RocksDB LOG.old accumulation**: Each `wt-memory` CLI call opens/closes RocksDB, creating a LOG.old file. Over many sessions, thousands of LOG.old files accumulate (tens of MB wasted per project).
 
-Secondary issue: Memory citation rate is 0.1% (2 citations across 1754 hook injections). The CLAUDE.md instruction exists but agents don't follow it consistently.
+Secondary issue: Memory citation rate is near-zero across projects. The CLAUDE.md instruction exists but agents don't follow it consistently.
 
 ## Goals / Non-Goals
 

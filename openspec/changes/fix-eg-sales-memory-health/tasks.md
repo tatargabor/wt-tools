@@ -30,12 +30,12 @@
 ## 6. CLAUDE.md Citation Enforcement
 
 - [x] 6.1 Update the `Persistent Memory` section template in `bin/wt-project` to use a numbered action list: (1) Scan system-reminder tags, (2) Match against user's question, (3) Cite with "From memory: ...", (4) Only then proceed with independent research
-- [x] 6.2 Run `wt-project init` against eg-sales to deploy the updated CLAUDE.md section (or manually update `/home/tg/code/eg-sales/CLAUDE.md`)
-- [x] 6.3 Update `/home/tg/code2/wt-tools/CLAUDE.md` (this project) with the same strengthened instruction
+- [x] 6.2 Run `wt-project init` on target projects to deploy the updated CLAUDE.md section
+- [x] 6.3 Update this project's CLAUDE.md with the same strengthened instruction
 
 ## 7. Validation and Cleanup
 
-- [x] 7.1 Run `wt-memory cleanup-logs` on eg-sales — reclaimed 75MB→840KB (manual one-time clean; 24h threshold for ongoing)
-- [x] 7.2 Test: bash `${var:0:N}` is character-safe — `head -c` and `cut -c` are NOT (GNU coreutils byte-level). Verified ű at boundary: valid UTF-8.
-- [x] 7.3 Test: `_stop_raw_filter` on eg-sales transcript — 4 entries extracted without crash, sanitize_surrogates() applied
-- [x] 7.4 Verify: saved test memory with "működik az ékezetes karakterekkel (áéíóöőúüű)" — full Hungarian text stored and recalled correctly. Cleaned up test memory.
+- [x] 7.1 Run `wt-memory cleanup-logs` on a test project — reclaimed significant LOG.old space (24h threshold for ongoing)
+- [x] 7.2 Test: bash `${var:0:N}` is character-safe — `head -c` and `cut -c` are NOT (GNU coreutils byte-level). Verified multi-byte char at boundary: valid UTF-8.
+- [x] 7.3 Test: `_stop_raw_filter` on a real transcript — entries extracted without crash, sanitize_surrogates() applied
+- [x] 7.4 Verify: saved test memory with non-ASCII text including all Hungarian accented chars — stored and recalled correctly.

@@ -1,6 +1,6 @@
 ## Why
 
-The eg-sales project has been running with memory hooks for 3 days (18 sessions) but only has 11 memories, with **zero new memories since Feb 23**. Root cause: UTF-8 surrogate character errors in the transcript extraction pipeline silently crash when processing Hungarian text content. Additionally, RocksDB accumulates ~68MB of LOG.old files for just 11 memories (99.9% wasted disk), and the memory citation rate across all sessions is 0.1% — the agent receives injected memories but almost never explicitly uses them.
+Projects with non-ASCII content (Hungarian, emoji, CJK, etc.) lose memories silently. The transcript extraction pipeline crashes on UTF-8 surrogate characters created by byte-level truncation (`head -c N`) splitting multi-byte sequences. Additionally, RocksDB accumulates hundreds of MB in LOG.old files across projects, and the memory citation rate is near-zero — agents receive injected memories but almost never explicitly use them.
 
 ## What Changes
 
@@ -29,4 +29,4 @@ The eg-sales project has been running with memory hooks for 3 days (18 sessions)
 - **`bin/wt-memory`**: Defense-in-depth sanitization in `cmd_remember` Python inline script (line ~438).
 - **CLAUDE.md template** (used by `wt-project init`): Stronger memory citation instructions.
 - **All projects using memory hooks**: The UTF-8 fix benefits any project with non-ASCII content (Hungarian, emoji, CJK, etc.).
-- **Disk usage**: Immediate cleanup reclaims ~68MB per project; ongoing cleanup prevents re-accumulation.
+- **Disk usage**: Periodic cleanup prevents LOG.old re-accumulation across all projects.
