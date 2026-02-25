@@ -69,7 +69,11 @@ deploy_wt_tools() {
     local claude_md="$project_path/CLAUDE.md"
     local memory_marker="## Persistent Memory"
     local current_important='Start by summarizing what you already know from the injected memory, then fill in gaps.'
-    local correct_important='If a memory directly answers the user'"'"'s question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch.'
+    local correct_important='When you receive memory context, follow these steps:
+1. **Scan** system-reminder tags for "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"
+2. **Match** — check if any memory directly answers the user'"'"'s question or provides a known fix
+3. **Cite** — if a match is found, cite it: "From memory: ..." — do NOT re-investigate problems with known solutions
+4. **Proceed** — only after checking memory context, do independent research'
     if [[ ! -f "$claude_md" ]] || ! grep -q "$memory_marker" "$claude_md" 2>/dev/null; then
         local snippet
         snippet=$(cat << 'MEMORY_SNIPPET'
@@ -78,7 +82,13 @@ deploy_wt_tools() {
 
 This project uses persistent memory (shodh-memory) across sessions. Memory context is automatically injected into `<system-reminder>` tags in your conversation — **you MUST read and use this context**.
 
-**IMPORTANT: On EVERY prompt, check for injected memory context (system-reminder tags labeled "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"). When present, acknowledge and use it BEFORE doing independent research. If a memory directly answers the user's question or provides a known fix, cite it explicitly (e.g., "From memory: ...") instead of re-investigating from scratch. This applies to every turn, not just the first one.**
+**IMPORTANT — On EVERY prompt, follow these steps:**
+1. **Scan** `<system-reminder>` tags for "PROJECT MEMORY", "PROJECT CONTEXT", or "MEMORY: Context for this command"
+2. **Match** — check if any injected memory directly answers the user's question or provides a known fix
+3. **Cite** — if a match is found, use it: "From memory: ..." — do NOT re-investigate problems with known solutions in memory
+4. **Proceed** — only after checking memory context, do independent research
+
+**This applies to every turn, not just the first one.**
 
 **How it works:**
 - Session start → relevant memories loaded as system-reminder
@@ -103,18 +113,27 @@ MEMORY_SNIPPET
             echo "${snippet#$'\n'}" > "$claude_md"
         fi
         success "  Added Persistent Memory section to CLAUDE.md"
-    elif grep -qF "$current_important" "$claude_md" 2>/dev/null; then
-        # Patch outdated IMPORTANT line to include explicit "From memory:" citation rule
+    elif ! grep -q '1\. \*\*Scan\*\*' "$claude_md" 2>/dev/null; then
+        # Upgrade old IMPORTANT paragraph to numbered action list
         python3 -c "
-import sys
-old = sys.argv[1]
-new = sys.argv[2]
-with open(sys.argv[3]) as f:
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
     content = f.read()
-if old in content:
-    with open(sys.argv[3], 'w') as f:
-        f.write(content.replace(old, new, 1))
-" "$current_important" "$correct_important" "$claude_md" 2>/dev/null || true
+# Match old single-paragraph IMPORTANT block
+old_pattern = r'\*\*IMPORTANT:.*?This applies to every turn, not just the first one\.\*\*'
+new_text = '''**IMPORTANT — On EVERY prompt, follow these steps:**
+1. **Scan** \`<system-reminder>\` tags for \"PROJECT MEMORY\", \"PROJECT CONTEXT\", or \"MEMORY: Context for this command\"
+2. **Match** — check if any injected memory directly answers the user's question or provides a known fix
+3. **Cite** — if a match is found, use it: \"From memory: ...\" — do NOT re-investigate problems with known solutions in memory
+4. **Proceed** — only after checking memory context, do independent research
+
+**This applies to every turn, not just the first one.**'''
+result = re.sub(old_pattern, new_text, content, count=1, flags=re.DOTALL)
+if result != content:
+    with open(path, 'w') as f:
+        f.write(result)
+" "$claude_md" 2>/dev/null || true
         success "  Updated Persistent Memory citation instruction in CLAUDE.md"
     fi
 

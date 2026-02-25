@@ -580,7 +580,7 @@ print(json.dumps(result))
             SAVE_TAGS="frustration,high-priority,source:emotion-detect"
             SAVE_PREFIX="🔴 User frustrated (high)"
         fi
-        local SAVE_CONTENT="$SAVE_PREFIX: $(echo "$PROMPT" | head -c 500)"
+        local SAVE_CONTENT="$SAVE_PREFIX: ${PROMPT:0:500}"
         _log "remember: frustration type=Learning tags=$SAVE_TAGS"
         echo "$SAVE_CONTENT" | wt-memory remember --type Learning --tags "$SAVE_TAGS" 2>/dev/null || true
     fi
@@ -597,9 +597,9 @@ if m: print(m.group(1))
 
     local QUERY=""
     if [[ -n "$CHANGE_NAME" ]]; then
-        QUERY="$CHANGE_NAME $(echo "$PROMPT" | head -c 200)"
+        QUERY="$CHANGE_NAME ${PROMPT:0:200}"
     else
-        QUERY=$(echo "$PROMPT" | head -c 200)
+        QUERY="${PROMPT:0:200}"
     fi
 
     _dbg "change_name='$CHANGE_NAME' query='${QUERY:0:100}'"
@@ -864,6 +864,9 @@ handle_stop() {
 
     mkdir -p .wt-tools
 
+    # Clean up RocksDB LOG.old files (once per session, before extraction)
+    wt-memory cleanup-logs 2>/dev/null || true
+
     # Background transcript extraction
     if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
         _dbg "launching background extraction"
@@ -980,6 +983,12 @@ transcript = sys.argv[1]
 entries = []
 file_read_counts = {}
 
+def sanitize_surrogates(s):
+    """Replace lone surrogate codepoints with U+FFFD to ensure valid UTF-8."""
+    if not isinstance(s, str):
+        return s
+    return s.encode('utf-8', errors='surrogateescape').decode('utf-8', errors='replace')
+
 with open(transcript) as f:
     for line in f:
         try:
@@ -990,6 +999,7 @@ with open(transcript) as f:
                 msg = obj.get('message', {})
                 content = msg.get('content', '')
                 if isinstance(content, str):
+                    content = sanitize_surrogates(content)
                     # Filter system/command noise
                     import re
                     if '<system-reminder>' in content:
@@ -1007,7 +1017,7 @@ with open(transcript) as f:
                         if not isinstance(block, dict):
                             continue
                         if block.get('type') == 'text':
-                            text = block.get('text', '').strip()
+                            text = sanitize_surrogates(block.get('text', '')).strip()
                             if len(text) >= 50:
                                 entries.append({'role': 'assistant', 'content': text[:2000]})
                         elif block.get('type') == 'tool_use':
@@ -1028,6 +1038,7 @@ with open(transcript) as f:
             elif t == 'tool_result':
                 content = obj.get('content', '')
                 if isinstance(content, str):
+                    content = sanitize_surrogates(content)
                     cl = content.lower()
                     if ('error' in cl or 'failed' in cl or 'traceback' in cl) and len(content) >= 15:
                         entries.append({'role': 'assistant', 'content': f'[Error] {content[:500]}'})
@@ -1075,8 +1086,10 @@ for i, entry in enumerate(entries, 1):
             input=full_content, text=True, capture_output=True, timeout=5
         )
         saved += 1
-    except Exception:
-        pass
+    except UnicodeEncodeError as e:
+        print(f'UnicodeEncodeError at entry {i}/{total}: {e}', file=sys.stderr)
+    except Exception as e:
+        print(f'Error at entry {i}/{total}: {e}', file=sys.stderr)
 
 print(f'saved={saved}/{total}', file=sys.stderr)
 " "$entries_file" "$first_change" 2>> "$STOP_LOG_FILE" || true
@@ -1136,7 +1149,7 @@ _stop_migrate_staged() {
             [[ -n "$first_change" ]] && full_tags="change:$first_change,$full_tags"
 
             _log "migrate: committing staged type=$mem_type content='${content:0:80}'"
-            echo "$content" | wt-memory remember --type "$mem_type" --tags "$full_tags" 2>/dev/null || true
+            echo "$content" | iconv -c -t utf-8 | wt-memory remember --type "$mem_type" --tags "$full_tags" 2>/dev/null || true
         done < "$staged"
 
         local ts_file="${staged}.ts"
