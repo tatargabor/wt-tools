@@ -118,7 +118,11 @@ parse_next_items() {
     done < "$brief_file"
 
     # Output as JSON array
-    printf '%s\n' "${items[@]}" | jq -R . | jq -s .
+    if [[ ${#items[@]} -eq 0 ]]; then
+        echo '[]'
+    else
+        printf '%s\n' "${items[@]}" | jq -R . | jq -s .
+    fi
 }
 
 # Parse orchestrator directives from brief

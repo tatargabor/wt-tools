@@ -64,18 +64,18 @@
 
 ## 9. Ralph Loop Modifications
 
-- [ ] 9.1 Verify Ralph already writes PID to `.claude/ralph-terminal.pid` (line 590 in wt-loop) — confirm orchestrator can read it for SIGTERM
-- [ ] 9.2 Verify Ralph already handles SIGTERM gracefully via cleanup_on_exit trap (line 557-583) — confirm status is set to "stopped" and iteration is recorded
-- [ ] 9.3 Verify Ralph restart in existing worktree works: `wt-loop start` with existing tasks.md preserves checked tasks, detect_next_change_action picks up remaining work
-- [ ] 9.4 Add integration test: start Ralph, send SIGTERM, verify loop-state.json has status "stopped", restart, verify it continues from correct position
+- [x] 9.1 Verify Ralph already writes PID to `.claude/ralph-terminal.pid` (line 590 in wt-loop) — confirm orchestrator can read it for SIGTERM
+- [x] 9.2 Verify Ralph already handles SIGTERM gracefully via cleanup_on_exit trap (line 557-583) — confirm status is set to "stopped" and iteration is recorded
+- [x] 9.3 Verify Ralph restart in existing worktree works: `wt-loop start` with existing tasks.md preserves checked tasks, detect_next_change_action picks up remaining work
+- [x] 9.4 Add integration test: start Ralph, send SIGTERM, verify loop-state.json has status "stopped", restart, verify it continues from correct position
 
 ## 10. Testing
 
 - [x] 10.1 Implement `wt-orchestrate self-test` subcommand: run Level 1 unit tests internally — parse_brief with sample input, parse_directives defaults/validation, topological_sort with known graph, state JSON roundtrip, circular dependency detection
-- [ ] 10.2 Create test fixture: `tests/orchestrator/sample-brief.md` with 3 dummy features (A independent, B depends on A, C independent) and all directives set
-- [ ] 10.3 Level 2 integration test script: `tests/orchestrator/test-plan.sh` — create temp project dir, copy sample brief, run `wt-orchestrate plan`, validate orchestration-plan.json structure (change names kebab-case, deps valid, no circular deps)
-- [ ] 10.4 Level 3 end-to-end test script: `tests/orchestrator/test-e2e.sh` — create temp git repo with trivial brief ("add hello.txt"), run `wt-orchestrate plan` + `start`, wait for completion, verify change went through full lifecycle (pending→dispatched→running→done→merged), verify hello.txt exists on main
-- [ ] 10.5 Document parallel execution safety model in tests/orchestrator/README.md: worktree isolation, sequential merges, dependency ordering, conflict detection, and how to run each test level
+- [x] 10.2 Create test fixture: `tests/orchestrator/sample-brief.md` with 3 dummy features (A independent, B depends on A, C independent) and all directives set
+- [x] 10.3 Level 2 integration test script: `tests/orchestrator/test-plan.sh` — create temp project dir, copy sample brief, run `wt-orchestrate plan`, validate orchestration-plan.json structure (change names kebab-case, deps valid, no circular deps)
+- [x] 10.4 Level 3 end-to-end test script: `tests/orchestrator/test-e2e.sh` — create temp git repo with trivial brief ("add hello.txt"), run `wt-orchestrate plan` + `start`, wait for completion, verify change went through full lifecycle (pending→dispatched→running→done→merged), verify hello.txt exists on main
+- [x] 10.5 Document parallel execution safety model in tests/orchestrator/README.md: worktree isolation, sequential merges, dependency ordering, conflict detection, and how to run each test level
 
 ## 11. GUI Orchestrator View (Phase 2)
 
