@@ -1133,7 +1133,7 @@ cmd_start() {
                 if [[ -f "$STATE_FILENAME" ]]; then
                     update_state_field "status" '"stopped"'
                 fi
-                if [[ "$pause_on_exit_val" == "true" ]]; then
+                if [[ "${pause_on_exit_val:-}" == "true" ]]; then
                     local running_changes
                     running_changes=$(get_changes_by_status "running" 2>/dev/null || true)
                     while IFS= read -r name; do
@@ -1193,7 +1193,7 @@ cmd_start() {
             update_state_field "status" '"stopped"'
         fi
 
-        if [[ "$pause_on_exit_val" == "true" ]]; then
+        if [[ "${pause_on_exit_val:-}" == "true" ]]; then
             log_info "Pausing all Ralph loops (pause_on_exit=true)"
             local running_changes
             running_changes=$(get_changes_by_status "running" 2>/dev/null || true)
