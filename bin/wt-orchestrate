@@ -1125,7 +1125,7 @@ cmd_start() {
             # Setup cleanup trap
             local cleanup_done=false
             cleanup_orchestrator() {
-                [[ "$cleanup_done" == true ]] && return
+                [[ "${cleanup_done:-}" == true ]] && return
                 cleanup_done=true
                 echo ""
                 warn "Orchestrator interrupted, saving state..."
@@ -1145,6 +1145,8 @@ cmd_start() {
             }
             trap 'cleanup_orchestrator' EXIT SIGTERM SIGINT SIGHUP
 
+            # Retry merge queue immediately on resume (don't wait 30s)
+            retry_merge_queue
             # Resume running changes and dispatch pending
             dispatch_ready_changes "$max_parallel"
             monitor_loop "$directives"
@@ -1180,7 +1182,7 @@ cmd_start() {
     # Setup cleanup trap
     local cleanup_done=false
     cleanup_orchestrator() {
-        [[ "$cleanup_done" == true ]] && return
+        [[ "${cleanup_done:-}" == true ]] && return
         cleanup_done=true
 
         echo ""
@@ -1241,6 +1243,18 @@ cmd_status() {
     failed=$(count_changes_by_status "failed")
     local stalled
     stalled=$(count_changes_by_status "stalled")
+
+    # Detect stale "running" status (process crashed without cleanup)
+    if [[ "$status" == "running" ]]; then
+        local state_mtime now_epoch staleness
+        state_mtime=$(stat --format='%Y' "$STATE_FILENAME" 2>/dev/null || echo 0)
+        now_epoch=$(date +%s)
+        staleness=$((now_epoch - state_mtime))
+        if [[ "$staleness" -gt 120 ]]; then
+            status="stopped (stale — process crashed ~$(format_duration "$staleness") ago)"
+            update_state_field "status" '"stopped"'
+        fi
+    fi
 
     echo ""
     info "═══ Orchestrator Status ═══"
@@ -1906,19 +1920,8 @@ monitor_loop() {
         # Dispatch newly ready changes
         dispatch_ready_changes "$max_parallel"
 
-        # Retry merge-blocked items (branch may have been merged manually, or
-        # generated-file conflicts now auto-resolvable after code changes)
-        # Retry merge for blocked items AND done items stuck in merge queue
-        local merge_retry_names
-        merge_retry_names=$(jq -r '.changes[] | select(.status == "merge-blocked" or (.status == "done" and (.name as $n | any(input.merge_queue[]?; . == $n)))) | .name' "$STATE_FILENAME" "$STATE_FILENAME" 2>/dev/null || true)
-        # Simpler: just process the merge queue directly
-        local queue_items
-        queue_items=$(jq -r '.merge_queue[]?' "$STATE_FILENAME" 2>/dev/null)
-        while IFS= read -r name; do
-            [[ -z "$name" ]] && continue
-            log_info "Retrying merge for queued change: $name"
-            merge_change "$name" 2>/dev/null || true
-        done <<< "$queue_items"
+        # Retry merge queue + any merge-blocked items not in queue
+        retry_merge_queue
 
         # Check token budget
         if [[ "$token_budget" -gt 0 ]]; then
@@ -1940,11 +1943,11 @@ monitor_loop() {
             continue
         fi
 
-        # Check if all done
+        # Check if all done (include merge-blocked — retry_merge_queue handles those)
         local total_changes
         total_changes=$(jq '.changes | length' "$STATE_FILENAME")
         local done_or_merged
-        done_or_merged=$(jq '[.changes[] | select(.status == "done" or .status == "merged")] | length' "$STATE_FILENAME")
+        done_or_merged=$(jq '[.changes[] | select(.status == "done" or .status == "merged" or .status == "merge-blocked")] | length' "$STATE_FILENAME")
 
         if [[ "$done_or_merged" -ge "$total_changes" ]]; then
             log_info "All $total_changes changes complete"
@@ -2287,8 +2290,34 @@ execute_merge_queue() {
 
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
-        merge_change "$name"
+        merge_change "$name" || true
     done <<< "$queue"
+}
+
+# Retry merge queue items + any merge-blocked changes not in the queue.
+# Safe to call from any context (monitor loop, resume, etc.)
+retry_merge_queue() {
+    # Process merge queue items
+    local queue_items
+    queue_items=$(jq -r '.merge_queue[]?' "$STATE_FILENAME" 2>/dev/null || true)
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        log_info "Retrying merge for queued: $name"
+        merge_change "$name" 2>/dev/null || true
+    done <<< "$queue_items"
+
+    # Also find merge-blocked items not in the queue (safety net)
+    local blocked
+    blocked=$(jq -r '.changes[] | select(.status == "merge-blocked") | .name' "$STATE_FILENAME" 2>/dev/null || true)
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        # Check if already in merge_queue (don't double-process)
+        if echo "$queue_items" | grep -qx "$name" 2>/dev/null; then
+            continue
+        fi
+        log_info "Retrying merge for blocked (not in queue): $name"
+        merge_change "$name" 2>/dev/null || true
+    done <<< "$blocked"
 }
 
 # ─── Checkpoint ──────────────────────────────────────────────────────
