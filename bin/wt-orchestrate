@@ -55,6 +55,34 @@ log_info()  { log "INFO" "$@"; }
 log_warn()  { log "WARN" "$@"; }
 log_error() { log "ERROR" "$@"; }
 
+# Run claude CLI safely from non-interactive context (e.g. inside Claude Code session)
+# Uses script(1) to provide a PTY, strips terminal escape codes, unsets CLAUDECODE.
+# Reads prompt from stdin, passes extra flags as arguments.
+# Usage: echo "$prompt" | run_claude [extra claude flags...]
+#   e.g.: echo "$prompt" | run_claude --output-format json
+#         echo "$prompt" | run_claude --model haiku
+run_claude() {
+    local tmpprompt tmpscript
+    tmpprompt=$(mktemp)
+    tmpscript=$(mktemp --suffix=.sh)
+    # Read prompt from stdin
+    cat > "$tmpprompt"
+
+    # Build wrapper script (avoids quoting hell with script -c)
+    cat > "$tmpscript" <<WRAPPER
+#!/bin/bash
+exec env -u CLAUDECODE claude -p "\$(cat '$tmpprompt')" --dangerously-skip-permissions $@
+WRAPPER
+    chmod +x "$tmpscript"
+
+    local output rc=0
+    output=$(timeout --foreground 180 script -f -q /dev/null -c "$tmpscript" 2>/dev/null) || rc=$?
+    rm -f "$tmpprompt" "$tmpscript"
+    [[ $rc -ne 0 ]] && return $rc
+    # Strip terminal escape codes (CSI sequences, OSC sequences, carriage returns)
+    printf '%s' "$output" | sed 's/\x1b\[[^a-zA-Z]*[a-zA-Z]//g; s/\x1b\][^\x07]*\x07//g; s/\r//g'
+}
+
 rotate_log() {
     [[ -f "$LOG_FILE" ]] || return 0
     local size
@@ -414,11 +442,14 @@ Do NOT add commentary — just the structured summary.
 SUMMARY_EOF
 )
 
-    claude -p "$summary_prompt" 2>/dev/null || {
+    local summary_output
+    summary_output=$(echo "$summary_prompt" | run_claude --model sonnet) || {
         log_error "Spec summarization failed — falling back to truncation"
-        # Fallback: first 6000 words
         head -c 32000 "$spec_file"
+        return
     }
+    log_info "Spec summarization complete (${#summary_output} chars)"
+    echo "$summary_output"
 }
 
 # ─── State Management ────────────────────────────────────────────────
@@ -724,7 +755,7 @@ cmd_plan() {
 
     local active_changes=""
     if [[ -d "openspec/changes" ]]; then
-        active_changes=$(ls -1 openspec/changes/ 2>/dev/null | grep -v archive | head -10 | tr '\n' ', ')
+        active_changes=$(ls -1 openspec/changes/ 2>/dev/null | { grep -v archive || true; } | head -10 | tr '\n' ', ')
     fi
 
     local memory_context=""
@@ -853,17 +884,23 @@ PROMPT_EOF
     log_info "Plan decomposition started (brief hash: $hash)"
 
     local claude_output
-    claude_output=$(claude -p "$prompt" --output-format json 2>/dev/null) || {
+    claude_output=$(echo "$prompt" | run_claude) || {
         error "Claude decomposition failed. Check your Claude CLI setup."
         log_error "Claude decomposition failed"
         return 1
     }
 
+    log_info "Claude decomposition response received (${#claude_output} chars)"
+    # Save raw output for debugging
+    local response_file=".claude/orchestration-last-response.txt"
+    printf '%s' "$claude_output" > "$response_file" 2>/dev/null
+
     # Extract JSON from response (Claude may wrap in markdown)
     local plan_json
-    plan_json=$(echo "$claude_output" | python3 -c "
+    plan_json=$(python3 - "$response_file" <<'PYEOF'
 import json, sys, re
-raw = sys.stdin.read()
+with open(sys.argv[1]) as f:
+    raw = f.read()
 # Try direct parse
 try:
     data = json.loads(raw)
@@ -873,7 +910,7 @@ try:
 except:
     pass
 # Try extracting from markdown code block
-match = re.search(r'\`\`\`(?:json)?\s*(\{.*?\})\s*\`\`\`', raw, re.DOTALL)
+match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
 if match:
     try:
         data = json.loads(match.group(1))
@@ -882,7 +919,7 @@ if match:
             sys.exit(0)
     except:
         pass
-# Try finding first { ... } block
+# Try finding first { ... } block (greedy)
 match = re.search(r'(\{.*\})', raw, re.DOTALL)
 if match:
     try:
@@ -894,7 +931,8 @@ if match:
         pass
 print('ERROR: Could not parse JSON from Claude output', file=sys.stderr)
 sys.exit(1)
-" 2>&1) || {
+PYEOF
+) || {
         error "Could not parse Claude's response as JSON"
         log_error "JSON parse failed from Claude output"
         return 1
@@ -1686,7 +1724,7 @@ handle_change_done() {
     info "Running verify for $change_name..."
     local verify_ok=true
     if command -v claude &>/dev/null; then
-        (cd "$wt_path" && claude -p "Run /opsx:verify $change_name" --max-turns 5 --dangerously-skip-permissions &>/dev/null) || verify_ok=false
+        (cd "$wt_path" && echo "Run /opsx:verify $change_name" | run_claude --max-turns 5 &>/dev/null) || verify_ok=false
     fi
 
     if [[ "$verify_ok" != "true" ]]; then
