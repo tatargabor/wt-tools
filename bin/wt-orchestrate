@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/wt-common.sh"
 
 BRIEF_FILENAME="project-brief.md"
 BRIEF_FALLBACK="project.md"
+BRIEF_OVERRIDE=""  # set via --brief <path>
 PLAN_FILENAME="orchestration-plan.json"
 STATE_FILENAME="orchestration-state.json"
 SUMMARY_FILENAME="orchestration-summary.md"
@@ -65,6 +66,16 @@ rotate_log() {
 
 # Find the project brief file
 find_brief() {
+    # --brief override takes priority
+    if [[ -n "$BRIEF_OVERRIDE" ]]; then
+        if [[ -f "$BRIEF_OVERRIDE" ]]; then
+            echo "$BRIEF_OVERRIDE"
+        else
+            echo ""
+        fi
+        return
+    fi
+
     local openspec_dir
     openspec_dir=$(find_openspec_dir)
 
@@ -1617,9 +1628,12 @@ generate_summary() {
 
 usage() {
     cat <<EOF
-Usage: wt-orchestrate <command> [options]
+Usage: wt-orchestrate [--brief <path>] <command> [options]
 
 Orchestrate multi-change execution from a project brief.
+
+Global Options:
+  --brief <path>         Use a specific brief file instead of openspec/project-brief.md
 
 Commands:
   plan [--show]          Generate change plan from project brief (or show existing)
@@ -1644,6 +1658,23 @@ EOF
 # ─── Main ────────────────────────────────────────────────────────────
 
 main() {
+    # Parse global options before subcommand
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --brief)
+                BRIEF_OVERRIDE="$2"
+                shift 2
+                ;;
+            --brief=*)
+                BRIEF_OVERRIDE="${1#--brief=}"
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
     local command="${1:-}"
     shift 2>/dev/null || true
 
