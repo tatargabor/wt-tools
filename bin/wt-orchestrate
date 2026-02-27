@@ -1877,6 +1877,16 @@ monitor_loop() {
         # Dispatch newly ready changes
         dispatch_ready_changes "$max_parallel"
 
+        # Retry merge-blocked items (branch may have been merged manually, or
+        # generated-file conflicts now auto-resolvable after code changes)
+        local blocked_changes
+        blocked_changes=$(get_changes_by_status "merge-blocked")
+        while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            log_info "Retrying merge for blocked change: $name"
+            merge_change "$name"
+        done <<< "$blocked_changes"
+
         # Check token budget
         if [[ "$token_budget" -gt 0 ]]; then
             local total_tokens
@@ -2156,27 +2166,37 @@ merge_change() {
     local wt_path
     wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
 
-    # Check if branch is already merged into current branch (e.g., manual merge)
-    if [[ -n "$wt_path" ]]; then
-        local source_branch
-        source_branch=$(git -C "$wt_path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-        if [[ -n "$source_branch" ]]; then
-            local source_sha
-            source_sha=$(git rev-parse "$source_branch" 2>/dev/null || true)
-            if [[ -n "$source_sha" ]] && git merge-base --is-ancestor "$source_sha" HEAD 2>/dev/null; then
-                info "Already merged: $change_name (branch $source_branch is ancestor of HEAD)"
-                log_info "Skipping merge for $change_name — already merged"
-                update_change_field "$change_name" "status" '"merged"'
-                cleanup_worktree "$change_name" "$wt_path"
-                local tmp
-                tmp=$(mktemp)
-                jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
-                return 0
-            fi
-        fi
+    local source_branch="change/$change_name"
+    local branch_exists=false
+    git show-ref --verify --quiet "refs/heads/$source_branch" 2>/dev/null && branch_exists=true
+
+    # Case 1: Branch no longer exists — someone already merged and deleted it
+    if ! $branch_exists; then
+        info "Already handled: $change_name (branch $source_branch no longer exists)"
+        log_info "Skipping merge for $change_name — branch deleted (assumed merged)"
+        update_change_field "$change_name" "status" '"merged"'
+        cleanup_worktree "$change_name" "$wt_path"
+        local tmp
+        tmp=$(mktemp)
+        jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        return 0
     fi
 
-    # Try merge
+    # Case 2: Branch exists but is already ancestor of HEAD (manual merge, branch not deleted)
+    local source_sha
+    source_sha=$(git rev-parse "$source_branch" 2>/dev/null || true)
+    if [[ -n "$source_sha" ]] && git merge-base --is-ancestor "$source_sha" HEAD 2>/dev/null; then
+        info "Already merged: $change_name (branch $source_branch is ancestor of HEAD)"
+        log_info "Skipping merge for $change_name — already merged"
+        update_change_field "$change_name" "status" '"merged"'
+        cleanup_worktree "$change_name" "$wt_path"
+        local tmp
+        tmp=$(mktemp)
+        jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        return 0
+    fi
+
+    # Case 3: Normal merge
     if wt-merge "$change_name" --no-push 2>/dev/null; then
         update_change_field "$change_name" "status" '"merged"'
         log_info "Merged $change_name"
