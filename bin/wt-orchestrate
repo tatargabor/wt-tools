@@ -12,6 +12,12 @@ source "$SCRIPT_DIR/wt-common.sh"
 BRIEF_FILENAME="project-brief.md"
 BRIEF_FALLBACK="project.md"
 BRIEF_OVERRIDE=""  # set via --brief <path>
+SPEC_OVERRIDE=""   # set via --spec <path>
+PHASE_HINT=""      # set via --phase <hint>
+CLI_MAX_PARALLEL="" # set via --max-parallel <N>
+INPUT_MODE=""      # "brief" or "spec", set by find_input()
+INPUT_PATH=""      # resolved input file path
+CONFIG_FILE=".claude/orchestration.yaml"
 PLAN_FILENAME="orchestration-plan.json"
 STATE_FILENAME="orchestration-state.json"
 SUMMARY_FILENAME="orchestration-summary.md"
@@ -64,7 +70,7 @@ rotate_log() {
 
 # ─── Brief Parser ────────────────────────────────────────────────────
 
-# Find the project brief file
+# Find the project brief file (legacy, used by find_input fallback)
 find_brief() {
     # --brief override takes priority
     if [[ -n "$BRIEF_OVERRIDE" ]]; then
@@ -86,6 +92,45 @@ find_brief() {
     else
         echo ""
     fi
+}
+
+# Find input document and determine mode.
+# Sets global: INPUT_MODE ("spec" or "brief"), INPUT_PATH
+find_input() {
+    # --spec takes priority
+    if [[ -n "$SPEC_OVERRIDE" ]]; then
+        if [[ ! -f "$SPEC_OVERRIDE" ]]; then
+            error "Spec file not found: $SPEC_OVERRIDE"
+            return 1
+        fi
+        INPUT_MODE="spec"
+        INPUT_PATH="$SPEC_OVERRIDE"
+        return 0
+    fi
+
+    # --brief or auto-detect brief
+    local brief_file
+    brief_file=$(find_brief)
+    if [[ -n "$brief_file" && -f "$brief_file" ]]; then
+        # Check if brief has ### Next items
+        local items
+        items=$(parse_next_items "$brief_file")
+        local count
+        count=$(echo "$items" | jq 'length')
+        if [[ "$count" -gt 0 ]]; then
+            INPUT_MODE="brief"
+            INPUT_PATH="$brief_file"
+            return 0
+        fi
+        # Brief exists but ### Next is empty
+        error "Brief found ($brief_file) but ### Next section is empty."
+        error "Add items to ### Next, or use --spec <path> to provide a specification document."
+        return 1
+    fi
+
+    # Nothing found
+    error "No input found. Use --spec <path> or create openspec/$BRIEF_FILENAME"
+    return 1
 }
 
 # Find openspec directory
@@ -241,12 +286,139 @@ parse_directives() {
         }'
 }
 
-# Compute SHA-256 hash of brief file
+# Compute SHA-256 hash of input file
 brief_hash() {
     local brief_file="$1"
     sha256sum "$brief_file" 2>/dev/null | cut -d' ' -f1 || \
     shasum -a 256 "$brief_file" 2>/dev/null | cut -d' ' -f1 || \
     echo "unknown"
+}
+
+# ─── Config & Directives ─────────────────────────────────────────────
+
+# Load directives from .claude/orchestration.yaml
+# Outputs JSON with only the keys found in the file (partial)
+load_config_file() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo '{}'
+        return 0
+    fi
+
+    python3 -c "
+import sys, json
+try:
+    import yaml
+except ImportError:
+    # No PyYAML — fall back to simple key:value parsing
+    result = {}
+    for line in open('$CONFIG_FILE'):
+        line = line.strip()
+        if ':' in line and not line.startswith('#'):
+            key, _, val = line.partition(':')
+            key, val = key.strip(), val.strip()
+            if val.isdigit():
+                result[key] = int(val)
+            elif val in ('true', 'false'):
+                result[key] = val == 'true'
+            else:
+                result[key] = val
+    print(json.dumps(result))
+    sys.exit(0)
+
+try:
+    with open('$CONFIG_FILE') as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        print('{}')
+        sys.exit(0)
+    print(json.dumps(data))
+except Exception as e:
+    print(json.dumps({'_error': str(e)}), file=sys.stderr)
+    print('{}')
+" 2>/dev/null || {
+        warn "Could not parse $CONFIG_FILE"
+        echo '{}'
+    }
+}
+
+# Resolve directives with 4-level precedence:
+# CLI flags > .claude/orchestration.yaml > in-document directives > defaults
+resolve_directives() {
+    local input_file="$1"
+
+    # Level 4: defaults (built into parse_directives)
+    # Level 3: in-document directives
+    local doc_directives
+    doc_directives=$(parse_directives "$input_file")
+
+    # Level 2: config file
+    local config_directives
+    config_directives=$(load_config_file)
+
+    # Merge: config overrides doc
+    local merged
+    merged=$(echo "$doc_directives" | jq --argjson cfg "$config_directives" '
+        . as $base |
+        reduce ($cfg | to_entries[]) as $e ($base;
+            if $e.value != null then .[$e.key] = $e.value else . end
+        )
+    ')
+
+    # Level 1: CLI flags override everything
+    if [[ -n "$CLI_MAX_PARALLEL" ]]; then
+        merged=$(echo "$merged" | jq --argjson v "$CLI_MAX_PARALLEL" '.max_parallel = $v')
+    fi
+
+    echo "$merged"
+}
+
+# ─── Spec Summarization ──────────────────────────────────────────────
+
+# Estimate token count from word count (rough: words × 1.3)
+estimate_tokens() {
+    local file="$1"
+    local words
+    words=$(wc -w < "$file" 2>/dev/null || echo 0)
+    echo $(( (words * 13 + 5) / 10 ))
+}
+
+# Summarize a large spec document for decomposition
+# Outputs a condensed version with TOC + status + relevant section
+summarize_spec() {
+    local spec_file="$1"
+    local phase_hint="$2"
+    local spec_content
+    spec_content=$(cat "$spec_file")
+
+    local phase_instruction=""
+    if [[ -n "$phase_hint" ]]; then
+        phase_instruction="The user wants to focus on phase: $phase_hint. Extract that phase in full detail."
+    fi
+
+    local summary_prompt
+    summary_prompt=$(cat <<SUMMARY_EOF
+You are a technical analyst. This specification document is too large to process in full.
+Create a structured summary for a software architect who needs to decompose it into implementable changes.
+
+## Specification Document
+$spec_content
+
+## Task
+Create a condensed summary containing:
+1. **Table of Contents** with completion status for each section/phase (use markers from the document: checkboxes, emoji, "done"/"implemented"/"kész" etc.)
+2. **Next Actionable Phase** — extract the FULL content of the first incomplete phase/priority section
+$phase_instruction
+
+Output ONLY the summary in markdown. Keep it under 3000 words.
+Do NOT add commentary — just the structured summary.
+SUMMARY_EOF
+)
+
+    claude -p "$summary_prompt" 2>/dev/null || {
+        log_error "Spec summarization failed — falling back to truncation"
+        # Fallback: first 6000 words
+        head -c 32000 "$spec_file"
+    }
 }
 
 # ─── State Management ────────────────────────────────────────────────
@@ -472,11 +644,11 @@ send_notification() {
     local body="$2"
     local urgency="${3:-normal}"  # normal or critical
 
-    local brief_file
-    brief_file=$(find_brief)
     local notification_type="$DEFAULT_NOTIFICATION"
-    if [[ -n "$brief_file" ]]; then
-        notification_type=$(parse_directives "$brief_file" | jq -r '.notification')
+    if [[ -n "$INPUT_PATH" && -f "$INPUT_PATH" ]]; then
+        notification_type=$(resolve_directives "$INPUT_PATH" | jq -r '.notification')
+    elif find_input 2>/dev/null; then
+        notification_type=$(resolve_directives "$INPUT_PATH" | jq -r '.notification')
     fi
 
     if [[ "$notification_type" == "none" ]]; then
@@ -525,33 +697,24 @@ cmd_plan() {
         return 0
     fi
 
-    # Find and validate brief
-    local brief_file
-    brief_file=$(find_brief)
-    if [[ -z "$brief_file" || ! -f "$brief_file" ]]; then
-        error "No project brief found. Create openspec/$BRIEF_FILENAME first."
-        return 1
-    fi
+    # Find and validate input (spec or brief)
+    find_input || return 1
 
-    info "Reading brief: $brief_file"
+    info "Reading input ($INPUT_MODE): $INPUT_PATH"
 
-    # Parse Next items
-    local next_items
-    next_items=$(parse_next_items "$brief_file")
-    local item_count
-    item_count=$(echo "$next_items" | jq 'length')
-
-    if [[ "$item_count" -eq 0 ]]; then
-        error "No roadmap items in ## Next section."
-        return 1
-    fi
-
-    info "Found $item_count roadmap items in Next section"
-
-    # Parse directives
+    # Resolve directives (4-level precedence chain)
     local directives
-    directives=$(parse_directives "$brief_file")
+    directives=$(resolve_directives "$INPUT_PATH")
     info "Directives: $(echo "$directives" | jq -c .)"
+
+    # Brief mode: validate Next items exist (already checked in find_input, but log count)
+    if [[ "$INPUT_MODE" == "brief" ]]; then
+        local next_items
+        next_items=$(parse_next_items "$INPUT_PATH")
+        local item_count
+        item_count=$(echo "$next_items" | jq 'length')
+        info "Found $item_count roadmap items in Next section"
+    fi
 
     # Collect context for Claude
     local existing_specs=""
@@ -570,18 +733,86 @@ cmd_plan() {
             jq -r '.[].content' 2>/dev/null | head -500 || true)
     fi
 
-    # Build decomposition prompt
-    local brief_content
-    brief_content=$(cat "$brief_file")
+    # Build decomposition prompt (dual-mode: brief vs spec)
+    local input_content
     local hash
-    hash=$(brief_hash "$brief_file")
+    hash=$(brief_hash "$INPUT_PATH")
+
+    if [[ "$INPUT_MODE" == "spec" ]]; then
+        # Spec mode: check if summarization is needed
+        local token_est
+        token_est=$(estimate_tokens "$INPUT_PATH")
+        if [[ "$token_est" -gt 8000 ]]; then
+            info "Large spec detected (~${token_est} tokens). Summarizing..."
+            log_info "Spec summarization triggered (est. $token_est tokens)"
+            input_content=$(summarize_spec "$INPUT_PATH" "$PHASE_HINT")
+        else
+            input_content=$(cat "$INPUT_PATH")
+        fi
+    else
+        input_content=$(cat "$INPUT_PATH")
+    fi
 
     local prompt
-    prompt=$(cat <<PROMPT_EOF
+    if [[ "$INPUT_MODE" == "spec" ]]; then
+        # Spec-mode prompt: LLM determines what's next
+        local phase_instruction=""
+        if [[ -n "$PHASE_HINT" ]]; then
+            phase_instruction="The user requested phase: $PHASE_HINT. Focus decomposition on items matching this phase."
+        fi
+
+        prompt=$(cat <<PROMPT_EOF
+You are a software architect analyzing a project specification to plan the next batch of implementation work.
+
+## Project Specification
+$input_content
+
+## Existing OpenSpec Specs
+$existing_specs
+
+## Active Changes (already in progress)
+$active_changes
+
+## Project Memory
+$memory_context
+
+## Task
+1. **Analyze the specification** — identify which items are completed (look for status markers: checkboxes, ✅/❌ emoji, "done"/"implemented"/"kész"/"ready" text, strikethrough, progress tables) and which are pending.
+2. **Determine the next batch** — respect explicit phases, priorities, or numbered ordering in the document. Pick the first incomplete phase/priority group.
+$phase_instruction
+3. **Decompose** the selected batch into concrete, implementable OpenSpec changes.
+
+Rules:
+- Each change should be completable in 1-3 Ralph loop sessions (not too large, not too granular)
+- Use kebab-case names (e.g., add-user-auth, refactor-payment-flow)
+- Define dependencies: if change B needs code from change A, list A in depends_on
+- Changes with no dependencies can run in parallel
+- Complexity: S (< 10 tasks), M (10-25 tasks), L (25+ tasks)
+- Skip already-active changes listed above
+
+Output ONLY valid JSON (no markdown, no explanation):
+{
+  "phase_detected": "Description of which phase/section was selected and why",
+  "reasoning": "Brief explanation of the decomposition choices",
+  "changes": [
+    {
+      "name": "change-name",
+      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change.",
+      "complexity": "S|M|L",
+      "depends_on": ["other-change-name"],
+      "roadmap_item": "The spec section/item this implements"
+    }
+  ]
+}
+PROMPT_EOF
+)
+    else
+        # Brief-mode prompt: existing behavior
+        prompt=$(cat <<PROMPT_EOF
 You are a software architect decomposing a project brief into OpenSpec changes.
 
 ## Project Brief
-$brief_content
+$input_content
 
 ## Existing Specs
 $existing_specs
@@ -616,6 +847,7 @@ Output ONLY valid JSON (no markdown, no explanation):
 }
 PROMPT_EOF
 )
+    fi
 
     info "Calling Claude for decomposition..."
     log_info "Plan decomposition started (brief hash: $hash)"
@@ -678,7 +910,9 @@ sys.exit(1)
         --argjson pv "$plan_version" \
         --arg hash "$hash" \
         --arg created "$(date -Iseconds)" \
-        '. + {plan_version: $pv, brief_hash: $hash, created_at: $created}' \
+        --arg imode "$INPUT_MODE" \
+        --arg ipath "$INPUT_PATH" \
+        '. + {plan_version: $pv, brief_hash: $hash, created_at: $created, input_mode: $imode, input_path: $ipath}' \
         > "$PLAN_FILENAME"
 
     # Validate
@@ -691,7 +925,22 @@ sys.exit(1)
     change_count=$(jq '.changes | length' "$PLAN_FILENAME")
 
     success "Plan created: $change_count changes (v$plan_version)"
-    log_info "Plan created: $change_count changes (v$plan_version)"
+    log_info "Plan created: $change_count changes (v$plan_version, mode=$INPUT_MODE)"
+
+    # Show phase detection for spec mode
+    if [[ "$INPUT_MODE" == "spec" ]]; then
+        local phase_detected
+        phase_detected=$(jq -r '.phase_detected // empty' "$PLAN_FILENAME")
+        if [[ -n "$phase_detected" ]]; then
+            echo ""
+            info "Phase detected: $phase_detected"
+        fi
+        local reasoning
+        reasoning=$(jq -r '.reasoning // empty' "$PLAN_FILENAME")
+        if [[ -n "$reasoning" ]]; then
+            info "Reasoning: $reasoning"
+        fi
+    fi
 
     # Show summary
     cmd_plan --show
@@ -717,11 +966,10 @@ cmd_start() {
     info "Starting orchestration..."
     log_info "Orchestration started"
 
-    # Read directives
-    local brief_file
-    brief_file=$(find_brief)
+    # Read directives (resolve from config chain)
+    find_input || return 1
     local directives
-    directives=$(parse_directives "$brief_file")
+    directives=$(resolve_directives "$INPUT_PATH")
     local max_parallel
     max_parallel=$(echo "$directives" | jq -r '.max_parallel')
     local pause_on_exit_val
@@ -803,16 +1051,21 @@ cmd_status() {
     [[ "$failed" -gt 0 ]] && echo "  Failed:   $failed"
     [[ "$stalled" -gt 0 ]] && echo "  Stalled:  $stalled"
 
-    # Brief staleness check
-    local brief_file
-    brief_file=$(find_brief)
-    if [[ -n "$brief_file" && -f "$brief_file" ]]; then
+    # Input staleness check
+    local stored_path
+    stored_path=$(jq -r '.input_path // empty' "$STATE_FILENAME" 2>/dev/null)
+    [[ -z "$stored_path" ]] && stored_path=$(jq -r '.input_path // empty' "$PLAN_FILENAME" 2>/dev/null)
+    if [[ -z "$stored_path" ]]; then
+        # Legacy: try find_brief for old state files
+        stored_path=$(find_brief 2>/dev/null)
+    fi
+    if [[ -n "$stored_path" && -f "$stored_path" ]]; then
         local current_hash
-        current_hash=$(brief_hash "$brief_file")
+        current_hash=$(brief_hash "$stored_path")
         local stored_hash
         stored_hash=$(jq -r '.brief_hash' "$STATE_FILENAME")
         if [[ "$current_hash" != "$stored_hash" ]]; then
-            warn "  Brief has changed since plan was created. Consider: wt-orchestrate replan"
+            warn "  Input has changed since plan was created. Consider: wt-orchestrate replan"
         fi
     fi
 
@@ -885,10 +1138,11 @@ cmd_resume() {
         return 1
     fi
 
-    local brief_file
-    brief_file=$(find_brief)
-    local max_parallel
-    max_parallel=$(parse_directives "$brief_file" | jq -r '.max_parallel')
+    find_input 2>/dev/null || true  # best-effort for directives
+    local max_parallel="$DEFAULT_MAX_PARALLEL"
+    if [[ -n "$INPUT_PATH" ]]; then
+        max_parallel=$(resolve_directives "$INPUT_PATH" | jq -r '.max_parallel')
+    fi
 
     if [[ "$target" == "--all" ]]; then
         info "Resuming all paused changes..."
@@ -919,14 +1173,9 @@ cmd_resume() {
 }
 
 cmd_replan() {
-    local brief_file
-    brief_file=$(find_brief)
-    if [[ -z "$brief_file" || ! -f "$brief_file" ]]; then
-        error "No project brief found."
-        return 1
-    fi
+    find_input || return 1
 
-    info "Replanning from updated brief..."
+    info "Replanning from updated input ($INPUT_MODE: $INPUT_PATH)..."
 
     # Gather current state context
     local state_context=""
@@ -1628,30 +1877,44 @@ generate_summary() {
 
 usage() {
     cat <<EOF
-Usage: wt-orchestrate [--brief <path>] <command> [options]
+Usage: wt-orchestrate [options] <command> [command-options]
 
-Orchestrate multi-change execution from a project brief.
+Orchestrate multi-change execution from a project spec or brief.
 
-Global Options:
-  --brief <path>         Use a specific brief file instead of openspec/project-brief.md
+Input Options (mutually exclusive):
+  --spec <path>          Use a specification document (any format, LLM-extracted)
+  --brief <path>         Use a structured brief file (legacy format with ### Next)
+
+Spec Options:
+  --phase <hint>         Phase hint for --spec (number or text, e.g., "1" or "Security fixes")
+  --max-parallel <N>     Override max parallel changes (overrides config and directives)
 
 Commands:
-  plan [--show]          Generate change plan from project brief (or show existing)
+  plan [--show]          Generate change plan from spec/brief (or show existing)
   start                  Execute the plan (dispatch changes, monitor progress)
   status                 Show current orchestration state
   pause <name|--all>     Pause a change or all changes
   resume <name|--all>    Resume a paused change or all
-  replan                 Re-plan from updated brief, preserving completed work
+  replan                 Re-plan from updated spec/brief, preserving completed work
   approve [--merge]      Approve a checkpoint (--merge: also flush merge queue)
   self-test              Run internal unit tests
 
+Input Resolution (when no --spec or --brief given):
+  1. openspec/project-brief.md (if ### Next has items)
+  2. openspec/project.md (fallback)
+  3. Error with usage hint
+
+Config: .claude/orchestration.yaml (optional, overrides in-document directives)
+
 Examples:
-  wt-orchestrate plan              # Decompose brief into changes
-  wt-orchestrate plan --show       # Show current plan
-  wt-orchestrate start             # Start executing the plan
-  wt-orchestrate status            # Check progress
-  wt-orchestrate pause my-change   # Pause a specific change
-  wt-orchestrate approve --merge   # Approve checkpoint and merge done changes
+  wt-orchestrate --spec docs/v3.md plan                # Plan from spec
+  wt-orchestrate --spec docs/v3.md --phase 1 plan      # Plan phase 1 only
+  wt-orchestrate plan                                   # Plan from project-brief.md
+  wt-orchestrate plan --show                            # Show current plan
+  wt-orchestrate start                                  # Start executing
+  wt-orchestrate --max-parallel 3 start                 # Start with 3 parallel
+  wt-orchestrate status                                 # Check progress
+  wt-orchestrate approve --merge                        # Approve + merge
 EOF
 }
 
@@ -1669,11 +1932,47 @@ main() {
                 BRIEF_OVERRIDE="${1#--brief=}"
                 shift
                 ;;
+            --spec)
+                SPEC_OVERRIDE="$2"
+                shift 2
+                ;;
+            --spec=*)
+                SPEC_OVERRIDE="${1#--spec=}"
+                shift
+                ;;
+            --phase)
+                PHASE_HINT="$2"
+                shift 2
+                ;;
+            --phase=*)
+                PHASE_HINT="${1#--phase=}"
+                shift
+                ;;
+            --max-parallel)
+                CLI_MAX_PARALLEL="$2"
+                shift 2
+                ;;
+            --max-parallel=*)
+                CLI_MAX_PARALLEL="${1#--max-parallel=}"
+                shift
+                ;;
             *)
                 break
                 ;;
         esac
     done
+
+    # Validate: --phase requires --spec
+    if [[ -n "$PHASE_HINT" && -z "$SPEC_OVERRIDE" ]]; then
+        error "--phase requires --spec"
+        return 1
+    fi
+
+    # Validate: --spec and --brief are mutually exclusive
+    if [[ -n "$SPEC_OVERRIDE" && -n "$BRIEF_OVERRIDE" ]]; then
+        error "--spec and --brief are mutually exclusive"
+        return 1
+    fi
 
     local command="${1:-}"
     shift 2>/dev/null || true

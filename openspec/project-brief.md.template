@@ -1,9 +1,12 @@
 # Project Brief
 
-<!-- This is the primary input document for the orchestrator.
-     Maintain this document as the living source of truth for your project.
+<!-- This is a structured input document for the orchestrator.
      The orchestrator reads the "Next" section and "Orchestrator Directives"
-     to plan and execute changes autonomously. -->
+     to plan and execute changes autonomously.
+
+     ALTERNATIVE: If you already have a specification/roadmap document,
+     you can skip this file and use: wt-orchestrate --spec <path> plan
+     The orchestrator will use LLM to extract actionable items from any format. -->
 
 ## Purpose
 
