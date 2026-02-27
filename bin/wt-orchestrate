@@ -1510,24 +1510,34 @@ PROPOSAL_EOF
     update_change_field "$change_name" "started_at" "\"$(date -Iseconds)\""
 
     # Start Ralph loop in worktree
+    # wt-loop spawns a terminal process and returns, so we check loop-state.json
     local task_desc="Implement $change_name: ${scope:0:200}"
     (
         cd "$wt_path" || exit 1
         wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
     ) &
-    local ralph_pid=$!
+    wait $! 2>/dev/null || true
 
-    # Give Ralph a moment to start, then verify it's alive
-    sleep 3
-    if ! kill -0 "$ralph_pid" 2>/dev/null; then
-        error "wt-loop exited immediately for $change_name"
-        log_error "wt-loop failed to start for $change_name (PID $ralph_pid died)"
+    # Verify wt-loop actually started by checking for loop-state.json
+    local loop_state="$wt_path/.claude/loop-state.json"
+    local retries=0
+    while [[ ! -f "$loop_state" && $retries -lt 10 ]]; do
+        sleep 1
+        retries=$((retries + 1))
+    done
+
+    if [[ ! -f "$loop_state" ]]; then
+        error "wt-loop failed to start for $change_name (no loop-state.json after ${retries}s)"
+        log_error "wt-loop failed to start for $change_name"
         update_change_field "$change_name" "status" '"failed"'
         return 1
     fi
-    update_change_field "$change_name" "ralph_pid" "$ralph_pid"
+
+    local terminal_pid
+    terminal_pid=$(jq -r '.terminal_pid // empty' "$loop_state" 2>/dev/null)
+    update_change_field "$change_name" "ralph_pid" "${terminal_pid:-0}"
     update_change_field "$change_name" "status" '"running"'
-    log_info "Ralph started for $change_name in $wt_path (PID $ralph_pid)"
+    log_info "Ralph started for $change_name in $wt_path (terminal PID ${terminal_pid:-unknown})"
 }
 
 dispatch_ready_changes() {
@@ -1600,16 +1610,26 @@ resume_change() {
         cd "$wt_path" || exit 1
         wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
     ) &
-    local ralph_pid=$!
+    wait $! 2>/dev/null || true
 
-    sleep 3
-    if ! kill -0 "$ralph_pid" 2>/dev/null; then
-        error "wt-loop exited immediately on resume for $change_name"
-        log_error "wt-loop failed to resume for $change_name (PID $ralph_pid died)"
+    # Verify wt-loop started via loop-state.json
+    local loop_state="$wt_path/.claude/loop-state.json"
+    local retries=0
+    while [[ ! -f "$loop_state" && $retries -lt 10 ]]; do
+        sleep 1
+        retries=$((retries + 1))
+    done
+
+    if [[ ! -f "$loop_state" ]]; then
+        error "wt-loop failed to resume for $change_name"
+        log_error "wt-loop failed to resume for $change_name"
         update_change_field "$change_name" "status" '"failed"'
         return 1
     fi
-    update_change_field "$change_name" "ralph_pid" "$ralph_pid"
+
+    local terminal_pid
+    terminal_pid=$(jq -r '.terminal_pid // empty' "$loop_state" 2>/dev/null)
+    update_change_field "$change_name" "ralph_pid" "${terminal_pid:-0}"
     update_change_field "$change_name" "status" '"running"'
 }
 
@@ -1704,11 +1724,11 @@ poll_change() {
 
     local loop_state="$wt_path/.claude/loop-state.json"
     if [[ ! -f "$loop_state" ]]; then
-        # Check if the ralph process is still alive
+        # No loop-state yet — check if terminal process is alive via state file
         local ralph_pid
         ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // empty' "$STATE_FILENAME")
-        if [[ -n "$ralph_pid" ]] && ! kill -0 "$ralph_pid" 2>/dev/null; then
-            log_error "Ralph process $ralph_pid for $change_name is dead, no loop-state found"
+        if [[ -n "$ralph_pid" && "$ralph_pid" != "0" ]] && ! kill -0 "$ralph_pid" 2>/dev/null; then
+            log_error "Terminal process $ralph_pid for $change_name is dead, no loop-state found"
             update_change_field "$change_name" "status" '"failed"'
         fi
         return
