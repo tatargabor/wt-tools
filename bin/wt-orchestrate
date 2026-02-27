@@ -1254,6 +1254,27 @@ cmd_status() {
     replan_cycle=$(jq '.replan_cycle // 0' "$STATE_FILENAME" 2>/dev/null)
     [[ "$replan_cycle" -gt 0 ]] && echo "  Replan:   cycle $replan_cycle"
 
+    # Show elapsed time and remaining limit
+    local started_epoch
+    started_epoch=$(jq -r '.started_epoch // 0' "$STATE_FILENAME" 2>/dev/null)
+    local limit_secs
+    limit_secs=$(jq -r '.time_limit_secs // 0' "$STATE_FILENAME" 2>/dev/null)
+    if [[ "$started_epoch" -gt 0 ]]; then
+        local now elapsed
+        now=$(date +%s)
+        elapsed=$((now - started_epoch))
+        local time_info="  Elapsed:  $(format_duration "$elapsed")"
+        if [[ "$limit_secs" -gt 0 ]]; then
+            local remaining=$((limit_secs - elapsed))
+            if [[ "$remaining" -gt 0 ]]; then
+                time_info="$time_info / $(format_duration "$limit_secs") limit ($(format_duration "$remaining") remaining)"
+            else
+                time_info="$time_info / $(format_duration "$limit_secs") limit (exceeded)"
+            fi
+        fi
+        echo "$time_info"
+    fi
+
     if [[ "$status" == "time_limit" ]]; then
         echo "  Note:     Stopped by time limit. Run 'wt-orchestrate start' to continue."
     fi
@@ -1843,6 +1864,10 @@ monitor_loop() {
         fi
         info "Time limit: $(format_duration "$time_limit_secs")"
     fi
+
+    # Persist timing info in state for cmd_status to read
+    update_state_field "started_epoch" "$ORCHESTRATOR_START_EPOCH"
+    update_state_field "time_limit_secs" "$time_limit_secs"
 
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
 
