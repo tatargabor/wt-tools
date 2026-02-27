@@ -1510,9 +1510,10 @@ PROPOSAL_EOF
     update_change_field "$change_name" "started_at" "\"$(date -Iseconds)\""
 
     # Start Ralph loop in worktree
+    local task_desc="Implement $change_name: ${scope:0:200}"
     (
         cd "$wt_path" || exit 1
-        wt-loop start --max 30 --done openspec --label "$change_name"
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
     ) &
     local ralph_pid=$!
 
@@ -1592,9 +1593,12 @@ resume_change() {
     info "Resuming: $change_name"
     log_info "Resuming $change_name in $wt_path"
 
+    local scope
+    scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // empty' "$STATE_FILENAME")
+    local task_desc="Continue $change_name: ${scope:0:200}"
     (
         cd "$wt_path" || exit 1
-        wt-loop start --max 30 --done openspec --label "$change_name"
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
     ) &
     local ralph_pid=$!
 
