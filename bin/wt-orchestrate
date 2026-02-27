@@ -1918,7 +1918,6 @@ monitor_loop() {
         done_or_merged=$(jq '[.changes[] | select(.status == "done" or .status == "merged")] | length' "$STATE_FILENAME")
 
         if [[ "$done_or_merged" -ge "$total_changes" ]]; then
-            trigger_checkpoint "completion"
             log_info "All $total_changes changes complete"
             send_notification "wt-orchestrate" "All $total_changes changes complete!" "normal"
 
@@ -1945,6 +1944,7 @@ monitor_loop() {
                     break
                 fi
             else
+                trigger_checkpoint "completion"
                 update_state_field "status" '"done"'
                 success "All changes complete!"
                 log_info "Orchestration complete"
