@@ -38,7 +38,8 @@ DEFAULT_PAUSE_ON_EXIT="false"
 DEFAULT_AUTO_REPLAN="false"
 
 # Runtime state
-CLI_TIME_LIMIT=""   # set via --time-limit <duration>
+DEFAULT_TIME_LIMIT="5h"  # safety net: stop after 5 hours if no --time-limit given
+CLI_TIME_LIMIT=""        # set via --time-limit <duration>, "none" to disable
 ORCHESTRATOR_START_EPOCH=""  # set at start time
 
 # ─── Logging ─────────────────────────────────────────────────────────
@@ -1828,16 +1829,19 @@ monitor_loop() {
     local auto_replan
     auto_replan=$(echo "$directives" | jq -r '.auto_replan')
 
-    # Parse time limit
+    # Parse time limit (default 5h, --time-limit none to disable)
     local time_limit_secs=0
-    if [[ -n "$CLI_TIME_LIMIT" ]]; then
-        time_limit_secs=$(parse_duration "$CLI_TIME_LIMIT")
+    local time_limit_input="${CLI_TIME_LIMIT:-$DEFAULT_TIME_LIMIT}"
+    if [[ "$time_limit_input" == "none" || "$time_limit_input" == "0" ]]; then
+        time_limit_secs=0
+        info "Time limit: disabled"
+    elif [[ -n "$time_limit_input" ]]; then
+        time_limit_secs=$(parse_duration "$time_limit_input")
         if [[ "$time_limit_secs" -le 0 ]]; then
-            warn "Invalid --time-limit '$CLI_TIME_LIMIT', ignoring"
-            time_limit_secs=0
-        else
-            info "Time limit: $(format_duration "$time_limit_secs")"
+            warn "Invalid time limit '$time_limit_input', using default $DEFAULT_TIME_LIMIT"
+            time_limit_secs=$(parse_duration "$DEFAULT_TIME_LIMIT")
         fi
+        info "Time limit: $(format_duration "$time_limit_secs")"
     fi
 
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
@@ -2372,7 +2376,7 @@ Input Options (mutually exclusive):
 Spec Options:
   --phase <hint>         Phase hint for --spec (number or text, e.g., "1" or "Security fixes")
   --max-parallel <N>     Override max parallel changes (overrides config and directives)
-  --time-limit <dur>     Stop after duration (e.g., 4h, 30m, 2h30m). Resume with 'start'.
+  --time-limit <dur>     Stop after duration (default: 5h, "none" to disable). Resume with 'start'.
 
 Commands:
   plan [--show]          Generate change plan from spec/brief (or show existing)
