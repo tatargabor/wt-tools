@@ -746,7 +746,9 @@ init_state() {
             changes_since_checkpoint: 0
         }' > "$STATE_FILENAME"
 
-    log_info "State initialized with ${#changes} changes (plan v${plan_version})"
+    local change_count
+    change_count=$(echo "$changes" | jq 'length')
+    log_info "State initialized with $change_count changes (plan v$plan_version)"
 }
 
 # Update a top-level field in state
@@ -2121,6 +2123,7 @@ monitor_loop() {
     local token_wait=false  # true when token budget exceeded, waiting for reset
 
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
+    log_info "Directives: test_command=$test_command, review_before_merge=$review_before_merge, review_model=$review_model, test_timeout=$test_timeout, max_verify_retries=$max_verify_retries"
 
     while true; do
         sleep "$POLL_INTERVAL"
@@ -2505,7 +2508,7 @@ handle_change_done() {
     local review_before_merge="${7:-false}"
     local review_model="${8:-$DEFAULT_REVIEW_MODEL}"
 
-    log_info "Change $change_name completed, running checks..."
+    log_info "Change $change_name completed, running checks... (review_before_merge=$review_before_merge, test_command=$test_command, test_timeout=$test_timeout)"
 
     # Get current verify retry count
     local verify_retry_count
