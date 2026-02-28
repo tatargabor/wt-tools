@@ -944,6 +944,29 @@ send_notification() {
     log_info "Notification [$urgency]: $title — $body"
 }
 
+# ─── Memory Helpers ──────────────────────────────────────────────────
+
+# Save a memory with source:orchestrator tag prefix.
+# Usage: orch_remember "content" [type] [extra,tags]
+orch_remember() {
+    local content="$1"
+    local type="${2:-Learning}"
+    local tags="$3"
+    command -v wt-memory &>/dev/null || return 0
+    echo "$content" | wt-memory remember --type "$type" --tags "source:orchestrator${tags:+,$tags}" 2>/dev/null || true
+}
+
+# Recall memories with optional tag filtering.
+# Usage: orch_recall "query" [limit] [tags]
+orch_recall() {
+    local query="$1"
+    local limit="${2:-3}"
+    local tags="${3:-source:orchestrator}"
+    command -v wt-memory &>/dev/null || return 0
+    wt-memory recall "$query" --limit "$limit" --tags "$tags" --mode hybrid 2>/dev/null | \
+        jq -r '.[].content' 2>/dev/null | head -c 2000 || true
+}
+
 # ─── Subcommands ─────────────────────────────────────────────────────
 
 cmd_plan() {
@@ -1011,8 +1034,32 @@ cmd_plan() {
 
     local memory_context=""
     if command -v wt-memory &>/dev/null; then
-        memory_context=$(wt-memory recall "project architecture and features" --limit 5 2>/dev/null | \
-            jq -r '.[].content' 2>/dev/null | head -500 || true)
+        if [[ "$INPUT_MODE" == "brief" ]]; then
+            # Per-roadmap-item recall in brief mode
+            local next_items
+            next_items=$(parse_next_items "$INPUT_PATH")
+            local item_texts=()
+            while IFS= read -r item; do
+                [[ -z "$item" ]] && continue
+                local item_mem
+                item_mem=$(orch_recall "$item" 2 "" || true)
+                [[ -n "$item_mem" ]] && item_texts+=("$item_mem")
+            done < <(echo "$next_items" | jq -r '.[]' 2>/dev/null)
+            # Also recall orchestrator operational context
+            local orch_mem
+            orch_mem=$(orch_recall "orchestration merge conflict test failure" 3 "source:orchestrator" || true)
+            [[ -n "$orch_mem" ]] && item_texts+=("$orch_mem")
+            memory_context=$(printf '%s\n' "${item_texts[@]}" | head -c 2000)
+        else
+            # Spec mode: recall using phase hint or general query + orchestrator context
+            local spec_query="${PHASE_HINT:-project architecture and features}"
+            memory_context=$(orch_recall "$spec_query" 3 "" || true)
+            local orch_mem
+            orch_mem=$(orch_recall "orchestration merge conflict test failure" 3 "source:orchestrator" || true)
+            [[ -n "$orch_mem" ]] && memory_context="${memory_context}
+${orch_mem}"
+            memory_context=$(echo "$memory_context" | head -c 2000)
+        fi
     fi
 
     # Detect test infrastructure (TP-1)
@@ -1079,9 +1126,13 @@ $existing_specs
 
 ## Active Changes (already in progress)
 $active_changes
+$(if [[ -n "$memory_context" ]]; then
+cat <<MEM_CTX
 
 ## Project Memory
 $memory_context
+MEM_CTX
+fi)
 
 ## $test_infra_context
 $(if [[ -n "${_REPLAN_COMPLETED:-}" ]]; then
@@ -1098,6 +1149,14 @@ CRITICAL INSTRUCTIONS FOR REPLAN:
 - Generate changes with NEW names (not the same names as completed changes)
 - If no more phases remain in the spec, return an empty changes array: {"changes": [], "phase_detected": "all done", "reasoning": "all phases completed"}
 REPLAN_CTX
+fi)
+$(if [[ -n "${_REPLAN_MEMORY:-}" ]]; then
+cat <<ORCH_HIST
+
+## Orchestration History
+Past operational events from previous cycles — use this to avoid repeating mistakes:
+$_REPLAN_MEMORY
+ORCH_HIST
 fi)
 
 ## Task
@@ -1147,9 +1206,13 @@ $existing_specs
 
 ## Active Changes
 $active_changes
+$(if [[ -n "$memory_context" ]]; then
+cat <<MEM_CTX
 
 ## Project Memory
 $memory_context
+MEM_CTX
+fi)
 
 ## $test_infra_context
 
@@ -1903,6 +1966,11 @@ dispatch_change() {
     # Find actual worktree path
     wt_path=$(find_existing_worktree "$(pwd)" "$change_name" 2>/dev/null || echo "${project_path}-${change_name}")
 
+    # Recall change-specific memories for proposal enrichment
+    local dispatch_memory=""
+    dispatch_memory=$(orch_recall "$scope" 3 "" || true)
+    dispatch_memory="${dispatch_memory:0:1000}"
+
     # Create change directory + proposal in worktree
     (
         cd "$wt_path" || exit 1
@@ -1935,6 +2003,15 @@ $scope
 
 To be determined during design phase.
 PROPOSAL_EOF
+            # Append memory context if available
+            if [[ -n "$dispatch_memory" ]]; then
+                cat >> "$proposal_path" <<MEMORY_EOF
+
+## Context from Memory
+
+$dispatch_memory
+MEMORY_EOF
+            fi
             log_info "Pre-created proposal.md for $change_name"
         fi
     ) || {
@@ -2275,6 +2352,13 @@ auto_replan_cycle() {
     export _REPLAN_COMPLETED="$completed_roadmap"
     export _REPLAN_CYCLE="$cycle"
 
+    # Recall orchestrator operational history for replan context
+    local replan_memory
+    replan_memory=$(orch_recall "orchestration merge conflict test failure review" 5 "source:orchestrator" || true)
+    if [[ -n "$replan_memory" ]]; then
+        export _REPLAN_MEMORY="$replan_memory"
+    fi
+
     # Restore input path from plan so cmd_plan's find_input() can find it
     local plan_input_mode plan_input_path
     plan_input_mode=$(jq -r '.input_mode // empty' "$PLAN_FILENAME")
@@ -2288,10 +2372,10 @@ auto_replan_cycle() {
     if ! cmd_plan 2>>"$LOG_FILE"; then
         log_error "Auto-replan failed — cmd_plan returned error"
         rm -f "$old_plan"
-        unset _REPLAN_COMPLETED _REPLAN_CYCLE
+        unset _REPLAN_COMPLETED _REPLAN_CYCLE _REPLAN_MEMORY
         return 1
     fi
-    unset _REPLAN_COMPLETED _REPLAN_CYCLE
+    unset _REPLAN_COMPLETED _REPLAN_CYCLE _REPLAN_MEMORY
 
     # Check if new plan has any changes not already in current state
     # (comparing against state, not old plan, because a prior failed replan
@@ -2369,6 +2453,7 @@ poll_change() {
         if [[ -n "$ralph_pid" && "$ralph_pid" != "0" ]] && ! kill -0 "$ralph_pid" 2>/dev/null; then
             log_error "Terminal process $ralph_pid for $change_name is dead, no loop-state found"
             update_change_field "$change_name" "status" '"failed"'
+            orch_remember "Change $change_name failed — terminal process died without producing loop-state" Learning "phase:monitor,change:$change_name"
         fi
         return
     fi
@@ -2399,6 +2484,7 @@ poll_change() {
                 log_error "Change $change_name $ralph_status after 3 resume attempts — giving up"
                 update_change_field "$change_name" "status" '"failed"'
                 send_notification "wt-orchestrate" "Change '$change_name' failed after 3 resume attempts" "critical"
+                orch_remember "Change $change_name $ralph_status after 3 resume attempts — agent could not complete this task" Learning "phase:monitor,change:$change_name"
                 trigger_checkpoint "failure"
             fi
             ;;
@@ -2526,10 +2612,12 @@ handle_change_done() {
             test_result="pass"
             test_output="$TEST_OUTPUT"
             log_info "Verify gate: tests passed for $change_name"
+            orch_remember "Tests passed for $change_name" Context "phase:test,change:$change_name"
         else
             test_result="fail"
             test_output="$TEST_OUTPUT"
             log_error "Verify gate: tests failed for $change_name"
+            orch_remember "Tests failed for $change_name: ${test_output:0:500}" Learning "phase:test,change:$change_name"
         fi
     fi
 
@@ -2576,6 +2664,7 @@ handle_change_done() {
             log_error "Verify gate: review found CRITICAL issues in $change_name"
             update_change_field "$change_name" "review_result" '"critical"'
             update_change_field "$change_name" "review_output" "$(printf '%s' "$REVIEW_OUTPUT" | head -c 2000 | jq -Rs .)"
+            orch_remember "Code review found CRITICAL issues in $change_name: ${REVIEW_OUTPUT:0:500}" Learning "phase:review,change:$change_name"
 
             # Retry with review feedback
             if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
@@ -2593,6 +2682,7 @@ handle_change_done() {
         fi
         update_change_field "$change_name" "review_result" '"pass"'
         log_info "Verify gate: review passed for $change_name"
+        orch_remember "Code review passed for $change_name — no critical issues" Context "phase:review,change:$change_name"
     fi
 
     # ── Step 3: Run verify step (existing) ──
@@ -2692,6 +2782,10 @@ merge_change() {
         log_info "Merged $change_name"
         success "Merged: $change_name"
 
+        local iter_count
+        iter_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .iterations // 0' "$STATE_FILENAME" 2>/dev/null || echo "?")
+        orch_remember "Merged $change_name successfully ($iter_count iterations)" Context "phase:merge,change:$change_name"
+
         cleanup_worktree "$change_name" "$wt_path"
 
         # Remove from merge queue if present
@@ -2702,6 +2796,7 @@ merge_change() {
         warn "Merge conflict for $change_name"
         update_change_field "$change_name" "status" '"merge-blocked"'
         log_error "Merge conflict for $change_name"
+        orch_remember "Merge conflict for $change_name — consider sequencing this change after its conflicting dependencies in future plans" Decision "phase:merge,change:$change_name"
         # No notification here — retry_merge_queue sends one only on final failure
     fi
 }
@@ -2767,6 +2862,7 @@ retry_merge_queue() {
         if [[ "$retry_count" -ge "$max_merge_retries" ]]; then
             log_error "Merge failed after $max_merge_retries attempts for $name — giving up"
             send_notification "wt-orchestrate" "Merge permanently blocked: $name (after $max_merge_retries attempts)" "critical"
+            orch_remember "Merge permanently failed for $name after $max_merge_retries attempts — this change has unresolvable conflicts" Decision "phase:merge,change:$name"
         fi
     }
 
