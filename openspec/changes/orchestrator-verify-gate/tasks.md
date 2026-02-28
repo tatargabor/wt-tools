@@ -1,0 +1,45 @@
+# Tasks
+
+## Test Infrastructure Detection (TP-1)
+
+- [ ] Add `detect_test_infra()` function that scans target project: vitest/jest config, `*.test.*` count, package.json test script, helper dirs. Returns JSON `{framework, config_exists, test_file_count, has_helpers, test_command}`.
+- [ ] Call `detect_test_infra()` at orchestrator start (in `cmd_plan`) and store results for planner context injection.
+
+## test_command Auto-Detection (VG-3)
+
+- [ ] Add `auto_detect_test_command()` function: reads package.json, checks scripts for `test` → `test:unit` → `test:ci`, detects package manager from lockfile (npm/yarn/pnpm). Returns command string or empty.
+- [ ] Integrate into directive resolution: if `test_command` is empty after directive parsing, call `auto_detect_test_command()`. Log result.
+
+## Planner Prompt: Test-Aware (TP-2, TP-3, TP-4)
+
+- [ ] Inject test infra scan results into the plan decomposition prompt context section.
+- [ ] Add planner prompt rules: "Every change scope MUST include test requirements", "Security changes must include tenant isolation and auth guard tests".
+- [ ] Add planner prompt rule for missing infra: "If no test infrastructure, first change MUST be test-infrastructure-setup with all others depending on it".
+
+## Model Tiering (MT-1 through MT-5)
+
+- [ ] Modify `run_claude()` to accept optional model parameter. Map `haiku`/`sonnet`/`opus` to full model IDs. Pass `--model <id>` to claude CLI when set.
+- [ ] Add `summarize_model` and `review_model` directives to `parse_directives()` / `resolve_directives()` with validation (must be haiku|sonnet|opus).
+- [ ] Update `summarize_spec()` to use `summarize_model` directive (default: haiku).
+- [ ] Hardcode `cmd_plan()` decomposition call to use opus model explicitly.
+
+## Verify Gate (VG-1, VG-2, VG-5)
+
+- [ ] Add `run_tests_in_worktree()` function: `cd $wt_path && timeout $test_timeout $test_command`, captures exit code + output (truncated to 2000 chars).
+- [ ] Add `verify-failed` and `verifying` to valid change statuses.
+- [ ] Modify `handle_change_done()`: before merge, set status to `verifying`, call `run_tests_in_worktree()`. On pass → proceed to merge. On fail → restart Ralph with test failure context (respecting `verify_retried` flag and `max_verify_retries`).
+- [ ] Store test results in change state: `test_result`, `test_output` fields.
+- [ ] Add `test_timeout` directive (default: 300s) and `max_verify_retries` directive (default: 1).
+
+## LLM Code Review Gate (VG-4)
+
+- [ ] Add `review_change()` function: generates git diff of change branch vs target, sends to Claude with review prompt using `review_model`.
+- [ ] Review prompt template: include diff, original scope, check for security gaps, missing auth, tenant isolation.
+- [ ] Parse review output for "CRITICAL" severity — if found, treat as test failure (retry Ralph).
+- [ ] Integrate into `handle_change_done()` flow: tests pass → review (if `review_before_merge: true`) → merge.
+- [ ] Add `review_before_merge` directive (default: false).
+
+## Status and Logging
+
+- [ ] Update `cmd_status()` to show verify gate info: test result per change, review status, verify-failed count.
+- [ ] Log verify gate events: test start/pass/fail, review start/pass/critical, retry dispatch.
