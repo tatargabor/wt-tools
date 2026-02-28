@@ -2141,7 +2141,7 @@ poll_change() {
         done)
             handle_change_done "$change_name" "$wt_path" "$test_command" "$merge_policy"
             ;;
-        stalled|stuck)
+        stopped|stalled|stuck)
             local stall_count
             stall_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .stall_count // 0' "$STATE_FILENAME")
             stall_count=$((stall_count + 1))
@@ -2149,7 +2149,7 @@ poll_change() {
 
             if [[ "$stall_count" -le 3 ]]; then
                 log_warn "Change $change_name $ralph_status (attempt $stall_count/3) — will auto-resume"
-                info "$change_name stalled (attempt $stall_count/3), resuming..."
+                info "$change_name $ralph_status (attempt $stall_count/3), resuming..."
                 update_change_field "$change_name" "status" '"stalled"'
                 update_change_field "$change_name" "stalled_at" "$(date +%s)"
             else
