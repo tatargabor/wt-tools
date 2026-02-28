@@ -122,3 +122,58 @@ When `dispatch_change()` creates a proposal.md in a worktree, it SHALL recall me
 - **WHEN** `dispatch_change()` performs recall
 - **THEN** the query SHALL use the change's scope text (not the kebab-case name)
 - **AND** the recall SHALL NOT filter by `source:orchestrator` tags (to capture both agent and orchestrator memories)
+
+### Requirement: Quality gate steps are timed
+Each quality gate step in `handle_change_done()` SHALL measure elapsed wall-clock time in milliseconds and store the result in the change's state.
+
+#### Scenario: Test execution timed
+- **WHEN** `run_tests_in_worktree()` is called within `handle_change_done()`
+- **THEN** the elapsed time SHALL be measured via epoch milliseconds before/after
+- **AND** stored in the change state as `gate_test_ms`
+
+#### Scenario: LLM review timed
+- **WHEN** `review_change()` is called within `handle_change_done()`
+- **THEN** the elapsed time SHALL be measured
+- **AND** stored in the change state as `gate_review_ms`
+
+#### Scenario: Verify step timed
+- **WHEN** the `/opsx:verify` claude call runs within `handle_change_done()`
+- **THEN** the elapsed time SHALL be measured
+- **AND** stored in the change state as `gate_verify_ms`
+
+### Requirement: Retry token cost is tracked
+When a change fails verification and is retried via `resume_change()`, the orchestrator SHALL track the additional token cost of retry iterations.
+
+#### Scenario: Retry token diff captured
+- **WHEN** `handle_change_done()` triggers a retry (test fail or review critical)
+- **THEN** the current `total_tokens` from loop-state.json SHALL be recorded as `retry_tokens_start`
+- **AND** when `handle_change_done()` is called again after the retry loop completes, the diff `total_tokens - retry_tokens_start` SHALL be stored as `gate_retry_tokens`
+
+#### Scenario: Multiple retries accumulate
+- **WHEN** a change goes through multiple verify-retry cycles
+- **THEN** `gate_retry_tokens` SHALL accumulate (add each cycle's diff)
+
+### Requirement: Per-change gate cost summary in state
+The orchestrator state JSON SHALL include a `gate_costs` object per change summarizing all quality gate costs.
+
+#### Scenario: Gate costs stored after successful verification
+- **WHEN** `handle_change_done()` completes all steps and marks the change as done
+- **THEN** the change state SHALL include:
+  - `gate_test_ms`: total test execution time (0 if skipped)
+  - `gate_review_ms`: total review time (0 if skipped)
+  - `gate_verify_ms`: total verify time
+  - `gate_retry_tokens`: total tokens consumed by retry loops (0 if no retries)
+  - `gate_retry_count`: number of retry cycles
+  - `gate_total_ms`: sum of test + review + verify times
+
+### Requirement: Aggregate gate cost log
+The orchestrator SHALL log aggregate quality gate costs at orchestration completion and in periodic status reports.
+
+#### Scenario: Completion summary includes gate costs
+- **WHEN** orchestration reaches completion (all changes done or time limit)
+- **THEN** the log SHALL include a summary line with: total gate time across all changes, total retry tokens, number of changes that needed retries, gate time as percentage of active time
+
+#### Scenario: cmd_status shows gate costs
+- **WHEN** `cmd_status` displays the change table
+- **THEN** each change row SHALL include gate time (e.g., "23.7s") and retry info (e.g., "1 retry, +45k tokens")
+- **AND** a summary row SHALL show aggregate gate costs

@@ -9,6 +9,8 @@ The orchestrator (wt-orchestrate) has near-zero memory integration. While agents
 - **Replan recall**: `auto_replan_cycle()` recalls orchestrator memories (past merge conflicts, test failures) to inform better replanning decisions
 - **Per-change planning recall**: During `cmd_plan()`, recall memories specific to each roadmap item scope instead of using a single generic query
 
+- **Quality gate cost tracking**: Time every quality gate step (tests, LLM review, verify), track retry token cost, store per-change gate costs in state JSON, log aggregate summaries, show in `cmd_status`
+
 Not included: loop prompt memory injection (redundant — agent hooks already provide memory context inside each Claude session).
 
 ## Capabilities

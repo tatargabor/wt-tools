@@ -87,6 +87,30 @@ The `auto_replan_cycle()` function recalls orchestrator memories and injects the
 
 **Why:** Keeps memory context separate from spec content. The LLM can use it as advisory context without confusing it with requirements.
 
+### **Choice**: Gate cost timing uses epoch milliseconds, not SECONDS builtin
+
+Each gate step is timed with `$(date +%s%N) / 1000000` before/after, yielding millisecond precision. Results are stored per-change in state JSON as `gate_test_ms`, `gate_review_ms`, `gate_verify_ms`.
+
+**Why:** The bash `SECONDS` builtin only has 1-second resolution and is shared across the entire script. Millisecond-level `date +%s%N` gives meaningful data even for fast test runs.
+
+### **Choice**: Retry token cost tracked via loop-state.json diff
+
+When a retry is triggered, the current `total_tokens` from the worktree's `.claude/loop-state.json` is snapshotted as `retry_tokens_start`. When the change comes back through `handle_change_done()` after the retry, the diff is computed and accumulated in `gate_retry_tokens`.
+
+**Why:** Ralph loop tracks tokens per iteration in loop-state.json. The diff between pre-retry and post-retry snapshots gives exact retry cost without modifying wt-loop.
+
+### **Choice**: Gate costs stored flat in change state, not nested
+
+Instead of a `gate_costs: {}` sub-object (which complicates jq updates), gate fields are stored flat: `gate_test_ms`, `gate_review_ms`, `gate_verify_ms`, `gate_retry_tokens`, `gate_retry_count`, `gate_total_ms`. Aggregation computed on read.
+
+**Why:** `update_change_field` uses `jq --arg` on flat paths. Nested objects would require different jq syntax for each update. Flat fields are simpler and consistent with existing `test_result`, `review_result` etc.
+
+### **Choice**: cmd_status gate column shows compact format
+
+Gate cost in the status table is shown as `23.7s` (total gate time) with retry info like `+45k tok, 1 retry` on the same line. Keeps the table scannable.
+
+**Why:** Operators glance at status output during long runs. Compact format prevents table width explosion while still surfacing the key cost data.
+
 ## Risks / Trade-offs
 
 **[Latency]** Each recall adds ~100-200ms per `wt-memory` CLI invocation. Planning has 1 recall per roadmap item (typically 3-8 items), dispatch has 1, replan has 1. Total added latency: ~0.5-2s per cycle.

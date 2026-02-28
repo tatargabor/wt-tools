@@ -38,3 +38,23 @@
 - [x] 7.1 Add `orch_recall` call in `dispatch_change()` using change scope text as query with no tag filter, limit 3
 - [x] 7.2 Append `## Context from Memory` section to proposal.md when recall returns non-empty content, limited to 1000 chars
 - [x] 7.3 Skip the section entirely when recall returns empty
+
+## 8. Quality Gate — Time Measurement
+
+- [x] 8.1 Wrap `run_tests_in_worktree` call in `handle_change_done()` with `date +%s%N` before/after, compute `gate_test_ms`, store via `update_change_field`
+- [x] 8.2 Wrap `review_change` call in `handle_change_done()` with timing, compute `gate_review_ms`, store via `update_change_field`
+- [x] 8.3 Wrap the `/opsx:verify` claude call in `handle_change_done()` with timing, compute `gate_verify_ms`, store via `update_change_field`
+- [x] 8.4 After all gate steps complete (before marking done), compute `gate_total_ms` = test + review + verify, store via `update_change_field`
+
+## 9. Quality Gate — Retry Token Tracking
+
+- [x] 9.1 Before `resume_change()` in test-fail retry path, snapshot current `total_tokens` from loop-state.json as `retry_tokens_start` via `update_change_field`
+- [x] 9.2 Before `resume_change()` in review-critical retry path, same snapshot
+- [x] 9.3 At start of `handle_change_done()`, if `retry_tokens_start` is set, compute diff from current loop-state `total_tokens`, accumulate into `gate_retry_tokens`, increment `gate_retry_count`, clear `retry_tokens_start`
+
+## 10. Quality Gate — Aggregate Summary and Status Display
+
+- [x] 10.1 Add `orch_gate_stats()` function that reads all changes from state JSON, sums gate times and retry tokens, logs aggregate summary (total gate time, retry tokens, retry count, gate time as % of active time)
+- [x] 10.2 Call `orch_gate_stats()` at orchestration completion (alongside `orch_memory_stats`)
+- [x] 10.3 In `cmd_status` change table, add gate time column showing per-change `gate_total_ms` formatted as seconds (e.g. "23.7s") and retry info (e.g. "+45k tok")
+- [x] 10.4 In `cmd_status` summary section, show aggregate gate costs line

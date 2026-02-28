@@ -1034,6 +1034,35 @@ orch_memory_audit() {
     fi
 }
 
+# Aggregate quality gate cost summary across all changes.
+orch_gate_stats() {
+    [[ ! -f "$STATE_FILENAME" ]] && return 0
+
+    local total_gate_ms=0 total_retry_tokens=0 total_retry_count=0 changes_with_gate=0
+
+    while IFS=$'\t' read -r name gate_ms retry_tok retry_cnt; do
+        [[ -z "$name" || "$gate_ms" == "null" || "$gate_ms" == "0" ]] && continue
+        total_gate_ms=$((total_gate_ms + gate_ms))
+        total_retry_tokens=$((total_retry_tokens + ${retry_tok:-0}))
+        total_retry_count=$((total_retry_count + ${retry_cnt:-0}))
+        changes_with_gate=$((changes_with_gate + 1))
+    done < <(jq -r '.changes[] | [.name, (.gate_total_ms // 0), (.gate_retry_tokens // 0), (.gate_retry_count // 0)] | @tsv' "$STATE_FILENAME" 2>/dev/null)
+
+    [[ "$changes_with_gate" -eq 0 ]] && return 0
+
+    local active_seconds
+    active_seconds=$(jq -r '.active_seconds // 1' "$STATE_FILENAME")
+    local active_ms=$((active_seconds * 1000))
+    local gate_pct=0
+    [[ "$active_ms" -gt 0 ]] && gate_pct=$((total_gate_ms * 100 / active_ms))
+
+    local gate_secs=$((total_gate_ms / 1000))
+    local retry_tok_k=$((total_retry_tokens / 1000))
+
+    log_info "Gate stats: ${changes_with_gate} changes gated, total ${gate_secs}s (${gate_pct}% of active time), ${total_retry_count} retries (+${retry_tok_k}k tokens)"
+    info "Quality Gate: ${gate_secs}s across ${changes_with_gate} changes (${gate_pct}% of active), ${total_retry_count} retries (+${retry_tok_k}k tokens)"
+}
+
 # ─── Subcommands ─────────────────────────────────────────────────────
 
 cmd_plan() {
@@ -1668,11 +1697,11 @@ cmd_status() {
 
     echo ""
     # Per-change table
-    printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "Change" "Status" "Progress" "Tests" "Review" "Tokens"
-    printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "─────────────────────────" "──────────────" "───────────────" "────────" "────────" "──────────"
+    printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "Change" "Status" "Progress" "Tests" "Review" "Tokens" "Gate Cost"
+    printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "─────────────────────────" "──────────────" "───────────────" "────────" "────────" "──────────" "──────────────"
 
-    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)\t\(.test_result // "-")\t\(.review_result // "-")"' "$STATE_FILENAME" | \
-    while IFS=$'\t' read -r name change_status tokens test_res review_res; do
+    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)\t\(.test_result // "-")\t\(.review_result // "-")\t\(.gate_total_ms // 0)\t\(.gate_retry_tokens // 0)\t\(.gate_retry_count // 0)"' "$STATE_FILENAME" | \
+    while IFS=$'\t' read -r name change_status tokens test_res review_res g_ms g_rtok g_rcnt; do
         local progress="-"
         # Try to read iteration progress from worktree
         local wt_path
@@ -1683,7 +1712,18 @@ cmd_status() {
             max_iter=$(jq -r '.max_iterations // "?"' "$wt_path/.claude/loop-state.json" 2>/dev/null)
             progress="iter $iter/$max_iter"
         fi
-        printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "$name" "$change_status" "$progress" "$test_res" "$review_res" "$tokens"
+        # Format gate cost column
+        local gate_col="-"
+        if [[ "$g_ms" -gt 0 ]]; then
+            local g_secs=$(( g_ms / 1000 ))
+            local g_frac=$(( (g_ms % 1000) / 100 ))
+            gate_col="${g_secs}.${g_frac}s"
+            if [[ "$g_rcnt" -gt 0 ]]; then
+                local rtok_k=$(( g_rtok / 1000 ))
+                gate_col="${gate_col} +${rtok_k}k"
+            fi
+        fi
+        printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "$name" "$change_status" "$progress" "$test_res" "$review_res" "$tokens" "$gate_col"
     done
 
     # Merge queue
@@ -1702,6 +1742,21 @@ cmd_status() {
     total_tokens=$(jq '[.changes[].tokens_used] | add // 0' "$STATE_FILENAME")
     echo ""
     echo "  Total tokens: $total_tokens"
+
+    # Aggregate gate costs
+    local agg_gate_ms agg_retry_tok agg_retry_cnt agg_gated
+    agg_gate_ms=$(jq '[.changes[].gate_total_ms // 0] | add // 0' "$STATE_FILENAME")
+    agg_retry_tok=$(jq '[.changes[].gate_retry_tokens // 0] | add // 0' "$STATE_FILENAME")
+    agg_retry_cnt=$(jq '[.changes[].gate_retry_count // 0] | add // 0' "$STATE_FILENAME")
+    agg_gated=$(jq '[.changes[] | select((.gate_total_ms // 0) > 0)] | length' "$STATE_FILENAME")
+    if [[ "$agg_gated" -gt 0 ]]; then
+        local agg_secs=$((agg_gate_ms / 1000))
+        local agg_frac=$(( (agg_gate_ms % 1000) / 100 ))
+        local rtok_k=$((agg_retry_tok / 1000))
+        local gate_pct=0
+        [[ "$active_secs" -gt 0 ]] && gate_pct=$((agg_gate_ms * 100 / (active_secs * 1000)))
+        echo "  Gate cost:  ${agg_secs}.${agg_frac}s across $agg_gated changes (${gate_pct}% of active), ${agg_retry_cnt} retries (+${rtok_k}k tokens)"
+    fi
     echo ""
 }
 
@@ -2277,6 +2332,7 @@ monitor_loop() {
         # Periodic memory stats + audit (every ~10 polls ≈ 2.5 min)
         if (( _poll_count % 10 == 0 )); then
             orch_memory_stats
+            orch_gate_stats
             orch_memory_audit
         fi
 
@@ -2295,6 +2351,7 @@ monitor_loop() {
             update_state_field "status" '"time_limit"'
             send_notification "wt-orchestrate" "Time limit reached ($(format_duration "$active_seconds") active). Run 'wt-orchestrate start' to continue." "normal"
             orch_memory_stats
+            orch_gate_stats
             break
         fi
 
@@ -2387,6 +2444,7 @@ monitor_loop() {
                     # No new work found
                     update_state_field "status" '"done"'
                     orch_memory_stats
+            orch_gate_stats
                 success "All work complete! No more phases to implement."
                     log_info "Auto-replan found no new work — orchestration complete"
                     break
@@ -2396,6 +2454,7 @@ monitor_loop() {
                 update_state_field "status" '"done"'
                 success "All changes complete!"
                 orch_memory_stats
+            orch_gate_stats
                 log_info "Orchestration complete"
                 break
             fi
@@ -2678,6 +2737,29 @@ handle_change_done() {
     local verify_retry_count
     verify_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .verify_retry_count // 0' "$STATE_FILENAME")
 
+    # ── Retry token tracking: compute diff if returning from a retry ──
+    local retry_tokens_start
+    retry_tokens_start=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_tokens_start // 0' "$STATE_FILENAME")
+    if [[ "$retry_tokens_start" -gt 0 ]]; then
+        local current_tokens
+        current_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+        local retry_diff=$((current_tokens - retry_tokens_start))
+        [[ "$retry_diff" -lt 0 ]] && retry_diff=0
+        local prev_retry_tokens
+        prev_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
+        local prev_retry_count
+        prev_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
+        update_change_field "$change_name" "gate_retry_tokens" "$((prev_retry_tokens + retry_diff))"
+        update_change_field "$change_name" "gate_retry_count" "$((prev_retry_count + 1))"
+        update_change_field "$change_name" "retry_tokens_start" "0"
+        log_info "Verify gate: retry cost for $change_name: +${retry_diff} tokens (total retries: $((prev_retry_count + 1)))"
+    fi
+
+    # Gate timing accumulators
+    local gate_test_ms=0
+    local gate_review_ms=0
+    local gate_verify_ms=0
+
     # ── Step 1: Run tests if configured (VG-1) ──
     local test_result="skip"
     local test_output=""
@@ -2686,6 +2768,7 @@ handle_change_done() {
         info "Running tests for $change_name..."
         log_info "Verify gate: test start for $change_name"
 
+        local _t_start=$(($(date +%s%N) / 1000000))
         if run_tests_in_worktree "$wt_path" "$test_command" "$test_timeout"; then
             test_result="pass"
             test_output="$TEST_OUTPUT"
@@ -2697,6 +2780,9 @@ handle_change_done() {
             log_error "Verify gate: tests failed for $change_name"
             orch_remember "Tests failed for $change_name: ${test_output:0:500}" Learning "phase:test,change:$change_name"
         fi
+        gate_test_ms=$(( $(date +%s%N) / 1000000 - _t_start ))
+        update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
+        log_info "Verify gate: test took ${gate_test_ms}ms for $change_name"
     fi
 
     # Store test results in state (VG-5)
@@ -2720,6 +2806,11 @@ handle_change_done() {
             scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
             local retry_prompt="Tests failed after implementation. Fix the failing tests.\n\nTest command: $test_command\nTest output:\n$test_output\n\nOriginal scope: $scope"
             update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+            # Snapshot tokens before retry for cost tracking
+            local _snap_tokens
+            _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+            update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+            update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
             resume_change "$change_name"
             return
         fi
@@ -2738,7 +2829,11 @@ handle_change_done() {
         local scope
         scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
 
+        local _r_start=$(($(date +%s%N) / 1000000))
         if ! review_change "$change_name" "$wt_path" "$scope" "$review_model"; then
+            gate_review_ms=$(( $(date +%s%N) / 1000000 - _r_start ))
+            update_change_field "$change_name" "gate_review_ms" "$gate_review_ms"
+            log_info "Verify gate: review took ${gate_review_ms}ms for $change_name (CRITICAL)"
             log_error "Verify gate: review found CRITICAL issues in $change_name"
             update_change_field "$change_name" "review_result" '"critical"'
             update_change_field "$change_name" "review_output" "$(printf '%s' "$REVIEW_OUTPUT" | head -c 2000 | jq -Rs .)"
@@ -2751,6 +2846,10 @@ handle_change_done() {
                 log_info "Verify gate: review critical retry $verify_retry_count/$max_verify_retries for $change_name"
                 update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
                 update_change_field "$change_name" "status" '"verify-failed"'
+                # Snapshot tokens before retry for cost tracking
+                local _snap_tokens
+                _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+                update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
                 resume_change "$change_name"
                 return
             fi
@@ -2758,6 +2857,9 @@ handle_change_done() {
             send_notification "wt-orchestrate" "Change '$change_name' has critical review issues after retries" "critical"
             return
         fi
+        gate_review_ms=$(( $(date +%s%N) / 1000000 - _r_start ))
+        update_change_field "$change_name" "gate_review_ms" "$gate_review_ms"
+        log_info "Verify gate: review took ${gate_review_ms}ms for $change_name (pass)"
         update_change_field "$change_name" "review_result" '"pass"'
         log_info "Verify gate: review passed for $change_name"
         orch_remember "Code review passed for $change_name — no critical issues" Context "phase:review,change:$change_name"
@@ -2765,10 +2867,14 @@ handle_change_done() {
 
     # ── Step 3: Run verify step (existing) ──
     info "Running verify for $change_name..."
+    local _v_start=$(($(date +%s%N) / 1000000))
     local verify_ok=true
     if command -v claude &>/dev/null; then
         (cd "$wt_path" && echo "Run /opsx:verify $change_name" | run_claude --max-turns 5 &>/dev/null) || verify_ok=false
     fi
+    gate_verify_ms=$(( $(date +%s%N) / 1000000 - _v_start ))
+    update_change_field "$change_name" "gate_verify_ms" "$gate_verify_ms"
+    log_info "Verify gate: verify took ${gate_verify_ms}ms for $change_name"
 
     if [[ "$verify_ok" != "true" ]]; then
         if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
@@ -2782,6 +2888,15 @@ handle_change_done() {
         send_notification "wt-orchestrate" "Change '$change_name' failed verify after retries" "critical"
         return
     fi
+
+    # ── Store gate total ──
+    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms))
+    update_change_field "$change_name" "gate_total_ms" "$gate_total_ms"
+    local gate_retry_tokens
+    gate_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
+    local gate_retry_count
+    gate_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
+    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
 
     # ── Step 4: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
