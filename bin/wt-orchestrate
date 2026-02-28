@@ -2699,14 +2699,14 @@ monitor_loop() {
             continue
         fi
 
-        # Poll each active change
-        local running_changes
-        running_changes=$(get_changes_by_status "running")
+        # Poll each active change (running + verifying — verifying may have been interrupted mid-gate)
+        local active_changes
+        active_changes=$(jq -r '.changes[]? | select(.status == "running" or .status == "verifying") | .name' "$STATE_FILENAME" 2>/dev/null || true)
         while IFS= read -r name; do
             [[ -z "$name" ]] && continue
             poll_change "$name" "$test_command" "$merge_policy" \
                 "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model"
-        done <<< "$running_changes"
+        done <<< "$active_changes"
 
         # Check token budget — if exceeded, skip dispatch but keep polling
         # (waiting for rate limit window to reset; running loops will finish naturally)
@@ -2938,6 +2938,34 @@ poll_change() {
         done)
             handle_change_done "$change_name" "$wt_path" "$test_command" "$merge_policy" \
                 "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model"
+            ;;
+        running)
+            # Check if the loop process is actually alive
+            local loop_mtime
+            loop_mtime=$(stat -c %Y "$loop_state" 2>/dev/null || echo 0)
+            local now_epoch
+            now_epoch=$(date +%s)
+            local stale_secs=$(( now_epoch - loop_mtime ))
+
+            # If loop-state hasn't been updated in 5+ minutes, the process is likely dead
+            if [[ "$stale_secs" -gt 300 ]]; then
+                log_warn "Change $change_name loop-state is stale (${stale_secs}s old, status=running) — treating as stopped"
+                # Fall through to stall handling
+                local stall_count
+                stall_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .stall_count // 0' "$STATE_FILENAME")
+                stall_count=$((stall_count + 1))
+                update_change_field "$change_name" "stall_count" "$stall_count"
+
+                if [[ "$stall_count" -le 3 ]]; then
+                    log_info "Resuming stale $change_name (attempt $stall_count/3)"
+                    info "$change_name stale (attempt $stall_count/3), resuming..."
+                    resume_change "$change_name"
+                else
+                    log_error "Change $change_name stale after 3 resume attempts — giving up"
+                    update_change_field "$change_name" "status" '"failed"'
+                    send_notification "wt-orchestrate" "Change '$change_name' failed — process died 3 times" "critical"
+                fi
+            fi
             ;;
         stopped|stalled|stuck)
             local stall_count
