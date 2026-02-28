@@ -3056,10 +3056,18 @@ monitor_loop() {
                 info "All changes done. Auto-replanning..."
                 log_info "Auto-replan triggered"
 
-                # Track replan cycle in state
+                # Track replan cycle in state — persist BEFORE attempting so retries
+                # read the same cycle number and don't re-increment
                 local cycle
                 cycle=$(jq '.replan_cycle // 0' "$STATE_FILENAME")
-                cycle=$((cycle + 1))
+                local replan_attempt
+                replan_attempt=$(jq '.replan_attempt // 0' "$STATE_FILENAME")
+
+                # Only increment cycle on first attempt (not retries of same cycle)
+                if [[ "$replan_attempt" -eq 0 ]]; then
+                    cycle=$((cycle + 1))
+                    update_state_field "replan_cycle" "$cycle"
+                fi
 
                 local replan_rc=0
                 auto_replan_cycle "$directives" "$cycle" || replan_rc=$?
@@ -3067,11 +3075,13 @@ monitor_loop() {
                 if [[ $replan_rc -eq 0 ]]; then
                     # New plan dispatched, continue monitoring
                     replan_retry_count=0
+                    update_state_field "replan_attempt" "0"
                     info "Replan cycle $cycle: new changes dispatched, continuing..."
                     log_info "Replan cycle $cycle started"
                     continue
                 elif [[ $replan_rc -eq 1 ]]; then
                     # No new work found — genuinely done
+                    update_state_field "replan_attempt" "0"
                     update_state_field "status" '"done"'
                     cleanup_all_worktrees
                     orch_memory_stats
@@ -3081,7 +3091,11 @@ monitor_loop() {
                     break
                 else
                     # Replan failed (rc=2) — retry with limit
-                    replan_retry_count=$((replan_retry_count + 1))
+                    # Use persistent attempt counter (survives poll loop re-entry)
+                    replan_attempt=$((replan_attempt + 1))
+                    update_state_field "replan_attempt" "$replan_attempt"
+                    replan_retry_count=$replan_attempt
+
                     if [[ $replan_retry_count -ge $MAX_REPLAN_RETRIES ]]; then
                         warn "Replan failed $replan_retry_count consecutive times — giving up"
                         log_error "Auto-replan exhausted after $replan_retry_count failures (cycle $cycle)"
@@ -3090,6 +3104,7 @@ monitor_loop() {
                         [[ -n "$failed_names" ]] && warn "Failed changes: $failed_names"
                         update_state_field "status" '"done"'
                         update_state_field "replan_exhausted" 'true'
+                        update_state_field "replan_attempt" "0"
                         break
                     fi
                     warn "Replan failed (cycle $cycle, attempt $replan_retry_count/$MAX_REPLAN_RETRIES) — will retry"
