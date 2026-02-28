@@ -1,16 +1,13 @@
 ---
-name: openspec-plan-review
-description: Review a spec document against the planning guide and checklist. Use when the user wants to check if their orchestration spec is well-structured before running wt-orchestrate.
-license: MIT
-compatibility: Requires wt-tools docs.
-metadata:
-  author: wt-tools
-  version: "1.0"
+name: "WT: Plan Review"
+description: "Review a spec document against the planning guide and checklist"
+category: Workflow
+tags: [workflow, planning, review, orchestration]
 ---
 
 Review a spec document against the orchestration planning guide and checklist.
 
-**Input**: The argument after `/opsx:plan-review` is the path to the spec file to review. If no path is given, ask the user which file to review.
+**Input**: The argument after `/wt:plan-review` is the path to the spec file to review. If no path is given, ask the user which file to review.
 
 **Steps**
 
