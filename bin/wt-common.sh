@@ -902,6 +902,52 @@ warn() { echo -e "${YELLOW}$*${NC}" >&2; }
 error() { echo -e "${RED}Error: $*${NC}" >&2; }
 
 # =============================================================================
+# Model ID Resolution
+# =============================================================================
+
+# Get configured model prefix from config.json (e.g. "cc/" for router setups, "" for direct API)
+# Falls back to "" (no prefix) if not configured.
+get_model_prefix() {
+    local config_file
+    config_file="$(get_config_dir)/config.json"
+    if [[ -f "$config_file" ]]; then
+        local prefix
+        prefix=$(json_get "$config_file" '.claude.model_prefix')
+        echo "${prefix:-}"
+    else
+        echo ""
+    fi
+}
+
+# Set model prefix in config
+set_model_prefix() {
+    local prefix="$1"
+    ensure_editor_config
+    local config_file
+    config_file=$(get_editor_config_file)
+    local tmp
+    tmp=$(mktemp)
+    jq --arg prefix "$prefix" '.claude.model_prefix = $prefix' "$config_file" > "$tmp" && mv "$tmp" "$config_file"
+}
+
+# Resolve short model name to full model ID using configured prefix.
+# Usage: resolve_model_id haiku|sonnet|opus|<full-id>
+# Examples with prefix "cc/":    haiku → cc/claude-haiku-4-5-20251001
+# Examples with prefix "":       haiku → claude-haiku-4-5-20251001
+resolve_model_id() {
+    local name="$1"
+    local prefix
+    prefix=$(get_model_prefix)
+
+    case "$name" in
+        haiku)  echo "${prefix}claude-haiku-4-5-20251001" ;;
+        sonnet) echo "${prefix}claude-sonnet-4-6" ;;
+        opus)   echo "${prefix}claude-opus-4-6" ;;
+        *)      echo "$name" ;;  # pass through full IDs
+    esac
+}
+
+# =============================================================================
 # Claude CLI Helper
 # =============================================================================
 

@@ -1,31 +1,36 @@
-// wt-orchestrate Architecture Diagram (Layered v5)
+// wt-orchestrate Architecture Diagram (Layered v6 — symmetric)
 // Generate: dot -Tpng -Gdpi=150 wt-orchestrate-architecture.dot -o wt-orchestrate-architecture.png
 //
-// Design notes (for future iteration):
+// Design notes:
 // - 5 layer clusters (L1-L5) stacked top-to-bottom as main flow
-// - Cross-cutting cluster: Memory, Cost, Notifications, Files
-// - Git infrastructure: Topology, Merge Waterfall, Worktree Layout
-// - Change Lifecycle as compact text reference
-// - Legend + Key Numbers + Stop Conditions in REFERENCE cluster
-// - Inline badges: + mem (memory), $ (cost/tokens), ! (notification)
-// - Happy path = green thick edges, failure = red, retry = orange dashed
+// - APPENDIX with cross-cutting, git infra, lifecycle, reference
+// - Back-edges routed LEFT via invisible waypoint column for symmetry
+// - Config (directives) annotated inline, no cross-cluster config edges
+// - Happy path = green thick, failure = red, retry = orange dashed
 // - Step numbers ①-⑩ for reading order
-// - Use `weight` on forward edges to keep them tight
-// - Use `constraint=false` on back-edges to avoid rank disruption
-// - Use invisible edges for vertical cluster ordering
-// - Known limitation: back-edge arcs (retry→ralph, replan→dispatch)
-//   create wide curves — this is inherent to DOT layout engine
-// - Bottom section has 3 rows: cross-cutting → git infra + lifecycle → reference
 
 digraph orchestrate {
     graph [
         label="wt-orchestrate — Autonomous Multi-Phase Spec Orchestration\n "
         labelloc=t fontname="Helvetica" fontsize=22 fontcolor="#212121"
-        bgcolor="white" pad=0.5 nodesep=0.7 ranksep=0.55
-        compound=true newrank=true center=true
+        bgcolor="white" pad="0.8,0.5" nodesep=0.7 ranksep=0.55
+        compound=true newrank=true
     ]
     node [fontname="Helvetica" fontsize=9 style="filled,rounded" shape=box margin="0.14,0.07"]
     edge [fontname="Helvetica" fontsize=7 arrowsize=0.7]
+
+    // ════════════════════════════════════════════════════════════════
+    // LEFT-SIDE WAYPOINT COLUMN (invisible — forces back-edges left)
+    // ════════════════════════════════════════════════════════════════
+    node [style=invis fixedsize=true width=0.01 height=0.01 label=""]
+    wp_L1 [group=left]
+    wp_L2 [group=left]
+    wp_L3 [group=left]
+    wp_L4 [group=left]
+    wp_L5 [group=left]
+    node [style="filled,rounded" fixedsize=false]  // reset
+
+    wp_L1 -> wp_L2 -> wp_L3 -> wp_L4 -> wp_L5 [style=invis weight=10]
 
     // ════════════════════════════════════════════════════════════════
     // L1: INPUT & CONFIGURATION
@@ -39,7 +44,7 @@ digraph orchestrate {
 
         summarize [label="① Summarize [Haiku]\nif >8k tokens: condense\nTOC + next-phase focus\nfallback: truncate 32k" fillcolor="#E1BEE7" color="#7B1FA2" fontsize=8]
 
-        directives [label="② Directives (4-level precedence)\nCLI > yaml > in-doc > defaults\n────────────────────────────\nmax_parallel  merge_policy\nreview_before_merge  test_timeout\nmax_verify_retries  token_budget\nsummarize_model  review_model" fillcolor="#FFE0B2" color="#F57C00" fontsize=7]
+        directives [label="② Directives → feeds L2-L5\n(4-level: CLI > yaml > in-doc > defaults)\n────────────────────────────────\nmax_parallel  merge_policy\nreview_before_merge  test_timeout\nmax_verify_retries  token_budget\nsummarize_model  review_model" fillcolor="#FFE0B2" color="#F57C00" fontsize=7]
 
         input -> summarize [label=">8k tok" style=dashed]
         { rank=same; input; summarize; directives }
@@ -228,39 +233,56 @@ digraph orchestrate {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // INTER-LAYER EDGES
+    // WAYPOINT ALIGNMENT — anchor waypoints to cluster ranks
+    // ════════════════════════════════════════════════════════════════
+    { rank=same; wp_L1; input }
+    { rank=same; wp_L2; plan }
+    { rank=same; wp_L3; dispatch }
+    { rank=same; wp_L4; g_test }
+    { rank=same; wp_L5; merge }
+
+    // ════════════════════════════════════════════════════════════════
+    // INTER-LAYER EDGES (forward — happy path)
     // ════════════════════════════════════════════════════════════════
 
-    // L1 → L2 (happy path green)
+    // L1 → L2
     input -> mem_warm [penwidth=2.5 color="#388E3C" weight=8]
     summarize -> mem_warm [style=dashed weight=3]
-    directives -> plan [style=dashed constraint=false color="#9E9E9E"]
 
     // L2 → L3
     plan -> dispatch [label="changes[]" penwidth=2.5 color="#388E3C" weight=8]
 
-    // L3 internal
-    monitor -> dispatch [label="dispatch\nready" style=dashed constraint=false color="#9E9E9E"]
-
     // L3 → L4
     monitor -> g_test [label="ralph done" penwidth=2.5 color="#C62828" weight=8]
 
-    // L4 retry → L3 (back-edge)
-    retry -> ralph [label="resume +\ncontext" style=dashed color="#FF6F00" constraint=false]
-
-    // L4 → L5 (happy path green)
+    // L4 → L5
     g_verify -> merge [label="all pass ✓" penwidth=2.5 color="#388E3C" weight=8]
 
-    // L5 loops
+    // L5 forward
     merge -> replan [label="all phases\n+ auto_replan" penwidth=1.5 weight=5]
-    replan -> dispatch [label="new changes" penwidth=1.5 color="#1565C0" constraint=false]
+
+    // ════════════════════════════════════════════════════════════════
+    // BACK-EDGES — routed through LEFT waypoint column
+    // ════════════════════════════════════════════════════════════════
+
+    // Retry → Ralph (L4 → L3): go left through waypoints
+    retry -> wp_L4 [style=dashed color="#FF6F00" arrowhead=none constraint=false]
+    wp_L4 -> wp_L3 [style=dashed color="#FF6F00" arrowhead=none constraint=false]
+    wp_L3 -> ralph [label="resume +\ncontext" style=dashed color="#FF6F00" constraint=false]
+
+    // Stall recovery: Monitor → Ralph (within L3)
+    monitor -> ralph [label="resume stalled\n(300s cd)" style=dashed color="#FF6F00" constraint=false headport=w tailport=w]
+
+    // Replan → Dispatch (L5 → L3): go left through waypoints
+    replan -> wp_L5 [style=dashed color="#1565C0" arrowhead=none constraint=false]
+    wp_L5 -> wp_L3 [style=dashed color="#1565C0" arrowhead=none constraint=false weight=0]
+    wp_L3 -> dispatch [label="new changes" style=dashed color="#1565C0" constraint=false]
+
+    // Monitor → Dispatch (within L3): short left loop
+    monitor -> dispatch [label="dispatch\nready" style=dashed constraint=false color="#9E9E9E" headport=w tailport=w]
+
+    // Monitor → All Done (L3 → L5): forward skip
     monitor -> all_done [label="all done\nno replan" style=dashed constraint=false color="#9E9E9E"]
-
-    // Stall recovery
-    monitor -> ralph [label="resume stalled\n(300s cd)" style=dashed color="#FF6F00" constraint=false]
-
-    // Config → monitor
-    directives -> monitor [style=dashed constraint=false color="#9E9E9E"]
 
     // ════════════════════════════════════════════════════════════════
     // LAYOUT ORDERING (invisible edges to force vertical stacking)

@@ -69,13 +69,9 @@ log_error() { log "ERROR" "$@"; }
 # run_claude() is provided by wt-common.sh (sourced above)
 
 # Map short model name to full model ID for --model flag
+# Delegates to resolve_model_id() from wt-common.sh (reads prefix from config)
 model_id() {
-    case "$1" in
-        haiku)  echo "cc/claude-haiku-4-5-20251001" ;;
-        sonnet) echo "cc/claude-sonnet-4-6" ;;
-        opus)   echo "cc/claude-opus-4-6" ;;
-        *)      echo "$1" ;;  # pass through if already a full ID or unknown
-    esac
+    resolve_model_id "$1"
 }
 
 rotate_log() {

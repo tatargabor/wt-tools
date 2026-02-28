@@ -162,7 +162,7 @@ $(cat "$file")
 
     # Call Claude with longer timeout for merge resolution
     local llm_output rc=0
-    llm_output=$(export RUN_CLAUDE_TIMEOUT=300; echo "$prompt" | run_claude --model sonnet --max-turns 1) || rc=$?
+    llm_output=$(export RUN_CLAUDE_TIMEOUT=300; echo "$prompt" | run_claude --model "$(resolve_model_id sonnet)" --max-turns 1) || rc=$?
 
     if [[ $rc -ne 0 || -z "$llm_output" ]]; then
         warn "LLM conflict resolution failed (exit code: $rc)"

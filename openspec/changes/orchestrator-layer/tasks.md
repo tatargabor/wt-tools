@@ -77,10 +77,7 @@
 - [x] 10.4 Level 3 end-to-end test script: `tests/orchestrator/test-e2e.sh` — create temp git repo with trivial brief ("add hello.txt"), run `wt-orchestrate plan` + `start`, wait for completion, verify change went through full lifecycle (pending→dispatched→running→done→merged), verify hello.txt exists on main
 - [x] 10.5 Document parallel execution safety model in tests/orchestrator/README.md: worktree isolation, sequential merges, dependency ordering, conflict detection, and how to run each test level
 
-## 11. GUI Orchestrator View (Phase 2)
+## 11. GUI Orchestrator View (Phase 2) — MOVED
 
-- [ ] 11.1 Add orchestrator status indicator to project row in wt-control: detect `orchestration-state.json` existence, show "O" badge with status color (green=running, yellow=checkpoint, red=failed)
-- [ ] 11.2 Add orchestrator detail panel: read orchestration-state.json, display per-change progress cards with status, iteration count, token usage
-- [ ] 11.3 Add dependency graph visualization: render change DAG with status colors using QPainter (similar to DualStripeBar widget pattern)
-- [ ] 11.4 Add approve button: when orchestrator is in "checkpoint" status, show approve button that writes approval signal to state file
-- [ ] 11.5 Add GUI test for orchestrator panel: test with mock orchestration-state.json, verify status display and approve button interaction
+> **Moved to separate change: `orchestrator-gui`**
+> The CLI orchestrator (sections 1-10) is complete. GUI work continues in a dedicated change that accounts for all post-launch improvements (spec-driven orchestration, verify gate, quality gates, memory integration).

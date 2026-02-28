@@ -786,6 +786,45 @@ configure_permission_mode() {
     esac
 }
 
+configure_model_prefix() {
+    info "Configure Claude model prefix..."
+
+    echo ""
+    echo "If you use a model router (e.g. cc/, openrouter/, litellm/),"
+    echo "set the prefix here. It is prepended to model IDs like claude-opus-4-6."
+    echo ""
+    echo "Examples:"
+    echo "  1) (none)     - Direct Anthropic API (claude-opus-4-6)"
+    echo "  2) cc/        - Claude Code router (cc/claude-opus-4-6)"
+    echo "  3) custom     - Enter your own prefix"
+    echo ""
+
+    local choice
+    read -r -p "Select model prefix [1-3, default: 1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1)
+            set_model_prefix ""
+            success "Model prefix: (none)"
+            ;;
+        2)
+            set_model_prefix "cc/"
+            success "Model prefix: cc/"
+            ;;
+        3)
+            local custom_prefix
+            read -r -p "Enter prefix (include trailing slash if needed): " custom_prefix
+            set_model_prefix "$custom_prefix"
+            success "Model prefix: $custom_prefix"
+            ;;
+        *)
+            warn "Invalid choice, using no prefix"
+            set_model_prefix ""
+            ;;
+    esac
+}
+
 configure_zed() {
     info "Configuring Zed for Claude Code..."
 
@@ -875,6 +914,9 @@ main() {
     echo ""
 
     configure_permission_mode
+    echo ""
+
+    configure_model_prefix
     echo ""
 
     configure_zed

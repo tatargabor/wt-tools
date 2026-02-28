@@ -14,13 +14,17 @@ Commands:
   editor show           Show current editor configuration
   editor test           Test editor launch
 
+  model show            Show current model prefix and resolved IDs
+  model prefix <value>  Set model prefix (e.g. "cc/", "", "openrouter/")
+
 Options:
   -h, --help            Show this help
 
 Examples:
   wt-config editor list
   wt-config editor set vscode
-  wt-config editor show
+  wt-config model show
+  wt-config model prefix cc/
 EOF
 }
 
@@ -182,6 +186,25 @@ cmd_editor_test() {
     echo "Test directory: $test_dir (you can delete it)"
 }
 
+cmd_model_show() {
+    local prefix
+    prefix=$(get_model_prefix)
+    echo "Model prefix: \"${prefix:-<none>}\""
+    echo ""
+    echo "Resolved model IDs:"
+    echo "  haiku  → $(resolve_model_id haiku)"
+    echo "  sonnet → $(resolve_model_id sonnet)"
+    echo "  opus   → $(resolve_model_id opus)"
+}
+
+cmd_model_prefix() {
+    local prefix="$1"
+    set_model_prefix "$prefix"
+    success "Model prefix set to: \"${prefix:-<none>}\""
+    echo ""
+    cmd_model_show
+}
+
 main() {
     if [[ $# -eq 0 ]]; then
         usage
@@ -206,6 +229,30 @@ main() {
                 test) cmd_editor_test ;;
                 *)
                     error "Unknown editor command: $subcmd"
+                    usage
+                    exit 1
+                    ;;
+            esac
+            ;;
+        model)
+            if [[ $# -eq 0 ]]; then
+                cmd_model_show
+                exit 0
+            fi
+            local subcmd="$1"
+            shift
+            case "$subcmd" in
+                show) cmd_model_show ;;
+                prefix)
+                    if [[ $# -eq 0 ]]; then
+                        error "Usage: wt-config model prefix <value>"
+                        echo "  Use '' for no prefix, 'cc/' for router, etc."
+                        exit 1
+                    fi
+                    cmd_model_prefix "$1"
+                    ;;
+                *)
+                    error "Unknown model command: $subcmd"
                     usage
                     exit 1
                     ;;
