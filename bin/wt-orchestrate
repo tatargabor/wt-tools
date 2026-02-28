@@ -2638,10 +2638,20 @@ resume_change() {
         log_info "Resuming $change_name with retry context (${#retry_ctx} chars)"
         # Clear retry_context to prevent stale context on future resumes
         update_change_field "$change_name" "retry_context" "null"
-        # Use manual done criteria for retries — openspec would see "all tasks done"
-        # and tell the agent there's nothing to do, ignoring the build/test fix task.
-        done_criteria="manual"
-        max_iter=2
+
+        # Differentiate merge-conflict retry from build/test retry
+        local is_merge_retry
+        is_merge_retry=$(jq -r --arg n "$change_name" \
+            '.changes[] | select(.name == $n) | .merge_rebase_pending // false' "$STATE_FILENAME")
+        if [[ "$is_merge_retry" == "true" ]]; then
+            # Merge retries: agent resolves conflicts, done when branch merges cleanly
+            done_criteria="merge"
+            max_iter=5
+        else
+            # Build/test fix retries: manual criteria, limited iterations
+            done_criteria="manual"
+            max_iter=2
+        fi
     else
         task_desc="Continue $change_name: ${scope:0:200}"
     fi
@@ -3768,14 +3778,35 @@ merge_change() {
             log_info "Merge conflict for $change_name (retry $merge_retry_count)"
         fi
 
+        # Pre-validate: confirm conflict actually exists before spawning expensive agent loop
+        local main_branch
+        main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+        git fetch origin "$main_branch" 2>/dev/null || true
+        local merge_base_test
+        merge_base_test=$(git merge-base "change/$change_name" "origin/$main_branch" 2>/dev/null || true)
+        local conflict_confirmed=false
+        if [[ -n "$merge_base_test" ]]; then
+            git merge-tree "$merge_base_test" "origin/$main_branch" "change/$change_name" 2>/dev/null | grep -q "^<<<<<<<" && conflict_confirmed=true || true
+        fi
+
+        if [[ "$conflict_confirmed" != "true" ]]; then
+            log_info "No real conflict markers for $change_name — retrying merge"
+            if wt-merge "$change_name" --no-push --llm-resolve >>"$LOG_FILE" 2>&1; then
+                update_change_field "$change_name" "status" '"merged"'
+                return 0
+            fi
+            log_warn "wt-merge failed for $change_name but no conflict markers — marking merge-blocked"
+            update_change_field "$change_name" "status" '"merge-blocked"'
+            return 1
+        fi
+
         # Check if this is the first conflict — try agent-assisted rebase
         local agent_rebase_done
         agent_rebase_done=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .agent_rebase_done // false' "$STATE_FILENAME")
         if [[ "$agent_rebase_done" != "true" && -n "$wt_path" && -d "$wt_path" ]]; then
             update_change_field "$change_name" "agent_rebase_done" "true"
             log_info "First merge conflict for $change_name — triggering agent-assisted rebase"
-            local main_branch
-            main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+            # main_branch already set by pre-validation block above
             local retry_prompt="Merge conflict: your branch conflicts with $main_branch. Resolve the conflict by merging $main_branch into your branch.\n\nRun: git fetch origin $main_branch && git merge origin/$main_branch\n\nResolve any conflicts, keeping both sides' changes where possible. Prefer your changes (the feature) when they contradict $main_branch. After resolving, commit the merge."
             # Recall memories about recent merges for context
             local _mem_ctx

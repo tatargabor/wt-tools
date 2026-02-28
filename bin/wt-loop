@@ -329,6 +329,22 @@ check_done() {
             manual_done=$(jq -r '.manual_done // false' "$state_file" 2>/dev/null)
             [[ "$manual_done" == "true" ]]
             ;;
+        merge)
+            # Branch merges cleanly with main = done
+            local main_ref
+            main_ref=$(git -C "$wt_path" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+                | sed 's@^refs/remotes/origin/@@' || echo "main")
+            git -C "$wt_path" fetch origin "$main_ref" 2>/dev/null || true
+            local cur_branch
+            cur_branch=$(git -C "$wt_path" rev-parse --abbrev-ref HEAD 2>/dev/null)
+            local mb
+            mb=$(git -C "$wt_path" merge-base "$cur_branch" "origin/$main_ref" 2>/dev/null || true)
+            if [[ -n "$mb" ]]; then
+                ! git -C "$wt_path" merge-tree "$mb" "origin/$main_ref" "$cur_branch" 2>/dev/null | grep -q "^<<<<<<<"
+            else
+                return 1
+            fi
+            ;;
         *)
             warn "Unknown done criteria: $criteria"
             return 1
