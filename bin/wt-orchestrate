@@ -2896,6 +2896,7 @@ monitor_loop() {
                 elif [[ $replan_rc -eq 1 ]]; then
                     # No new work found — genuinely done
                     update_state_field "status" '"done"'
+                    cleanup_all_worktrees
                     orch_memory_stats
                     orch_gate_stats
                     success "All work complete! No more phases to implement."
@@ -2922,6 +2923,7 @@ monitor_loop() {
             else
                 trigger_checkpoint "completion"
                 update_state_field "status" '"done"'
+                cleanup_all_worktrees
                 success "All changes complete!"
                 orch_memory_stats
                 orch_gate_stats
@@ -3815,6 +3817,27 @@ cleanup_worktree() {
     if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
         git branch -D "$branch" 2>/dev/null || true
         log_info "Deleted branch $branch"
+    fi
+}
+
+cleanup_all_worktrees() {
+    log_info "Cleaning up worktrees for merged/done changes..."
+    local cleaned=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local name wt_path status
+        name=$(echo "$line" | jq -r '.name')
+        wt_path=$(echo "$line" | jq -r '.worktree_path // empty')
+        status=$(echo "$line" | jq -r '.status')
+        [[ "$status" != "merged" && "$status" != "done" ]] && continue
+        [[ -z "$wt_path" ]] && continue
+        [[ ! -d "$wt_path" ]] && continue
+        cleanup_worktree "$name" "$wt_path"
+        cleaned=$((cleaned + 1))
+    done < <(jq -c '.changes[]' "$STATE_FILENAME" 2>/dev/null)
+    if [[ $cleaned -gt 0 ]]; then
+        log_info "Cleaned up $cleaned worktree(s)"
+        info "Cleaned up $cleaned worktree(s)"
     fi
 }
 
