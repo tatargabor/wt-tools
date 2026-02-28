@@ -803,9 +803,18 @@ resolve_change_model() {
     change_type=$(jq -r --arg n "$change_name" \
         '.changes[] | select(.name == $n) | .change_type // "feature"' "$STATE_FILENAME")
 
-    if [[ "$complexity" == "S" && ("$change_type" == "cleanup-before" || "$change_type" == "cleanup-after") ]]; then
-        echo "sonnet"
-        return
+    # S-complexity cleanup/doc changes → sonnet
+    if [[ "$complexity" == "S" ]]; then
+        case "$change_type" in
+            cleanup-before|cleanup-after)
+                echo "sonnet"
+                return ;;
+        esac
+        # Name-based hint: doc-sync, doc-audit, etc.
+        if [[ "$change_name" == doc-* || "$change_name" == *-doc-* ]]; then
+            echo "sonnet"
+            return
+        fi
     fi
 
     echo "$default_model"
@@ -1696,6 +1705,11 @@ Dependency ordering heuristics — classify each change by type and apply orderi
 - cleanup-after changes run last — they depend on the features they clean up around
 - If the spec contains explicit dependency hints (e.g., "depends_on: X", "requires X", "after X is complete"), preserve them in the output depends_on array
 
+Model selection — suggest a model per change based on task nature:
+- "opus" for complex features, security-sensitive changes, architectural decisions
+- "sonnet" for doc sync, doc audit, simple cleanup, mechanical refactors, S-complexity tasks
+- When in doubt, use "opus"
+
 Output ONLY valid JSON (no markdown, no explanation):
 {
   "phase_detected": "Description of which phase/section was selected and why",
@@ -1706,6 +1720,7 @@ Output ONLY valid JSON (no markdown, no explanation):
       "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
       "complexity": "S|M|L",
       "change_type": "infrastructure|schema|foundational|feature|cleanup-before|cleanup-after",
+      "model": "opus|sonnet",
       "depends_on": ["other-change-name"],
       "roadmap_item": "The spec section/item this implements"
     }
@@ -1759,6 +1774,11 @@ Dependency ordering heuristics — classify each change by type and apply orderi
 - cleanup-after changes run last — they depend on the features they clean up around
 - If the spec contains explicit dependency hints (e.g., "depends_on: X", "requires X", "after X is complete"), preserve them in the output depends_on array
 
+Model selection — suggest a model per change based on task nature:
+- "opus" for complex features, security-sensitive changes, architectural decisions
+- "sonnet" for doc sync, doc audit, simple cleanup, mechanical refactors, S-complexity tasks
+- When in doubt, use "opus"
+
 Output ONLY valid JSON (no markdown, no explanation):
 {
   "changes": [
@@ -1767,6 +1787,7 @@ Output ONLY valid JSON (no markdown, no explanation):
       "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
       "complexity": "S|M|L",
       "change_type": "infrastructure|schema|foundational|feature|cleanup-before|cleanup-after",
+      "model": "opus|sonnet",
       "depends_on": ["other-change-name"],
       "roadmap_item": "The exact Next bullet this implements"
     }
