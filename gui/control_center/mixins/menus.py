@@ -38,8 +38,15 @@ class MenusMixin:
         settings_action = menu.addAction("Settings...")
         settings_action.triggered.connect(self.open_settings)
 
-        session_key_action = menu.addAction("Set Session Key...")
-        session_key_action.triggered.connect(self.show_set_session_key)
+        add_account_action = menu.addAction("Add Account...")
+        add_account_action.triggered.connect(self.show_add_account)
+
+        # Only show remove if >1 account
+        from ...workers.usage import load_accounts
+        accounts = load_accounts()
+        if len(accounts) > 1:
+            remove_account_action = menu.addAction("Remove Account...")
+            remove_account_action.triggered.connect(self.show_remove_account)
 
         usage_action = menu.addAction("Usage (Browser)")
         usage_action.triggered.connect(self.show_claude_usage)

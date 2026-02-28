@@ -323,29 +323,60 @@ class HandlersMixin:
             except Exception:
                 pass
 
-    def show_set_session_key(self):
-        """Show dialog to paste Claude session key"""
-        from ...constants import CONFIG_DIR, CLAUDE_SESSION_FILE
+    def show_add_account(self):
+        """Show dialog to add a new Claude account"""
+        from ...workers.usage import load_accounts, save_accounts
 
         self.hide()
-        text, ok = get_text(
-            self, "Set Session Key",
-            "Paste your Claude sessionKey from browser DevTools\n"
-            "(F12 → Application → Cookies → claude.ai → sessionKey):",
+        name, ok = get_text(
+            self, "Add Account",
+            "Account name (e.g. Personal, Work):",
         )
-        if ok and text.strip():
-            session_key = text.strip()
-            # Save to file
+        if not ok or not name.strip():
+            self.show_window()
+            return
+
+        key, ok2 = get_text(
+            self, "Add Account",
+            f"Session key for '{name.strip()}':\n"
+            "(F12 → Application → Cookies → claude.ai → sessionKey)",
+        )
+        if ok2 and key.strip():
+            accounts = load_accounts()
+            accounts.append({"name": name.strip(), "sessionKey": key.strip()})
             try:
-                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-                with open(CLAUDE_SESSION_FILE, "w") as f:
-                    json.dump({"sessionKey": session_key}, f)
+                save_accounts(accounts)
             except Exception as e:
-                show_warning(self, "Error", f"Failed to save session key: {e}")
+                show_warning(self, "Error", f"Failed to save account: {e}")
                 self.show_window()
                 return
+            self._restart_usage_worker()
+        self.show_window()
 
-            # Test the key by restarting usage worker
+    def show_remove_account(self):
+        """Show dialog to remove a Claude account"""
+        from ...workers.usage import load_accounts, save_accounts
+        from ...dialogs.helpers import get_item
+
+        accounts = load_accounts()
+        if len(accounts) <= 1:
+            return
+
+        names = [a["name"] for a in accounts]
+        self.hide()
+        chosen, ok = get_item(
+            self, "Remove Account",
+            "Select account to remove:",
+            names, 0, False,
+        )
+        if ok and chosen:
+            accounts = [a for a in accounts if a["name"] != chosen]
+            try:
+                save_accounts(accounts)
+            except Exception as e:
+                show_warning(self, "Error", f"Failed to remove account: {e}")
+                self.show_window()
+                return
             self._restart_usage_worker()
         self.show_window()
 

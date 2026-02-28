@@ -76,8 +76,9 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.pulse_phase = 0.0
         self.running_rows = set()
 
-        # Usage display state
-        self.usage_data = {"available": False}
+        # Usage display state (list of per-account dicts)
+        self.usage_data = [{"available": False}]
+        self.account_widgets = []
         self.wt_summary = {}
 
         # Team sync state
@@ -144,11 +145,15 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         """)
 
         # Update usage bars if they exist
-        if hasattr(self, 'usage_5h_bar'):
+        if hasattr(self, 'account_widgets'):
             bar_bg = self.get_color("bar_background")
             bar_border = self.get_color("bar_border")
-            self.usage_5h_bar.set_empty(bar_bg, bar_border)
-            self.usage_7d_bar.set_empty(bar_bg, bar_border)
+            text_color = self.get_color("text_muted")
+            for w in self.account_widgets:
+                w["bar_5h"].set_empty(bar_bg, bar_border)
+                w["bar_7d"].set_empty(bar_bg, bar_border)
+                if w.get("name_label"):
+                    w["name_label"].setStyleSheet(f"color: {text_color}; font-size: 10px;")
 
         # Force status refresh
         if hasattr(self, 'worktrees'):
@@ -273,34 +278,12 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.status_label.setStyleSheet("font-weight: bold; padding: 2px 5px;")
         layout.addWidget(self.status_label)
 
-        # Usage info — compact dual-stripe bars for 5h and 7d side by side
-        usage_row = QHBoxLayout()
-        usage_row.setContentsMargins(5, 0, 5, 2)
-        usage_row.setSpacing(15)
-
-        label_width = 90
-
-        # 5h group: combined label + DualStripeBar
-        group_5h = QHBoxLayout()
-        group_5h.setSpacing(3)
-        self.usage_5h_label = QLabel("-- \u00b7 --/5h")
-        self.usage_5h_label.setFixedWidth(label_width)
-        group_5h.addWidget(self.usage_5h_label)
-        self.usage_5h_bar = DualStripeBar()
-        group_5h.addWidget(self.usage_5h_bar, 1)
-        usage_row.addLayout(group_5h, 1)
-
-        # 7d group: combined label + DualStripeBar
-        group_7d = QHBoxLayout()
-        group_7d.setSpacing(3)
-        self.usage_7d_label = QLabel("-- \u00b7 --/7d")
-        self.usage_7d_label.setFixedWidth(label_width)
-        group_7d.addWidget(self.usage_7d_label)
-        self.usage_7d_bar = DualStripeBar()
-        group_7d.addWidget(self.usage_7d_bar, 1)
-        usage_row.addLayout(group_7d, 1)
-
-        layout.addLayout(usage_row)
+        # Usage info — dynamic rows, one per account
+        self.usage_container = QVBoxLayout()
+        self.usage_container.setContentsMargins(0, 0, 0, 0)
+        self.usage_container.setSpacing(1)
+        layout.addLayout(self.usage_container)
+        self._rebuild_usage_rows(1)
 
         # Team label
         self.team_label = QLabel("")
@@ -504,80 +487,153 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         return None
 
     @safe_slot
-    def update_usage(self, data: dict):
-        """Handle usage data update from worker"""
-        self.usage_data = data
+    def update_usage(self, data: list):
+        """Handle usage data update from worker (list of per-account dicts)"""
+        self.usage_data = data if data else [{"available": False}]
         self.update_usage_bars()
 
+    def _rebuild_usage_rows(self, count):
+        """Create/destroy usage rows to match account count."""
+        # Remove old widgets
+        for w in self.account_widgets:
+            for key in ("name_label", "label_5h", "bar_5h", "label_7d", "bar_7d"):
+                widget = w.get(key)
+                if widget:
+                    widget.setParent(None)
+                    widget.deleteLater()
+        # Remove old layouts
+        while self.usage_container.count():
+            item = self.usage_container.takeAt(0)
+            if item.layout():
+                # clear child items from the sub-layout
+                sub = item.layout()
+                while sub.count():
+                    sub.takeAt(0)
+
+        self.account_widgets = []
+        show_names = count > 1
+        label_width = 90
+        text_color = self.get_color("text_muted")
+
+        for _ in range(max(count, 1)):
+            row_layout = QHBoxLayout()
+            row_layout.setContentsMargins(5, 0, 5, 1)
+            row_layout.setSpacing(3)
+
+            name_label = None
+            if show_names:
+                name_label = QLabel("")
+                name_label.setFixedWidth(60)
+                name_label.setStyleSheet(f"color: {text_color}; font-size: 10px;")
+                row_layout.addWidget(name_label)
+
+            label_5h = QLabel("-- \u00b7 --/5h")
+            label_5h.setFixedWidth(label_width)
+            row_layout.addWidget(label_5h)
+            bar_5h = DualStripeBar()
+            row_layout.addWidget(bar_5h, 1)
+
+            # Small spacer between 5h and 7d
+            row_layout.addSpacing(10)
+
+            label_7d = QLabel("-- \u00b7 --/7d")
+            label_7d.setFixedWidth(label_width)
+            row_layout.addWidget(label_7d)
+            bar_7d = DualStripeBar()
+            row_layout.addWidget(bar_7d, 1)
+
+            self.usage_container.addLayout(row_layout)
+            self.account_widgets.append({
+                "name_label": name_label,
+                "label_5h": label_5h,
+                "bar_5h": bar_5h,
+                "label_7d": label_7d,
+                "bar_7d": bar_7d,
+            })
+
     def update_usage_bars(self):
-        """Update the compact dual-stripe bars and combined labels"""
+        """Update the compact dual-stripe bars and combined labels for all accounts"""
+        data_list = self.usage_data if isinstance(self.usage_data, list) else [self.usage_data]
+
+        # Rebuild rows if count changed
+        if len(data_list) != len(self.account_widgets):
+            self._rebuild_usage_rows(len(data_list))
+
         bg = self.get_color("bar_background")
         border = self.get_color("bar_border")
 
-        def clear_all_bars():
-            self.usage_5h_bar.set_empty(bg, border)
-            self.usage_7d_bar.set_empty(bg, border)
+        for i, account_data in enumerate(data_list):
+            if i >= len(self.account_widgets):
+                break
+            w = self.account_widgets[i]
 
-        if not self.usage_data.get("available"):
-            clear_all_bars()
-            self.usage_5h_label.setText("-- \u00b7 --/5h")
-            self.usage_7d_label.setText("-- \u00b7 --/7d")
-            self.usage_5h_label.setToolTip("")
-            self.usage_7d_label.setToolTip("")
-            return
+            # Set account name
+            if w.get("name_label"):
+                w["name_label"].setText(account_data.get("name", "")[:10])
 
-        is_estimated = self.usage_data.get("is_estimated", False)
+            if not account_data.get("available"):
+                w["bar_5h"].set_empty(bg, border)
+                w["bar_7d"].set_empty(bg, border)
+                w["label_5h"].setText("-- \u00b7 --/5h")
+                w["label_7d"].setText("-- \u00b7 --/7d")
+                w["label_5h"].setToolTip(
+                    account_data.get("name", "") + "\nAdd account session key for usage data"
+                    if account_data.get("name") else ""
+                )
+                w["label_7d"].setToolTip("")
+                continue
 
-        if is_estimated:
-            clear_all_bars()
-            self.usage_5h_label.setText("-- \u00b7 --/5h")
-            self.usage_7d_label.setText("-- \u00b7 --/7d")
-            session_tokens = self.usage_data.get("session_tokens", 0)
-            weekly_tokens = self.usage_data.get("weekly_tokens", 0)
-            self.usage_5h_label.setToolTip(
-                f"~{session_tokens/1000:.0f}k tokens in last 5h\n"
-                "Set session key for exact usage %"
+            is_estimated = account_data.get("is_estimated", False)
+
+            if is_estimated:
+                w["bar_5h"].set_empty(bg, border)
+                w["bar_7d"].set_empty(bg, border)
+                w["label_5h"].setText("-- \u00b7 --/5h")
+                w["label_7d"].setText("-- \u00b7 --/7d")
+                session_tokens = account_data.get("session_tokens", 0)
+                weekly_tokens = account_data.get("weekly_tokens", 0)
+                w["label_5h"].setToolTip(
+                    f"~{session_tokens/1000:.0f}k tokens in last 5h\n"
+                    "Add account session key for exact usage %"
+                )
+                w["label_7d"].setToolTip(
+                    f"~{weekly_tokens/1000:.0f}k tokens in last 7d\n"
+                    "Add account session key for exact usage %"
+                )
+                continue
+
+            # API data: show combined labels and dual-stripe bars
+            session_pct = account_data.get("session_pct", 0)
+            weekly_pct = account_data.get("weekly_pct", 0)
+            session_reset = account_data.get("session_reset")
+            weekly_reset = account_data.get("weekly_reset")
+
+            session_remaining = self.calc_time_remaining(session_reset)
+            weekly_remaining = self.calc_time_remaining(weekly_reset)
+            session_time_pct = self.calc_time_elapsed_pct(session_reset, 5)
+            weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
+
+            time_5h = session_remaining or "5h"
+            time_7d = weekly_remaining or "7d"
+            w["label_5h"].setText(f"{time_5h} \u00b7 {session_pct:.0f}%")
+            w["label_7d"].setText(f"{time_7d} \u00b7 {weekly_pct:.0f}%")
+
+            name_prefix = f"{account_data.get('name', '')}: " if account_data.get("name") else ""
+            w["label_5h"].setToolTip(
+                f"{name_prefix}5h window: {session_time_pct:.0f}% elapsed, {session_pct:.0f}% used"
             )
-            self.usage_7d_label.setToolTip(
-                f"~{weekly_tokens/1000:.0f}k tokens in last 7d\n"
-                "Set session key for exact usage %"
+            w["label_7d"].setToolTip(
+                f"{name_prefix}7d window: {weekly_time_pct:.0f}% elapsed, {weekly_pct:.0f}% used"
             )
-            return
 
-        # API data: show combined labels and dual-stripe bars
-        session_pct = self.usage_data.get("session_pct", 0)
-        weekly_pct = self.usage_data.get("weekly_pct", 0)
-        session_reset = self.usage_data.get("session_reset")
-        weekly_reset = self.usage_data.get("weekly_reset")
+            time_color = self.get_color("bar_time")
+            usage_5h_color = self._burn_rate_color(session_pct, session_time_pct)
+            usage_7d_color = self._burn_rate_color(weekly_pct, weekly_time_pct)
 
-        session_remaining = self.calc_time_remaining(session_reset)
-        weekly_remaining = self.calc_time_remaining(weekly_reset)
-        session_time_pct = self.calc_time_elapsed_pct(session_reset, 5)
-        weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
-
-        # Combined labels: "{time} · {usage}%"
-        time_5h = session_remaining or "5h"
-        time_7d = weekly_remaining or "7d"
-        self.usage_5h_label.setText(f"{time_5h} \u00b7 {session_pct:.0f}%")
-        self.usage_7d_label.setText(f"{time_7d} \u00b7 {weekly_pct:.0f}%")
-
-        # Tooltips on labels
-        self.usage_5h_label.setToolTip(
-            f"5h window: {session_time_pct:.0f}% elapsed, {session_pct:.0f}% used"
-        )
-        self.usage_7d_label.setToolTip(
-            f"7d window: {weekly_time_pct:.0f}% elapsed, {weekly_pct:.0f}% used"
-        )
-
-        # Bar colors: time stripe is neutral, usage stripe is burn-rate-relative
-        time_color = self.get_color("bar_time")
-        usage_5h_color = self._burn_rate_color(session_pct, session_time_pct)
-        usage_7d_color = self._burn_rate_color(weekly_pct, weekly_time_pct)
-
-        self.usage_5h_bar.set_colors(time_color, usage_5h_color, bg, border)
-        self.usage_5h_bar.set_values(session_time_pct, session_pct)
-        self.usage_7d_bar.set_colors(time_color, usage_7d_color, bg, border)
-        self.usage_7d_bar.set_values(weekly_time_pct, weekly_pct)
+            w["bar_5h"].set_colors(time_color, usage_5h_color, bg, border)
+            w["bar_5h"].set_values(session_time_pct, session_pct)
+            w["bar_7d"].set_colors(time_color, usage_7d_color, bg, border)
+            w["bar_7d"].set_values(weekly_time_pct, weekly_pct)
 
     def calc_time_remaining(self, reset_time_str):
         """Calculate time remaining until reset"""

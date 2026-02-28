@@ -3,6 +3,7 @@ Usage Worker - Background thread for fetching Claude usage data
 
 Primary: Local JSONL parsing (cross-platform, no auth needed)
 Secondary: Claude.ai API with session key (optional, for exact data)
+Supports multiple accounts with per-account usage fetching.
 """
 
 import json
@@ -22,7 +23,7 @@ try:
 except ImportError:
     cffi_requests = None
 
-__all__ = ["UsageWorker"]
+__all__ = ["UsageWorker", "load_accounts", "save_accounts"]
 
 logger = logging.getLogger("wt-control.workers.usage")
 
@@ -33,9 +34,44 @@ _HEADERS = {
 }
 
 
+def load_accounts():
+    """Load accounts from claude-session.json.
+
+    Handles both old format {"sessionKey": "..."} and new format
+    {"accounts": [{"name": "...", "sessionKey": "..."}, ...]}.
+    Returns list of {"name": str, "sessionKey": str} dicts.
+    """
+    try:
+        if not CLAUDE_SESSION_FILE.exists():
+            return []
+        with open(CLAUDE_SESSION_FILE) as f:
+            data = json.load(f)
+        # New format
+        if "accounts" in data and isinstance(data["accounts"], list):
+            return [a for a in data["accounts"] if a.get("sessionKey")]
+        # Old format — auto-wrap
+        if data.get("sessionKey"):
+            return [{"name": "Default", "sessionKey": data["sessionKey"]}]
+        return []
+    except Exception:
+        return []
+
+
+def save_accounts(accounts):
+    """Save accounts list to claude-session.json in new format.
+
+    Always writes {"accounts": [...]}, never the old single-key format.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = CLAUDE_SESSION_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump({"accounts": accounts}, f, indent=2)
+    tmp.replace(CLAUDE_SESSION_FILE)
+
+
 class UsageWorker(QThread):
     """Background thread for fetching Claude usage data"""
-    usage_updated = Signal(dict)
+    usage_updated = Signal(list)
     error_occurred = Signal(str)
 
     def __init__(self, config=None):
@@ -201,41 +237,38 @@ class UsageWorker(QThread):
 
     def run(self):
         while self._running:
-            api_data = None
+            accounts = load_accounts()
 
-            # Try saved session first for accurate API data
-            session_key = self._load_session()
-            if session_key:
-                api_data = self.fetch_claude_api_usage(session_key)
-
-            if api_data:
-                self.usage_updated.emit(api_data)
+            if accounts:
+                # Fetch usage for each account
+                results = []
+                for account in accounts:
+                    if not self._running:
+                        return
+                    api_data = self.fetch_claude_api_usage(account["sessionKey"])
+                    if api_data:
+                        api_data["name"] = account["name"]
+                        results.append(api_data)
+                    else:
+                        results.append({
+                            "name": account["name"],
+                            "available": False,
+                            "source": "none",
+                        })
+                self.usage_updated.emit(results)
                 self._interruptible_sleep(30000)
                 continue
 
-            # Fall back to local JSONL parsing (no auth needed)
+            # No accounts configured — fall back to local JSONL parsing
             local_data = self.fetch_local_usage()
             if local_data:
-                self.usage_updated.emit(local_data)
+                self.usage_updated.emit([local_data])
                 self._interruptible_sleep(30000)
                 continue
 
             # No data available
-            self.usage_updated.emit({"available": False, "source": "none"})
+            self.usage_updated.emit([{"available": False, "source": "none"}])
             self._interruptible_sleep(30000)
-
-    def _load_session(self):
-        """Load saved session key from file"""
-        try:
-            if CLAUDE_SESSION_FILE.exists():
-                with open(CLAUDE_SESSION_FILE) as f:
-                    data = json.load(f)
-                    key = data.get("sessionKey")
-                    if key:
-                        return key
-        except Exception:
-            pass
-        return None
 
     def stop(self):
         self._running = False
