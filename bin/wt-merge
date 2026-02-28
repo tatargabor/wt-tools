@@ -348,31 +348,14 @@ main() {
         fi
     fi
 
-    # Check for uncommitted changes in main repo (auto-stash generated files)
+    # Auto-stash any uncommitted changes in main repo before merge.
+    # This prevents false merge failures from worktree artifacts (.claude/reflection.md),
+    # generated files (tsconfig.tsbuildinfo), or orchestrator state files.
     local main_changes
     main_changes=$(git -C "$project_path" status --porcelain 2>/dev/null | grep -v "^?? " || true)
     if [[ -n "$main_changes" ]]; then
-        local non_generated=false
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local file="${line:3}"
-            if ! is_generated_file "$file"; then
-                non_generated=true
-                break
-            fi
-        done <<< "$main_changes"
-
-        if $non_generated; then
-            error "Main repo has uncommitted changes. Commit or stash them first."
-            echo ""
-            echo "$main_changes"
-            echo ""
-            echo "Run: cd $project_path && git stash"
-            exit 1
-        else
-            git -C "$project_path" stash --quiet 2>/dev/null || true
-            info "Auto-stashed generated file changes in main repo"
-        fi
+        git -C "$project_path" stash --quiet 2>/dev/null || true
+        info "Auto-stashed uncommitted changes in main repo"
     fi
 
     info "Merging '$source_branch' into '$target_branch'..."
@@ -438,6 +421,10 @@ main() {
 
         if [[ $merge_result -ne 0 ]]; then
             git merge --abort 2>/dev/null || true
+            # Restore stashed changes before exiting
+            if [[ -n "$main_changes" ]]; then
+                git stash pop --quiet 2>/dev/null || true
+            fi
             error "Merge failed! Resolve conflicts manually."
             echo ""
             echo "After resolving:"
@@ -446,6 +433,11 @@ main() {
             echo "  wt-close $change_id"
             exit 1
         fi
+    fi
+
+    # Restore stashed changes after successful merge
+    if [[ -n "$main_changes" ]]; then
+        git stash pop --quiet 2>/dev/null || true
     fi
 
     success "Merge completed successfully"
