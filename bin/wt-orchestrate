@@ -3710,9 +3710,12 @@ merge_change() {
             update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
             update_change_field "$change_name" "merge_rebase_pending" "true"
             resume_change "$change_name"
+            # Return 0: agent rebase started, caller should not add to merge queue
+            return 0
         else
             update_change_field "$change_name" "status" '"merge-blocked"'
             # No notification here — retry_merge_queue sends one only on final failure
+            return 1
         fi
     fi
 }
