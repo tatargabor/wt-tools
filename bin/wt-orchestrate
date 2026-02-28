@@ -3044,10 +3044,10 @@ merge_change() {
         orch_remember "Merge conflict for $change_name — consider sequencing this change after its conflicting dependencies in future plans" Decision "phase:merge,change:$change_name"
 
         # Check if this is the first conflict — try agent-assisted rebase
-        local merge_retry_count
-        merge_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .merge_retry_count // 0' "$STATE_FILENAME")
-        if [[ "$merge_retry_count" -eq 0 && -n "$wt_path" && -d "$wt_path" ]]; then
-            update_change_field "$change_name" "merge_retry_count" "1"
+        local agent_rebase_done
+        agent_rebase_done=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .agent_rebase_done // false' "$STATE_FILENAME")
+        if [[ "$agent_rebase_done" != "true" && -n "$wt_path" && -d "$wt_path" ]]; then
+            update_change_field "$change_name" "agent_rebase_done" "true"
             log_info "First merge conflict for $change_name — triggering agent-assisted rebase"
             local main_branch
             main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
