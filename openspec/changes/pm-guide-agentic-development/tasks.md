@@ -39,4 +39,4 @@
 ## 10. Build és véglegesítés
 
 - [x] 10.1 PDF build futtatása `build.sh`-val, ékezetes karakterek és ASCII diagramok ellenőrzése, tartalomjegyzék és oldalszámok verifikálása
-- [ ] 10.2 A generált PDF commitolása a repóba
+- [x] 10.2 A generált PDF commitolása a repóba

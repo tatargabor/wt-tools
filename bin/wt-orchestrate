@@ -724,7 +724,7 @@ init_state() {
         completed_at: null,
         tokens_used: 0,
         test_result: null,
-        verify_retried: false
+        verify_retry_count: 0
     }]' "$plan_file")
 
     jq -n \
