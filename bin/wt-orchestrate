@@ -1123,7 +1123,7 @@ FIX_EOF
 )
 
     local fix_rc=0
-    (cd "$project_path" && echo "$fix_prompt" | run_claude --model "$(model_id sonnet)" --max-turns 10) || fix_rc=$?
+    (cd "$project_path" && echo "$fix_prompt" | run_claude --model "$(model_id sonnet)" --max-turns 20) || fix_rc=$?
 
     if [[ $fix_rc -eq 0 ]]; then
         log_info "Base build fix: LLM fix attempted, re-checking build..."
