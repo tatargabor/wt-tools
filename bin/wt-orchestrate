@@ -2706,9 +2706,9 @@ resume_change() {
             done_criteria="merge"
             max_iter=5
         else
-            # Build/test fix retries: manual criteria, limited iterations
-            done_criteria="manual"
-            max_iter=2
+            # Build/test fix retries: done when build passes
+            done_criteria="build"
+            max_iter=3
         fi
     else
         task_desc="Continue $change_name: ${scope:0:200}"
