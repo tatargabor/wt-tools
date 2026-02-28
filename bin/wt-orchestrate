@@ -36,6 +36,11 @@ DEFAULT_NOTIFICATION="desktop"
 DEFAULT_TOKEN_BUDGET=0
 DEFAULT_PAUSE_ON_EXIT="false"
 DEFAULT_AUTO_REPLAN="false"
+DEFAULT_REVIEW_BEFORE_MERGE="false"
+DEFAULT_TEST_TIMEOUT=300
+DEFAULT_MAX_VERIFY_RETRIES=1
+DEFAULT_SUMMARIZE_MODEL="haiku"
+DEFAULT_REVIEW_MODEL="sonnet"
 
 # Runtime state
 DEFAULT_TIME_LIMIT="5h"  # safety net: stop after 5 hours if no --time-limit given
@@ -62,6 +67,16 @@ log_warn()  { log "WARN" "$@"; }
 log_error() { log "ERROR" "$@"; }
 
 # run_claude() is provided by wt-common.sh (sourced above)
+
+# Map short model name to full model ID for --model flag
+model_id() {
+    case "$1" in
+        haiku)  echo "claude-haiku-4-5-20251001" ;;
+        sonnet) echo "claude-sonnet-4-6" ;;
+        opus)   echo "claude-opus-4-6" ;;
+        *)      echo "$1" ;;  # pass through if already a full ID or unknown
+    esac
+}
 
 rotate_log() {
     [[ -f "$LOG_FILE" ]] || return 0
@@ -278,6 +293,11 @@ parse_directives() {
     local token_budget="$DEFAULT_TOKEN_BUDGET"
     local pause_on_exit="$DEFAULT_PAUSE_ON_EXIT"
     local auto_replan="$DEFAULT_AUTO_REPLAN"
+    local review_before_merge="$DEFAULT_REVIEW_BEFORE_MERGE"
+    local test_timeout="$DEFAULT_TEST_TIMEOUT"
+    local max_verify_retries="$DEFAULT_MAX_VERIFY_RETRIES"
+    local summarize_model="$DEFAULT_SUMMARIZE_MODEL"
+    local review_model="$DEFAULT_REVIEW_MODEL"
 
     while IFS= read -r line; do
         # Detect ## Orchestrator Directives header
@@ -352,12 +372,55 @@ parse_directives() {
                         warn "Invalid auto_replan '$val', using default $DEFAULT_AUTO_REPLAN"
                     fi
                     ;;
+                review_before_merge)
+                    if [[ "$val" =~ ^(true|false)$ ]]; then
+                        review_before_merge="$val"
+                    else
+                        warn "Invalid review_before_merge '$val', using default $DEFAULT_REVIEW_BEFORE_MERGE"
+                    fi
+                    ;;
+                test_timeout)
+                    if [[ "$val" =~ ^[0-9]+$ ]] && [[ "$val" -gt 0 ]]; then
+                        test_timeout="$val"
+                    else
+                        warn "Invalid test_timeout '$val', using default $DEFAULT_TEST_TIMEOUT"
+                    fi
+                    ;;
+                max_verify_retries)
+                    if [[ "$val" =~ ^[0-9]+$ ]]; then
+                        max_verify_retries="$val"
+                    else
+                        warn "Invalid max_verify_retries '$val', using default $DEFAULT_MAX_VERIFY_RETRIES"
+                    fi
+                    ;;
+                summarize_model)
+                    if [[ "$val" =~ ^(haiku|sonnet|opus)$ ]]; then
+                        summarize_model="$val"
+                    else
+                        warn "Invalid summarize_model '$val', using default $DEFAULT_SUMMARIZE_MODEL"
+                    fi
+                    ;;
+                review_model)
+                    if [[ "$val" =~ ^(haiku|sonnet|opus)$ ]]; then
+                        review_model="$val"
+                    else
+                        warn "Invalid review_model '$val', using default $DEFAULT_REVIEW_MODEL"
+                    fi
+                    ;;
                 *)
                     warn "Unknown directive '$key', ignoring"
                     ;;
             esac
         fi
     done < "$brief_file"
+
+    # Auto-detect test_command if not set explicitly
+    if [[ -z "$test_command" ]]; then
+        test_command=$(auto_detect_test_command "." 2>/dev/null || true)
+        if [[ -n "$test_command" ]]; then
+            log_info "Auto-detected test command: $test_command"
+        fi
+    fi
 
     # Output as JSON
     jq -n \
@@ -369,6 +432,11 @@ parse_directives() {
         --argjson token_budget "$token_budget" \
         --argjson pause_on_exit "$pause_on_exit" \
         --argjson auto_replan "$auto_replan" \
+        --argjson review_before_merge "$review_before_merge" \
+        --argjson test_timeout "$test_timeout" \
+        --argjson max_verify_retries "$max_verify_retries" \
+        --arg summarize_model "$summarize_model" \
+        --arg review_model "$review_model" \
         '{
             max_parallel: $max_parallel,
             merge_policy: $merge_policy,
@@ -377,7 +445,12 @@ parse_directives() {
             notification: $notification,
             token_budget: $token_budget,
             pause_on_exit: $pause_on_exit,
-            auto_replan: $auto_replan
+            auto_replan: $auto_replan,
+            review_before_merge: $review_before_merge,
+            test_timeout: $test_timeout,
+            max_verify_retries: $max_verify_retries,
+            summarize_model: $summarize_model,
+            review_model: $review_model
         }'
 }
 
@@ -482,6 +555,7 @@ estimate_tokens() {
 summarize_spec() {
     local spec_file="$1"
     local phase_hint="$2"
+    local sum_model="${3:-$DEFAULT_SUMMARIZE_MODEL}"
     local spec_content
     spec_content=$(cat "$spec_file")
 
@@ -510,13 +584,121 @@ SUMMARY_EOF
 )
 
     local summary_output
-    summary_output=$(echo "$summary_prompt" | run_claude --model sonnet) || {
+    summary_output=$(echo "$summary_prompt" | run_claude --model "$(model_id "$sum_model")") || {
         log_error "Spec summarization failed — falling back to truncation"
         head -c 32000 "$spec_file"
         return
     }
     log_info "Spec summarization complete (${#summary_output} chars)"
     echo "$summary_output"
+}
+
+# ─── Test Infrastructure Detection ────────────────────────────────────
+
+# Detect test infrastructure in the target project.
+# Returns JSON: {framework, config_exists, test_file_count, has_helpers, test_command}
+detect_test_infra() {
+    local project_dir="${1:-.}"
+    local framework=""
+    local config_exists=false
+    local test_file_count=0
+    local has_helpers=false
+    local test_command=""
+
+    # Check for test framework configs
+    if ls "$project_dir"/vitest.config.* 2>/dev/null | head -1 >/dev/null; then
+        framework="vitest"
+        config_exists=true
+    elif ls "$project_dir"/jest.config.* 2>/dev/null | head -1 >/dev/null; then
+        framework="jest"
+        config_exists=true
+    elif [[ -f "$project_dir/pytest.ini" || -f "$project_dir/pyproject.toml" ]] && grep -q '\[tool\.pytest' "$project_dir/pyproject.toml" 2>/dev/null; then
+        framework="pytest"
+        config_exists=true
+    fi
+
+    # Check package.json for test framework in devDependencies
+    if [[ -z "$framework" && -f "$project_dir/package.json" ]]; then
+        local pkg_framework
+        pkg_framework=$(jq -r '
+            (.devDependencies // {} | keys[]) as $k |
+            if ($k == "vitest") then "vitest"
+            elif ($k == "jest") then "jest"
+            elif ($k == "mocha") then "mocha"
+            else empty end
+        ' "$project_dir/package.json" 2>/dev/null | head -1)
+        if [[ -n "$pkg_framework" ]]; then
+            framework="$pkg_framework"
+        fi
+    fi
+
+    # Count test files
+    test_file_count=$(find "$project_dir" -type f \( -name "*.test.*" -o -name "*.spec.*" -o -name "test_*.py" \) \
+        -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | wc -l)
+
+    # Check for test helper directories and files
+    for dir in "src/test" "__tests__" "test" "tests" "src/__tests__"; do
+        if [[ -d "$project_dir/$dir" ]]; then
+            has_helpers=true
+            break
+        fi
+    done
+    if [[ "$has_helpers" != "true" ]]; then
+        local helper_count
+        helper_count=$(find "$project_dir" -type f \( -name "*test-helper*" -o -name "*factory*" -o -name "*fixtures*" \) \
+            -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | wc -l)
+        [[ "$helper_count" -gt 0 ]] && has_helpers=true
+    fi
+
+    # Detect test command from package.json
+    test_command=$(auto_detect_test_command "$project_dir")
+
+    jq -n \
+        --arg framework "$framework" \
+        --argjson config_exists "$config_exists" \
+        --argjson test_file_count "$test_file_count" \
+        --argjson has_helpers "$has_helpers" \
+        --arg test_command "$test_command" \
+        '{
+            framework: $framework,
+            config_exists: $config_exists,
+            test_file_count: $test_file_count,
+            has_helpers: $has_helpers,
+            test_command: $test_command
+        }'
+}
+
+# Auto-detect test command from package.json scripts and lockfile.
+# Returns command string or empty.
+auto_detect_test_command() {
+    local project_dir="${1:-.}"
+
+    [[ ! -f "$project_dir/package.json" ]] && return
+
+    # Detect package manager from lockfile
+    local pkg_mgr="npm"
+    if [[ -f "$project_dir/pnpm-lock.yaml" ]]; then
+        pkg_mgr="pnpm"
+    elif [[ -f "$project_dir/yarn.lock" ]]; then
+        pkg_mgr="yarn"
+    elif [[ -f "$project_dir/bun.lockb" || -f "$project_dir/bun.lock" ]]; then
+        pkg_mgr="bun"
+    fi
+
+    # Check scripts in priority order: test → test:unit → test:ci
+    local script_name=""
+    for candidate in "test" "test:unit" "test:ci"; do
+        local has_script
+        has_script=$(jq -r --arg s "$candidate" '.scripts[$s] // empty' "$project_dir/package.json" 2>/dev/null)
+        if [[ -n "$has_script" ]]; then
+            script_name="$candidate"
+            break
+        fi
+    done
+
+    [[ -z "$script_name" ]] && return
+
+    echo "$pkg_mgr run $script_name"
 }
 
 # ─── State Management ────────────────────────────────────────────────
@@ -831,6 +1013,29 @@ cmd_plan() {
             jq -r '.[].content' 2>/dev/null | head -500 || true)
     fi
 
+    # Detect test infrastructure (TP-1)
+    local test_infra_json
+    test_infra_json=$(detect_test_infra ".")
+    log_info "Test infrastructure scan: $test_infra_json"
+
+    local test_infra_context=""
+    local ti_framework ti_config ti_count ti_helpers ti_cmd
+    ti_framework=$(echo "$test_infra_json" | jq -r '.framework')
+    ti_config=$(echo "$test_infra_json" | jq -r '.config_exists')
+    ti_count=$(echo "$test_infra_json" | jq -r '.test_file_count')
+    ti_helpers=$(echo "$test_infra_json" | jq -r '.has_helpers')
+    ti_cmd=$(echo "$test_infra_json" | jq -r '.test_command')
+
+    if [[ "$ti_config" == "true" || "$ti_count" -gt 0 ]]; then
+        test_infra_context="Test Infrastructure:
+- Framework: $ti_framework ($([[ "$ti_config" == "true" ]] && echo "config found" || echo "no config"))
+- Test files: $ti_count existing
+- Helpers: $([[ "$ti_helpers" == "true" ]] && echo "found" || echo "none")
+- Test command: ${ti_cmd:-none detected}"
+    else
+        test_infra_context="Test Infrastructure: NONE — first change must set up test framework"
+    fi
+
     # Build decomposition prompt (dual-mode: brief vs spec)
     local input_content
     local hash
@@ -843,7 +1048,9 @@ cmd_plan() {
         if [[ "$token_est" -gt 8000 ]]; then
             info "Large spec detected (~${token_est} tokens). Summarizing..."
             log_info "Spec summarization triggered (est. $token_est tokens)"
-            input_content=$(summarize_spec "$INPUT_PATH" "$PHASE_HINT")
+            local sum_model
+            sum_model=$(echo "$directives" | jq -r '.summarize_model // "haiku"')
+            input_content=$(summarize_spec "$INPUT_PATH" "$PHASE_HINT" "$sum_model")
         else
             input_content=$(cat "$INPUT_PATH")
         fi
@@ -873,6 +1080,8 @@ $active_changes
 
 ## Project Memory
 $memory_context
+
+## $test_infra_context
 $(if [[ -n "${_REPLAN_COMPLETED:-}" ]]; then
 cat <<REPLAN_CTX
 
@@ -902,6 +1111,10 @@ Rules:
 - Changes with no dependencies can run in parallel
 - Complexity: S (< 10 tasks), M (10-25 tasks), L (25+ tasks)
 - Skip already-active changes listed above
+- Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
+- For security-related changes: include tenant isolation tests, auth guard tests
+- If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
+- If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
 
 Output ONLY valid JSON (no markdown, no explanation):
 {
@@ -910,7 +1123,7 @@ Output ONLY valid JSON (no markdown, no explanation):
   "changes": [
     {
       "name": "change-name",
-      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change.",
+      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
       "complexity": "S|M|L",
       "depends_on": ["other-change-name"],
       "roadmap_item": "The spec section/item this implements"
@@ -936,6 +1149,8 @@ $active_changes
 ## Project Memory
 $memory_context
 
+## $test_infra_context
+
 ## Task
 Analyze the "Next" section of the brief and decompose it into concrete, implementable OpenSpec changes.
 
@@ -945,13 +1160,17 @@ Rules:
 - Define dependencies: if change B needs code from change A, list A in depends_on
 - Changes with no dependencies can run in parallel
 - Complexity: S (< 10 tasks), M (10-25 tasks), L (25+ tasks)
+- Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
+- For security-related changes: include tenant isolation tests, auth guard tests
+- If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
+- If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
 
 Output ONLY valid JSON (no markdown, no explanation):
 {
   "changes": [
     {
       "name": "change-name",
-      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change.",
+      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
       "complexity": "S|M|L",
       "depends_on": ["other-change-name"],
       "roadmap_item": "The exact Next bullet this implements"
@@ -966,7 +1185,7 @@ PROMPT_EOF
     log_info "Plan decomposition started (brief hash: $hash)"
 
     local claude_output
-    claude_output=$(echo "$prompt" | run_claude) || {
+    claude_output=$(echo "$prompt" | run_claude --model "$(model_id opus)") || {
         error "Claude decomposition failed. Check your Claude CLI setup."
         log_error "Claude decomposition failed"
         return 1
@@ -1250,7 +1469,14 @@ cmd_status() {
     info "═══ Orchestrator Status ═══"
     echo ""
     echo "  Status:   $status (plan v$plan_version)"
+    local verifying
+    verifying=$(count_changes_by_status "verifying")
+    local verify_failed
+    verify_failed=$(count_changes_by_status "verify-failed")
+
     echo "  Progress: $merged merged, $done_count done, $running running, $pending pending"
+    [[ "$verifying" -gt 0 ]] && echo "  Verifying: $verifying"
+    [[ "$verify_failed" -gt 0 ]] && echo "  Verify-failed: $verify_failed"
     [[ "$failed" -gt 0 ]] && echo "  Failed:   $failed"
     [[ "$stalled" -gt 0 ]] && echo "  Stalled:  $stalled"
 
@@ -1310,11 +1536,11 @@ cmd_status() {
 
     echo ""
     # Per-change table
-    printf "  %-25s %-12s %-15s %-10s\n" "Change" "Status" "Progress" "Tokens"
-    printf "  %-25s %-12s %-15s %-10s\n" "─────────────────────────" "────────────" "───────────────" "──────────"
+    printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "Change" "Status" "Progress" "Tests" "Review" "Tokens"
+    printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "─────────────────────────" "──────────────" "───────────────" "────────" "────────" "──────────"
 
-    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)"' "$STATE_FILENAME" | \
-    while IFS=$'\t' read -r name change_status tokens; do
+    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)\t\(.test_result // "-")\t\(.review_result // "-")"' "$STATE_FILENAME" | \
+    while IFS=$'\t' read -r name change_status tokens test_res review_res; do
         local progress="-"
         # Try to read iteration progress from worktree
         local wt_path
@@ -1325,7 +1551,7 @@ cmd_status() {
             max_iter=$(jq -r '.max_iterations // "?"' "$wt_path/.claude/loop-state.json" 2>/dev/null)
             progress="iter $iter/$max_iter"
         fi
-        printf "  %-25s %-12s %-15s %-10s\n" "$name" "$change_status" "$progress" "$tokens"
+        printf "  %-25s %-14s %-15s %-8s %-8s %-10s\n" "$name" "$change_status" "$progress" "$test_res" "$review_res" "$tokens"
     done
 
     # Merge queue
@@ -1860,6 +2086,14 @@ monitor_loop() {
     token_budget=$(echo "$directives" | jq -r '.token_budget')
     local auto_replan
     auto_replan=$(echo "$directives" | jq -r '.auto_replan')
+    local test_timeout
+    test_timeout=$(echo "$directives" | jq -r '.test_timeout // 300')
+    local max_verify_retries
+    max_verify_retries=$(echo "$directives" | jq -r '.max_verify_retries // 1')
+    local review_before_merge
+    review_before_merge=$(echo "$directives" | jq -r '.review_before_merge // false')
+    local review_model
+    review_model=$(echo "$directives" | jq -r '.review_model // "sonnet"')
 
     # Parse time limit (default 5h, --time-limit none to disable)
     local time_limit_secs=0
@@ -1924,7 +2158,8 @@ monitor_loop() {
         running_changes=$(get_changes_by_status "running")
         while IFS= read -r name; do
             [[ -z "$name" ]] && continue
-            poll_change "$name" "$test_command" "$merge_policy"
+            poll_change "$name" "$test_command" "$merge_policy" \
+                "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model"
         done <<< "$running_changes"
 
         # Check token budget — if exceeded, skip dispatch but keep polling
@@ -1971,7 +2206,7 @@ monitor_loop() {
         local total_changes
         total_changes=$(jq '.changes | length' "$STATE_FILENAME")
         local done_or_merged
-        done_or_merged=$(jq '[.changes[] | select(.status == "done" or .status == "merged" or .status == "merge-blocked")] | length' "$STATE_FILENAME")
+        done_or_merged=$(jq '[.changes[] | select(.status == "done" or .status == "merged" or .status == "merge-blocked" or .status == "failed")] | length' "$STATE_FILENAME")
 
         if [[ "$done_or_merged" -ge "$total_changes" ]]; then
             log_info "All $total_changes changes complete"
@@ -2113,6 +2348,10 @@ poll_change() {
     local change_name="$1"
     local test_command="$2"
     local merge_policy="$3"
+    local test_timeout="${4:-$DEFAULT_TEST_TIMEOUT}"
+    local max_verify_retries="${5:-$DEFAULT_MAX_VERIFY_RETRIES}"
+    local review_before_merge="${6:-false}"
+    local review_model="${7:-$DEFAULT_REVIEW_MODEL}"
 
     local wt_path
     wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
@@ -2139,7 +2378,8 @@ poll_change() {
 
     case "$ralph_status" in
         done)
-            handle_change_done "$change_name" "$wt_path" "$test_command" "$merge_policy"
+            handle_change_done "$change_name" "$wt_path" "$test_command" "$merge_policy" \
+                "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model"
             ;;
         stopped|stalled|stuck)
             local stall_count
@@ -2162,46 +2402,197 @@ poll_change() {
     esac
 }
 
+# Run tests in a worktree with timeout. Captures exit code + truncated output.
+# Returns 0 on pass, 1 on fail. Sets TEST_OUTPUT variable.
+run_tests_in_worktree() {
+    local wt_path="$1"
+    local test_command="$2"
+    local test_timeout="${3:-$DEFAULT_TEST_TIMEOUT}"
+
+    TEST_OUTPUT=""
+    local raw_output rc=0
+    raw_output=$(cd "$wt_path" && timeout "$test_timeout" bash -c "$test_command" 2>&1) || rc=$?
+
+    # Truncate output to 2000 chars
+    if [[ ${#raw_output} -gt 2000 ]]; then
+        TEST_OUTPUT="...truncated...
+${raw_output: -2000}"
+    else
+        TEST_OUTPUT="$raw_output"
+    fi
+
+    return $rc
+}
+
+# LLM code review of a change branch. Returns 0 if no CRITICAL issues, 1 if CRITICAL found.
+# Sets REVIEW_OUTPUT variable.
+review_change() {
+    local change_name="$1"
+    local wt_path="$2"
+    local scope="$3"
+    local rev_model="${4:-$DEFAULT_REVIEW_MODEL}"
+
+    REVIEW_OUTPUT=""
+
+    # Generate diff of change branch vs main
+    local source_branch="change/$change_name"
+    local diff_output
+    diff_output=$(cd "$wt_path" && git diff "$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo HEAD~5)..HEAD" 2>/dev/null) || {
+        log_warn "Could not generate diff for $change_name review"
+        return 0  # skip review on diff failure
+    }
+
+    # Truncate large diffs
+    if [[ ${#diff_output} -gt 30000 ]]; then
+        diff_output="${diff_output:0:30000}
+...diff truncated at 30000 chars..."
+    fi
+
+    local review_prompt
+    review_prompt=$(cat <<REVIEW_EOF
+You are a senior code reviewer. Review this diff for critical issues.
+
+## Change Scope
+$scope
+
+## Diff
+\`\`\`diff
+$diff_output
+\`\`\`
+
+## Review Criteria
+Check for:
+1. Security vulnerabilities: SQL injection, XSS, command injection, path traversal
+2. Authentication/authorization gaps: missing auth checks, broken access control
+3. Tenant isolation: can one user/org access another's data?
+4. Data integrity: missing validation, race conditions, data loss risks
+5. Error handling: unhandled exceptions that crash the app
+
+For each issue found, classify severity as: CRITICAL, HIGH, MEDIUM, LOW.
+
+Output format:
+- If no issues: "REVIEW PASS — no critical issues found"
+- If issues found:
+  ISSUE: [severity] description
+  FILE: path/to/file
+  LINE: approximate line number
+
+Only flag real problems — not style preferences.
+REVIEW_EOF
+)
+
+    REVIEW_OUTPUT=$(echo "$review_prompt" | run_claude --model "$(model_id "$rev_model")") || {
+        log_warn "Code review failed for $change_name — skipping"
+        return 0
+    }
+
+    log_info "Code review complete for $change_name (${#REVIEW_OUTPUT} chars)"
+
+    # Check for CRITICAL severity
+    if echo "$REVIEW_OUTPUT" | grep -qi '\[CRITICAL\]\|severity.*critical\|CRITICAL:'; then
+        return 1
+    fi
+    return 0
+}
+
 handle_change_done() {
     local change_name="$1"
     local wt_path="$2"
     local test_command="$3"
     local merge_policy="$4"
+    local test_timeout="${5:-$DEFAULT_TEST_TIMEOUT}"
+    local max_verify_retries="${6:-$DEFAULT_MAX_VERIFY_RETRIES}"
+    local review_before_merge="${7:-false}"
+    local review_model="${8:-$DEFAULT_REVIEW_MODEL}"
 
     log_info "Change $change_name completed, running checks..."
 
-    # Run tests if configured
-    local test_result="pass"
+    # Get current verify retry count
+    local verify_retry_count
+    verify_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .verify_retry_count // 0' "$STATE_FILENAME")
+
+    # ── Step 1: Run tests if configured (VG-1) ──
+    local test_result="skip"
+    local test_output=""
     if [[ -n "$test_command" ]]; then
+        update_change_field "$change_name" "status" '"verifying"'
         info "Running tests for $change_name..."
-        if (cd "$wt_path" && eval "$test_command" &>/dev/null); then
+        log_info "Verify gate: test start for $change_name"
+
+        if run_tests_in_worktree "$wt_path" "$test_command" "$test_timeout"; then
             test_result="pass"
-            log_info "Tests passed for $change_name"
+            test_output="$TEST_OUTPUT"
+            log_info "Verify gate: tests passed for $change_name"
         else
             test_result="fail"
-            log_error "Tests failed for $change_name"
+            test_output="$TEST_OUTPUT"
+            log_error "Verify gate: tests failed for $change_name"
         fi
     fi
 
+    # Store test results in state (VG-5)
     update_change_field "$change_name" "test_result" "\"$test_result\""
+    # Store truncated test output (escape for JSON)
+    local escaped_output
+    escaped_output=$(printf '%s' "$test_output" | head -c 2000 | jq -Rs .)
+    update_change_field "$change_name" "test_output" "$escaped_output"
 
     if [[ "$test_result" == "fail" ]]; then
-        # Check if we should retry via verify
-        local verify_retried
-        verify_retried=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .verify_retried' "$STATE_FILENAME")
-        if [[ "$verify_retried" != "true" ]]; then
-            info "Restarting Ralph for $change_name (test fix retry)..."
-            update_change_field "$change_name" "verify_retried" "true"
+        # Retry with test failure context (VG-2)
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            info "Tests failed for $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+            log_info "Verify gate: test fail retry $verify_retry_count/$max_verify_retries for $change_name"
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+            update_change_field "$change_name" "status" '"verify-failed"'
+
+            # Resume Ralph with test failure context
+            local scope
+            scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+            local retry_prompt="Tests failed after implementation. Fix the failing tests.\n\nTest command: $test_command\nTest output:\n$test_output\n\nOriginal scope: $scope"
+            update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
             resume_change "$change_name"
             return
         fi
         update_change_field "$change_name" "status" '"failed"'
-        send_notification "wt-orchestrate" "Change '$change_name' failed tests" "critical"
+        send_notification "wt-orchestrate" "Change '$change_name' failed tests after $max_verify_retries retries" "critical"
+        log_error "Verify gate: $change_name failed tests permanently"
         trigger_checkpoint "failure"
         return
     fi
 
-    # Run verify step
+    # ── Step 2: LLM Code Review (VG-4) ──
+    if [[ "$review_before_merge" == "true" ]]; then
+        info "Running code review for $change_name..."
+        log_info "Verify gate: review start for $change_name"
+
+        local scope
+        scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+
+        if ! review_change "$change_name" "$wt_path" "$scope" "$review_model"; then
+            log_error "Verify gate: review found CRITICAL issues in $change_name"
+            update_change_field "$change_name" "review_result" '"critical"'
+            update_change_field "$change_name" "review_output" "$(printf '%s' "$REVIEW_OUTPUT" | head -c 2000 | jq -Rs .)"
+
+            # Retry with review feedback
+            if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+                verify_retry_count=$((verify_retry_count + 1))
+                info "Review found critical issues in $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+                log_info "Verify gate: review critical retry $verify_retry_count/$max_verify_retries for $change_name"
+                update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+                update_change_field "$change_name" "status" '"verify-failed"'
+                resume_change "$change_name"
+                return
+            fi
+            update_change_field "$change_name" "status" '"failed"'
+            send_notification "wt-orchestrate" "Change '$change_name' has critical review issues after retries" "critical"
+            return
+        fi
+        update_change_field "$change_name" "review_result" '"pass"'
+        log_info "Verify gate: review passed for $change_name"
+    fi
+
+    # ── Step 3: Run verify step (existing) ──
     info "Running verify for $change_name..."
     local verify_ok=true
     if command -v claude &>/dev/null; then
@@ -2209,23 +2600,22 @@ handle_change_done() {
     fi
 
     if [[ "$verify_ok" != "true" ]]; then
-        local verify_retried
-        verify_retried=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .verify_retried' "$STATE_FILENAME")
-        if [[ "$verify_retried" != "true" ]]; then
-            info "Verify failed, retrying $change_name..."
-            update_change_field "$change_name" "verify_retried" "true"
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            info "Verify failed, retrying $change_name ($verify_retry_count/$max_verify_retries)..."
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
             resume_change "$change_name"
             return
         fi
         update_change_field "$change_name" "status" '"failed"'
-        send_notification "wt-orchestrate" "Change '$change_name' failed verify after retry" "critical"
+        send_notification "wt-orchestrate" "Change '$change_name' failed verify after retries" "critical"
         return
     fi
 
-    # Mark done
+    # ── Step 4: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
     update_change_field "$change_name" "completed_at" "\"$(date -Iseconds)\""
-    log_info "Change $change_name done (tests: $test_result, verify: ok)"
+    log_info "Change $change_name done (tests: $test_result, review: $([[ "$review_before_merge" == "true" ]] && echo "pass" || echo "skipped"), verify: ok)"
 
     # Increment changes since checkpoint
     local count
@@ -2235,7 +2625,6 @@ handle_change_done() {
     # Handle merge policy
     case "$merge_policy" in
         eager)
-            # Try eager merge — if merge_change fails for any reason, fall back to queue
             if ! merge_change "$change_name" 2>/dev/null; then
                 log_warn "Eager merge failed for $change_name, adding to merge queue for retry"
                 local tmp
@@ -2244,7 +2633,6 @@ handle_change_done() {
             fi
             ;;
         checkpoint)
-            # Add to merge queue
             local tmp
             tmp=$(mktemp)
             jq --arg n "$change_name" '.merge_queue += [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
