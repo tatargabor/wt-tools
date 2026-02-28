@@ -723,6 +723,7 @@ init_state() {
         started_at: null,
         completed_at: null,
         tokens_used: 0,
+        tokens_used_prev: 0,
         test_result: null,
         verify_retry_count: 0
     }]' "$plan_file")
@@ -2681,6 +2682,12 @@ resume_change() {
     info "Resuming: $change_name"
     log_info "Resuming $change_name in $wt_path"
 
+    # Snapshot cumulative tokens before new loop resets total_tokens to 0.
+    # tokens_used already = tokens_used_prev + current_loop_tokens, so just carry it forward.
+    local cumulative_tokens
+    cumulative_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME")
+    update_change_field "$change_name" "tokens_used_prev" "$cumulative_tokens"
+
     local scope
     scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // empty' "$STATE_FILENAME")
 
@@ -3156,7 +3163,10 @@ poll_change() {
     ralph_status=$(jq -r '.status // "unknown"' "$loop_state" 2>/dev/null)
     local tokens
     tokens=$(jq -r '.total_tokens // 0' "$loop_state" 2>/dev/null)
-    update_change_field "$change_name" "tokens_used" "$tokens"
+    # Add accumulated tokens from previous loop(s) so retries don't reset the counter
+    local tokens_prev
+    tokens_prev=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used_prev // 0' "$STATE_FILENAME")
+    update_change_field "$change_name" "tokens_used" "$((tokens_prev + tokens))"
 
     case "$ralph_status" in
         done)
