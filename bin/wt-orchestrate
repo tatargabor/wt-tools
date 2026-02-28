@@ -24,7 +24,7 @@ SUMMARY_FILENAME="orchestration-summary.md"
 LOG_FILE=".claude/orchestration.log"
 LOG_MAX_SIZE=102400   # 100KB
 LOG_KEEP_SIZE=51200   # 50KB
-POLL_INTERVAL=30      # seconds
+POLL_INTERVAL=15      # seconds
 APPROVAL_POLL=5       # seconds
 
 # Directive defaults
