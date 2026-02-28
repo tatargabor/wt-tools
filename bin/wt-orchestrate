@@ -2244,13 +2244,9 @@ resume_change() {
     local scope
     scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // empty' "$STATE_FILENAME")
 
-    # Read retry_context from state (stored as double-JSON-escaped string)
+    # Read retry_context from state (stored via --argjson, jq -r gives raw text directly)
     local retry_ctx
     retry_ctx=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_context // empty' "$STATE_FILENAME")
-    if [[ -n "$retry_ctx" ]]; then
-        # Unescape JSON string (retry_context is stored as a JSON-encoded string)
-        retry_ctx=$(echo "$retry_ctx" | jq -r '. // empty' 2>/dev/null || true)
-    fi
 
     local task_desc
     if [[ -n "$retry_ctx" ]]; then
