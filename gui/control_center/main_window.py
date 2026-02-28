@@ -604,36 +604,41 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
 
             # API data: show combined labels and dual-stripe bars
             session_pct = account_data.get("session_pct", 0)
-            weekly_pct = account_data.get("weekly_pct", 0)
             session_reset = account_data.get("session_reset")
-            weekly_reset = account_data.get("weekly_reset")
-
             session_remaining = self.calc_time_remaining(session_reset)
-            weekly_remaining = self.calc_time_remaining(weekly_reset)
             session_time_pct = self.calc_time_elapsed_pct(session_reset, 5)
-            weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
 
             time_5h = session_remaining or "5h"
-            time_7d = weekly_remaining or "7d"
             w["label_5h"].setText(f"{time_5h} \u00b7 {session_pct:.0f}%")
-            w["label_7d"].setText(f"{time_7d} \u00b7 {weekly_pct:.0f}%")
 
             name_prefix = f"{account_data.get('name', '')}: " if account_data.get("name") else ""
             w["label_5h"].setToolTip(
                 f"{name_prefix}5h window: {session_time_pct:.0f}% elapsed, {session_pct:.0f}% used"
             )
-            w["label_7d"].setToolTip(
-                f"{name_prefix}7d window: {weekly_time_pct:.0f}% elapsed, {weekly_pct:.0f}% used"
-            )
 
             time_color = self.get_color("bar_time")
             usage_5h_color = self._burn_rate_color(session_pct, session_time_pct)
-            usage_7d_color = self._burn_rate_color(weekly_pct, weekly_time_pct)
-
             w["bar_5h"].set_colors(time_color, usage_5h_color, bg, border)
             w["bar_5h"].set_values(session_time_pct, session_pct)
-            w["bar_7d"].set_colors(time_color, usage_7d_color, bg, border)
-            w["bar_7d"].set_values(weekly_time_pct, weekly_pct)
+
+            if account_data.get("has_weekly", True):
+                weekly_pct = account_data.get("weekly_pct", 0)
+                weekly_reset = account_data.get("weekly_reset")
+                weekly_remaining = self.calc_time_remaining(weekly_reset)
+                weekly_time_pct = self.calc_time_elapsed_pct(weekly_reset, 168)
+
+                time_7d = weekly_remaining or "7d"
+                w["label_7d"].setText(f"{time_7d} \u00b7 {weekly_pct:.0f}%")
+                w["label_7d"].setToolTip(
+                    f"{name_prefix}7d window: {weekly_time_pct:.0f}% elapsed, {weekly_pct:.0f}% used"
+                )
+                usage_7d_color = self._burn_rate_color(weekly_pct, weekly_time_pct)
+                w["bar_7d"].set_colors(time_color, usage_7d_color, bg, border)
+                w["bar_7d"].set_values(weekly_time_pct, weekly_pct)
+            else:
+                w["label_7d"].setText("-")
+                w["label_7d"].setToolTip(f"{name_prefix}No weekly limit")
+                w["bar_7d"].set_empty(bg, border)
 
     def calc_time_remaining(self, reset_time_str):
         """Calculate time remaining until reset"""

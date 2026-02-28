@@ -169,10 +169,13 @@ class UsageWorker(QThread):
             if not data:
                 return None
 
-            session_pct = data.get("five_hour", {}).get("utilization", 0) or 0
-            session_reset = data.get("five_hour", {}).get("resets_at")
-            weekly_pct = data.get("seven_day", {}).get("utilization", 0) or 0
-            weekly_reset = data.get("seven_day", {}).get("resets_at")
+            five_hour = data.get("five_hour") or {}
+            seven_day = data.get("seven_day") or {}
+
+            session_pct = five_hour.get("utilization", 0) or 0
+            session_reset = five_hour.get("resets_at")
+            weekly_pct = seven_day.get("utilization", 0) or 0
+            weekly_reset = seven_day.get("resets_at")
 
             session_burn = self._calculate_burn_rate(session_pct, session_reset, 5)
             weekly_burn = self._calculate_burn_rate(weekly_pct, weekly_reset, 7 * 24)
@@ -182,6 +185,7 @@ class UsageWorker(QThread):
                 "session_pct": session_pct,
                 "session_reset": session_reset,
                 "session_burn": session_burn,
+                "has_weekly": bool(data.get("seven_day")),
                 "weekly_pct": weekly_pct,
                 "weekly_reset": weekly_reset,
                 "weekly_burn": weekly_burn,
