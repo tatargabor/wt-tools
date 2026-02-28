@@ -1,18 +1,14 @@
 \usepackage[magyar]{babel}
 \usepackage{fontspec}
-\setmonofont{DejaVu Sans Mono}[Scale=0.85]
+\setmonofont{DejaVu Sans Mono}[Scale=0.80]
 
-% --- Sötét, szemkímélő design ---
+% --- Színek (fehér alap, fekete szöveg, színes kiemelések) ---
 \usepackage{xcolor}
-\pagecolor[RGB]{40,44,52}           % Sötét háttér (One Dark stílus)
-\color[RGB]{210,215,220}            % Világos szöveg
-\definecolor{keybox}{RGB}{55,60,70}
-\definecolor{keyborder}{RGB}{97,175,239}
-\definecolor{linkblue}{RGB}{97,175,239}
-\definecolor{headcolor}{RGB}{230,180,80}
-\definecolor{tableheadBg}{RGB}{55,60,70}
-\definecolor{tablerowBg}{RGB}{45,49,58}
-\definecolor{codebg}{RGB}{30,33,40}
+\definecolor{linkblue}{RGB}{0,90,180}
+\definecolor{headcolor}{RGB}{30,80,140}
+\definecolor{keybox}{RGB}{240,245,250}
+\definecolor{keyborder}{RGB}{0,90,180}
+\definecolor{codebg}{RGB}{245,245,245}
 
 % --- Linkek színezése ---
 \usepackage{hyperref}
@@ -27,11 +23,11 @@
 % --- Fejléc/lábléc ---
 \usepackage{fancyhdr}
 \pagestyle{fancy}
-\fancyhead[L]{\small\color[RGB]{140,145,155} Az Ágensek Kora}
-\fancyhead[R]{\small\color[RGB]{140,145,155}\thepage}
+\fancyhead[L]{\small\color{gray} Az Ágensek Kora}
+\fancyhead[R]{\small\color{gray}\thepage}
 \fancyfoot[C]{}
 \renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\headrule}{\hbox to\headwidth{\color[RGB]{70,75,85}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{gray!50}\leaders\hrule height \headrulewidth\hfill}}
 
 % --- Fejezet/szekció színek ---
 \usepackage{titlesec}
@@ -42,7 +38,7 @@
   {\normalfont\Large\bfseries\color{headcolor}}
   {\thesection}{1em}{}
 \titleformat{\subsection}
-  {\normalfont\large\bfseries\color[RGB]{200,205,215}}
+  {\normalfont\large\bfseries\color[RGB]{60,60,60}}
   {\thesubsection}{1em}{}
 
 % --- Kulcs üzenet box ---
@@ -50,8 +46,10 @@
 \newtcolorbox{kulcsuzenat}{
   colback=keybox,
   colframe=keyborder,
-  coltext=white,
+  coltext=black,
   title={\textcolor{white}{Kulcs üzenet PM-nek}},
+  coltitle=white,
+  colbacktitle=keyborder,
   fonttitle=\bfseries,
   boxrule=1pt,
   arc=4pt,
@@ -61,26 +59,29 @@
   bottom=6pt,
 }
 
-% --- Táblázatok ---
+% --- Táblázatok: kisebb betűméret ---
 \usepackage{longtable}
 \usepackage{booktabs}
-% Penalty a táblázat előtt — próbálja egy oldalon tartani
-\setlength{\LTpre}{1em plus 10pt minus 5pt}
-\setlength{\LTpost}{1em plus 5pt minus 3pt}
+\usepackage{etoolbox}
+\AtBeginEnvironment{longtable}{\small}
+\setlength{\LTpre}{0.5em plus 5pt minus 3pt}
+\setlength{\LTpost}{0.5em plus 3pt minus 2pt}
+% Szűkebb sorok a táblázatokban
+\renewcommand{\arraystretch}{0.9}
 
 % --- Kód blokk háttér ---
 \usepackage{fancyvrb}
 \usepackage{framed}
-\definecolor{shadecolor}{RGB}{30,33,40}
+\definecolor{shadecolor}{RGB}{245,245,245}
 
 % --- Magyar nevek ---
 \renewcommand{\contentsname}{Tartalomjegyzék}
 \renewcommand{\chaptername}{Fejezet}
 
-% --- Tartalomjegyzék színek ---
+% --- Tartalomjegyzék ---
 \usepackage{tocloft}
 \renewcommand{\cfttoctitlefont}{\huge\bfseries\color{headcolor}}
-\renewcommand{\cftchapfont}{\bfseries\color[RGB]{210,215,220}}
-\renewcommand{\cftsecfont}{\color[RGB]{180,185,195}}
-\renewcommand{\cftchappagefont}{\color[RGB]{210,215,220}}
-\renewcommand{\cftsecpagefont}{\color[RGB]{180,185,195}}
+\renewcommand{\cftchapfont}{\bfseries\color{black}}
+\renewcommand{\cftsecfont}{\color[RGB]{60,60,60}}
+\renewcommand{\cftchappagefont}{\color{black}}
+\renewcommand{\cftsecpagefont}{\color[RGB]{60,60,60}}

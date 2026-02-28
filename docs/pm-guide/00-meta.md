@@ -7,8 +7,8 @@ lang: hu
 toc: true
 toc-depth: 3
 documentclass: report
-fontsize: 11pt
-geometry: "a4paper, margin=1.8cm"
-linestretch: 1.35
+fontsize: 10pt
+geometry: "a4paper, margin=2cm"
+linestretch: 1.25
 include-before: []
 ---
