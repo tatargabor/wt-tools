@@ -2353,14 +2353,38 @@ execute_merge_queue() {
 
 # Retry merge queue items + any merge-blocked changes not in the queue.
 # Safe to call from any context (monitor loop, resume, etc.)
+# Max 5 retries per change to prevent infinite loops.
 retry_merge_queue() {
+    local max_merge_retries=5
+
+    # Helper: attempt merge with retry counting
+    _try_merge() {
+        local name="$1"
+        local retry_count
+        retry_count=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .merge_retry_count // 0' "$STATE_FILENAME")
+        if [[ "$retry_count" -ge "$max_merge_retries" ]]; then
+            return 0  # silently skip — already logged at the limit
+        fi
+        retry_count=$((retry_count + 1))
+        update_change_field "$name" "merge_retry_count" "$retry_count"
+
+        log_info "Merge attempt $retry_count/$max_merge_retries for $name"
+        if merge_change "$name" 2>/dev/null; then
+            return 0
+        fi
+
+        if [[ "$retry_count" -ge "$max_merge_retries" ]]; then
+            log_error "Merge failed after $max_merge_retries attempts for $name — giving up"
+            send_notification "wt-orchestrate" "Merge permanently blocked: $name (after $max_merge_retries attempts)" "critical"
+        fi
+    }
+
     # Process merge queue items
     local queue_items
     queue_items=$(jq -r '.merge_queue[]?' "$STATE_FILENAME" 2>/dev/null || true)
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
-        log_info "Retrying merge for queued: $name"
-        merge_change "$name" 2>/dev/null || true
+        _try_merge "$name"
     done <<< "$queue_items"
 
     # Also find merge-blocked items not in the queue (safety net)
@@ -2372,8 +2396,7 @@ retry_merge_queue() {
         if echo "$queue_items" | grep -qx "$name" 2>/dev/null; then
             continue
         fi
-        log_info "Retrying merge for blocked (not in queue): $name"
-        merge_change "$name" 2>/dev/null || true
+        _try_merge "$name"
     done <<< "$blocked"
 }
 

@@ -321,26 +321,58 @@ main() {
         exit 1
     fi
 
-    # Check for uncommitted changes in worktree
+    # Check for uncommitted changes in worktree (auto-stash generated files)
     local changes
     changes=$(git -C "$wt_path" status --porcelain 2>/dev/null | grep -v "^?? \.zed/" | grep -v "^?? " || true)
     if [[ -n "$changes" ]]; then
-        error "Worktree has uncommitted changes. Commit or stash them first."
-        echo ""
-        echo "$changes"
-        exit 1
+        # Filter: are all changes in generated files?
+        local non_generated=false
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local file="${line:3}"  # strip status prefix
+            if ! is_generated_file "$file"; then
+                non_generated=true
+                break
+            fi
+        done <<< "$changes"
+
+        if $non_generated; then
+            error "Worktree has uncommitted changes. Commit or stash them first."
+            echo ""
+            echo "$changes"
+            exit 1
+        else
+            # Auto-stash generated file changes
+            git -C "$wt_path" stash --quiet 2>/dev/null || true
+            info "Auto-stashed generated file changes in worktree"
+        fi
     fi
 
-    # Check for uncommitted changes in main repo (needed for checkout)
+    # Check for uncommitted changes in main repo (auto-stash generated files)
     local main_changes
     main_changes=$(git -C "$project_path" status --porcelain 2>/dev/null | grep -v "^?? " || true)
     if [[ -n "$main_changes" ]]; then
-        error "Main repo has uncommitted changes. Commit or stash them first."
-        echo ""
-        echo "$main_changes"
-        echo ""
-        echo "Run: cd $project_path && git stash"
-        exit 1
+        local non_generated=false
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local file="${line:3}"
+            if ! is_generated_file "$file"; then
+                non_generated=true
+                break
+            fi
+        done <<< "$main_changes"
+
+        if $non_generated; then
+            error "Main repo has uncommitted changes. Commit or stash them first."
+            echo ""
+            echo "$main_changes"
+            echo ""
+            echo "Run: cd $project_path && git stash"
+            exit 1
+        else
+            git -C "$project_path" stash --quiet 2>/dev/null || true
+            info "Auto-stashed generated file changes in main repo"
+        fi
     fi
 
     info "Merging '$source_branch' into '$target_branch'..."
