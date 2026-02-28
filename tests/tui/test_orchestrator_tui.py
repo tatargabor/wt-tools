@@ -1,0 +1,243 @@
+"""Tests for orchestrator TUI — state reader, formatting, and approval."""
+
+import json
+import os
+import tempfile
+from pathlib import Path
+
+import pytest
+
+# Add project root to path
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from gui.tui.orchestrator_tui import (
+    StateReader,
+    format_tokens,
+    format_duration,
+    format_gates,
+    gate_str,
+    GATE_PASS,
+    GATE_FAIL,
+    GATE_NONE,
+)
+
+
+# ─── Fixtures ─────────────────────────────────────────────────────────
+
+@pytest.fixture
+def tmp_dir():
+    with tempfile.TemporaryDirectory() as d:
+        yield Path(d)
+
+
+def make_state(tmp_dir, data):
+    """Write orchestration-state.json and return path."""
+    path = tmp_dir / "orchestration-state.json"
+    with open(path, "w") as f:
+        json.dump(data, f)
+    return path
+
+
+def make_log(tmp_dir, lines):
+    """Write orchestration log and return path."""
+    path = tmp_dir / "orchestration.log"
+    with open(path, "w") as f:
+        f.writelines(line + "\n" for line in lines)
+    return path
+
+
+MINIMAL_STATE = {
+    "status": "running",
+    "plan_version": 3,
+    "changes": [
+        {"name": "change-a", "status": "done", "tokens_used": 50000, "depends_on": [],
+         "test_result": "pass", "build_result": "pass", "review_result": "pass"},
+        {"name": "change-b", "status": "running", "tokens_used": 10000, "depends_on": ["change-a"],
+         "test_result": "pass", "build_result": None, "review_result": None},
+        {"name": "change-c", "status": "pending", "tokens_used": 0, "depends_on": [],
+         "test_result": None, "build_result": None, "review_result": None},
+    ],
+    "checkpoints": [],
+    "replan_cycle": 0,
+    "prev_total_tokens": 0,
+    "active_seconds": 1800,
+    "started_epoch": 1772282029,
+    "time_limit_secs": 18000,
+}
+
+
+# ─── 9.1: StateReader.read_state() ───────────────────────────────────
+
+class TestReadState:
+    def test_valid_json(self, tmp_dir):
+        path = make_state(tmp_dir, MINIMAL_STATE)
+        reader = StateReader(path, tmp_dir / "log")
+        state = reader.read_state()
+        assert state is not None
+        assert state["status"] == "running"
+        assert state["plan_version"] == 3
+        assert len(state["changes"]) == 3
+
+    def test_malformed_json(self, tmp_dir):
+        path = tmp_dir / "orchestration-state.json"
+        path.write_text("{broken json!!!")
+        reader = StateReader(path, tmp_dir / "log")
+        assert reader.read_state() is None
+
+    def test_missing_file(self, tmp_dir):
+        reader = StateReader(tmp_dir / "nonexistent.json", tmp_dir / "log")
+        assert reader.read_state() is None
+
+
+# ─── 9.2: StateReader.read_log() offset tracking ─────────────────────
+
+class TestReadLog:
+    def test_first_read_gets_last_200(self, tmp_dir):
+        lines = [f"[2026-02-28] [INFO] Line {i}" for i in range(300)]
+        log_path = make_log(tmp_dir, lines)
+        reader = StateReader(tmp_dir / "state.json", log_path)
+        result = reader.read_log()
+        assert result is not None
+        assert len(result) == 200
+
+    def test_incremental_read(self, tmp_dir):
+        log_path = tmp_dir / "orchestration.log"
+        log_path.write_text("line 1\nline 2\n")
+        reader = StateReader(tmp_dir / "state.json", log_path)
+
+        # First read
+        first = reader.read_log()
+        assert len(first) == 2
+
+        # Append more
+        with open(log_path, "a") as f:
+            f.write("line 3\nline 4\n")
+
+        # Second read — only new lines
+        second = reader.read_log()
+        assert len(second) == 2
+        assert "line 3" in second[0]
+        assert "line 4" in second[1]
+
+    def test_no_log_file(self, tmp_dir):
+        reader = StateReader(tmp_dir / "state.json", tmp_dir / "nofile.log")
+        assert reader.read_log() is None
+
+    def test_log_rotation(self, tmp_dir):
+        log_path = tmp_dir / "orchestration.log"
+        log_path.write_text("old line 1\nold line 2\n")
+        reader = StateReader(tmp_dir / "state.json", log_path)
+        reader.read_log()  # first read, sets offset
+
+        # Simulate log rotation — file is now smaller
+        log_path.write_text("new line 1\n")
+        result = reader.read_log()
+        assert result is not None
+        assert any("new line 1" in l for l in result)
+
+
+# ─── 9.3: Header formatting helpers ──────────────────────────────────
+
+class TestFormatHelpers:
+    def test_format_tokens(self):
+        assert format_tokens(0) == "-"
+        assert format_tokens(None) == "-"
+        assert format_tokens(500) == "500"
+        assert format_tokens(5000) == "5K"
+        assert format_tokens(50000) == "50K"
+        assert format_tokens(1500000) == "1.5M"
+
+    def test_format_duration(self):
+        assert format_duration(0) == "-"
+        assert format_duration(None) == "-"
+        assert format_duration(30) == "30s"
+        assert format_duration(120) == "2m"
+        assert format_duration(3600) == "1h"
+        assert format_duration(5400) == "1h30m"
+        assert format_duration(18000) == "5h"
+
+
+# ─── 9.4: Approve action ─────────────────────────────────────────────
+
+class TestApprove:
+    def test_approve_writes_atomically(self, tmp_dir):
+        state_data = {
+            "status": "checkpoint",
+            "checkpoints": [
+                {"reason": "periodic", "approved": False}
+            ],
+            "changes": [],
+        }
+        state_path = make_state(tmp_dir, state_data)
+
+        # Simulate what action_approve does
+        with open(state_path) as f:
+            data = json.load(f)
+
+        data["checkpoints"][-1]["approved"] = True
+        data["checkpoints"][-1]["approved_at"] = "2026-02-28T12:00:00+00:00"
+
+        fd, tmp_path = tempfile.mkstemp(dir=tmp_dir, suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.rename(tmp_path, state_path)
+
+        # Verify
+        with open(state_path) as f:
+            result = json.load(f)
+        assert result["checkpoints"][-1]["approved"] is True
+        assert "approved_at" in result["checkpoints"][-1]
+
+    def test_approve_not_at_checkpoint(self, tmp_dir):
+        state_data = {"status": "running", "checkpoints": [], "changes": []}
+        path = make_state(tmp_dir, state_data)
+        reader = StateReader(path, tmp_dir / "log")
+        state = reader.read_state()
+        assert state["status"] != "checkpoint"
+
+
+# ─── 9.5: Gate formatting ────────────────────────────────────────────
+
+class TestGateFormatting:
+    def test_all_pass(self):
+        change = {"test_result": "pass", "build_result": "pass",
+                  "review_result": "pass", "status": "done"}
+        result = format_gates(change)
+        assert "T" in result and "B" in result and "R" in result and "V" in result
+        # All should contain the pass marker
+        assert result.count("✓") == 4
+
+    def test_build_fail(self):
+        change = {"test_result": "pass", "build_result": "fail",
+                  "review_result": None, "status": "failed"}
+        result = format_gates(change)
+        assert "✓" in result  # test passed
+        assert "✗" in result  # build failed
+
+    def test_pending_no_gates(self):
+        change = {"test_result": None, "build_result": None,
+                  "review_result": None, "status": "pending"}
+        result = format_gates(change)
+        # All should be NONE markers
+        assert result.count("-") == 4
+
+    def test_verify_pass_when_done(self):
+        change = {"test_result": "pass", "build_result": "pass",
+                  "review_result": "pass", "status": "merged"}
+        result = format_gates(change)
+        assert result.count("✓") == 4
+
+    def test_verify_fail(self):
+        change = {"test_result": "pass", "build_result": "pass",
+                  "review_result": "pass", "status": "verify-failed"}
+        result = format_gates(change)
+        # T, B, R pass but V fails
+        assert result.count("✓") == 3
+        assert "✗" in result  # verify failed
+
+    def test_gate_str(self):
+        assert gate_str("pass") == GATE_PASS
+        assert gate_str("fail") == GATE_FAIL
+        assert gate_str(None) == GATE_NONE
+        assert gate_str("unknown") == GATE_NONE

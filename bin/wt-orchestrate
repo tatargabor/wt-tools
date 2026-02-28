@@ -3818,6 +3818,7 @@ Commands:
   resume <name|--all>    Resume a paused change or all
   replan                 Re-plan from updated spec/brief, preserving completed work
   approve [--merge]      Approve a checkpoint (--merge: also flush merge queue)
+  tui                    Launch live terminal dashboard (requires textual)
   self-test              Run internal unit tests
 
 Input Resolution (when no --spec or --brief given):
@@ -3931,6 +3932,26 @@ main() {
         resume)     cmd_resume "$@" ;;
         replan)     cmd_replan "$@" ;;
         approve)    cmd_approve "$@" ;;
+        tui)
+            local tui_script="$SCRIPT_DIR/../gui/tui/orchestrator_tui.py"
+            local py
+            py=$(command -v python3 2>/dev/null)
+            # Verify textual is available in this python
+            if ! "$py" -c "import textual" 2>/dev/null; then
+                # Try conda python as fallback
+                for candidate in "$HOME/miniconda3/bin/python" "$HOME/.conda/bin/python"; do
+                    if [[ -x "$candidate" ]] && "$candidate" -c "import textual" 2>/dev/null; then
+                        py="$candidate"
+                        break
+                    fi
+                done
+            fi
+            if ! "$py" -c "import textual" 2>/dev/null; then
+                error "textual package not found. Install it: pip install textual"
+                return 1
+            fi
+            exec "$py" "$tui_script" "$STATE_FILENAME" "$LOG_FILE"
+            ;;
         self-test)  cmd_self_test "$@" ;;
         -h|--help|help|"")
             usage
