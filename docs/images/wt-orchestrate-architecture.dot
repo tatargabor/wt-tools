@@ -1,36 +1,23 @@
-// wt-orchestrate Architecture Diagram (Layered v6 — symmetric)
+// wt-orchestrate Architecture Diagram (Layered v7 — symmetric, no back-edges)
 // Generate: dot -Tpng -Gdpi=150 wt-orchestrate-architecture.dot -o wt-orchestrate-architecture.png
 //
 // Design notes:
-// - 5 layer clusters (L1-L5) stacked top-to-bottom as main flow
-// - APPENDIX with cross-cutting, git infra, lifecycle, reference
-// - Back-edges routed LEFT via invisible waypoint column for symmetry
+// - 5 layer clusters (L1-L5) stacked top-to-bottom, strictly forward flow
+// - Back-references annotated as text (e.g. "→ retry ⑥") instead of edges
+//   — this eliminates the wide arcs that cause asymmetric layouts in DOT
 // - Config (directives) annotated inline, no cross-cluster config edges
-// - Happy path = green thick, failure = red, retry = orange dashed
+// - Happy path = green thick, failure = red
 // - Step numbers ①-⑩ for reading order
 
 digraph orchestrate {
     graph [
         label="wt-orchestrate — Autonomous Multi-Phase Spec Orchestration\n "
         labelloc=t fontname="Helvetica" fontsize=22 fontcolor="#212121"
-        bgcolor="white" pad="0.8,0.5" nodesep=0.7 ranksep=0.55
-        compound=true newrank=true
+        bgcolor="white" pad="0.6,0.4" nodesep=0.7 ranksep=0.6
+        compound=true newrank=true center=true
     ]
     node [fontname="Helvetica" fontsize=9 style="filled,rounded" shape=box margin="0.14,0.07"]
     edge [fontname="Helvetica" fontsize=7 arrowsize=0.7]
-
-    // ════════════════════════════════════════════════════════════════
-    // LEFT-SIDE WAYPOINT COLUMN (invisible — forces back-edges left)
-    // ════════════════════════════════════════════════════════════════
-    node [style=invis fixedsize=true width=0.01 height=0.01 label=""]
-    wp_L1 [group=left]
-    wp_L2 [group=left]
-    wp_L3 [group=left]
-    wp_L4 [group=left]
-    wp_L5 [group=left]
-    node [style="filled,rounded" fixedsize=false]  // reset
-
-    wp_L1 -> wp_L2 -> wp_L3 -> wp_L4 -> wp_L5 [style=invis weight=10]
 
     // ════════════════════════════════════════════════════════════════
     // L1: INPUT & CONFIGURATION
@@ -44,7 +31,7 @@ digraph orchestrate {
 
         summarize [label="① Summarize [Haiku]\nif >8k tokens: condense\nTOC + next-phase focus\nfallback: truncate 32k" fillcolor="#E1BEE7" color="#7B1FA2" fontsize=8]
 
-        directives [label="② Directives → feeds L2-L5\n(4-level: CLI > yaml > in-doc > defaults)\n────────────────────────────────\nmax_parallel  merge_policy\nreview_before_merge  test_timeout\nmax_verify_retries  token_budget\nsummarize_model  review_model" fillcolor="#FFE0B2" color="#F57C00" fontsize=7]
+        directives [label="② Directives → feeds all layers\n(4-level: CLI > yaml > in-doc > defaults)\n────────────────────────────────\nmax_parallel  merge_policy\nreview_before_merge  test_timeout\nmax_verify_retries  token_budget\nsummarize_model  review_model" fillcolor="#FFE0B2" color="#F57C00" fontsize=7]
 
         input -> summarize [label=">8k tok" style=dashed]
         { rank=same; input; summarize; directives }
@@ -77,11 +64,11 @@ digraph orchestrate {
         labeljust=c style="filled,rounded" fillcolor="#E3F2FD" color="#1565C0"
         penwidth=2 fontname="Helvetica Bold" fontsize=10 fontcolor="#0D47A1"
 
-        dispatch [label="⑤ Dispatch\nmax_parallel  |  topo order\nwt-new → openspec ff → wt-loop\n+ mem recall for proposal (max 1000 ch)" fillcolor="#BBDEFB" color="#1565C0"]
+        dispatch [label="⑤ Dispatch\nmax_parallel  |  topo order\nwt-new → openspec ff → wt-loop\n+ mem recall for proposal (max 1000 ch)\n← replan ⑩ feeds new changes here" fillcolor="#BBDEFB" color="#1565C0"]
 
-        ralph [label="⑥ Ralph Loop\nClaude agent in git worktree\niterative implementation\nloop-state.json + terminal PID\n$ tokens polled every 15s" fillcolor="#C8E6C9" color="#2E7D32"]
+        ralph [label="⑥ Ralph Loop\nClaude agent in git worktree\niterative implementation\nloop-state.json + terminal PID\n$ tokens polled every 15s\n← retry/stall recovery resumes here" fillcolor="#C8E6C9" color="#2E7D32"]
 
-        monitor [label="⑦ Monitor (poll 15s)\nactive_seconds (fresh loops only)\nstall detect: 3x → auto-resume (300s cd)\ntoken budget: pause dispatch if exceeded\nhousekeeping ~2.5 min:\n  mem stats + gate stats + mem audit" fillcolor="#BBDEFB" color="#1565C0"]
+        monitor [label="⑦ Monitor (poll 15s)\nactive_seconds (fresh loops only)\nstall detect: 3x → auto-resume ⑥ (300s cd)\ntoken budget: pause dispatch ⑤\nhousekeeping ~2.5 min:\n  mem stats + gate stats + mem audit\n→ all done: skip to ✓" fillcolor="#BBDEFB" color="#1565C0"]
 
         dispatch -> ralph [penwidth=2.5 color="#388E3C" weight=5]
         ralph -> monitor [label="loop-state" style=dashed weight=5]
@@ -101,7 +88,7 @@ digraph orchestrate {
 
         g_verify [label="⑧c /opsx:verify\nartifact coherence\n(max-turns 5)\n$ gate_verify_ms" fillcolor="#FFCDD2" color="#C62828" fontsize=8]
 
-        retry [label="Retry Ralph\nresume + failure context\nmax_verify_retries (default 1)\n$ snapshot retry_tokens_start\n$ accumulate gate_retry_tokens" fillcolor="#EF9A9A" color="#B71C1C" fontsize=8]
+        retry [label="Retry → resume ⑥ Ralph\nwith failure context\nmax_verify_retries (default 1)\n$ gate_retry_tokens (cumulative)" fillcolor="#EF9A9A" color="#B71C1C" fontsize=8]
 
         failed [label="FAILED\n! notify critical\n+ mem: failure" fillcolor="#EF5350" color="#B71C1C" fontcolor=white shape=octagon fontsize=9]
 
@@ -132,7 +119,7 @@ digraph orchestrate {
 
         merge_queue [label="Merge Queue\nretry 5x per change\nmerge-blocked + cooldown\n! notify on permanent fail\n+ mem: remember perm-fail" fillcolor="#C5CAE9" color="#303F9F" fontsize=8]
 
-        replan [label="⑩ Auto-Replan [Opus]\ncollect completed → compare spec\n+ mem: recall orch history (limit 5)\npreserve: prev_total_tokens,\n  active_seconds, replan_cycle\nadvance to NEXT phase" fillcolor="#FFF9C4" color="#F9A825"]
+        replan [label="⑩ Auto-Replan [Opus]\ncollect completed → compare spec\n+ mem: recall orch history (limit 5)\npreserve: prev_total_tokens,\n  active_seconds, replan_cycle\n→ new changes: feed back to ⑤" fillcolor="#FFF9C4" color="#F9A825"]
 
         all_done [label="✓  ALL DONE\n! notify completion\n$ final token + gate stats\n+ mem: final stats" fillcolor="#A5D6A7" color="#2E7D32" fontsize=11 shape=doubleoctagon]
 
@@ -218,7 +205,7 @@ digraph orchestrate {
 
             key_nums [label="KEY NUMBERS\n─────────────────────────\npoll: 15s\nstall: 3x / 300s cd\nmerge retries: 5x\ntest timeout: 300s\nlog rotate: 100K→50K\nhousekeeping: ~2.5 min\nreview diff: 30k chars\ntest output: 2000 chars\nmemory: 2000/1000 ch" fillcolor="#E8F5E9" color="#2E7D32" fontsize=7 shape=note]
 
-            edges_legend [label="EDGES\n─────────────────────────\ngreen thick = happy path\nred = failure / gate\norange dash = retry\ngray dash = data / config" fillcolor="white" color="#E0E0E0" fontsize=7]
+            edges_legend [label="EDGES\n─────────────────────────\ngreen thick = happy path\nred = failure / gate\n← ⑥ = back-reference\n  (annotated in text)\ngray dash = data / config" fillcolor="white" color="#E0E0E0" fontsize=7]
 
             { rank=same; legend; stop; key_nums; edges_legend }
         }
@@ -233,16 +220,7 @@ digraph orchestrate {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // WAYPOINT ALIGNMENT — anchor waypoints to cluster ranks
-    // ════════════════════════════════════════════════════════════════
-    { rank=same; wp_L1; input }
-    { rank=same; wp_L2; plan }
-    { rank=same; wp_L3; dispatch }
-    { rank=same; wp_L4; g_test }
-    { rank=same; wp_L5; merge }
-
-    // ════════════════════════════════════════════════════════════════
-    // INTER-LAYER EDGES (forward — happy path)
+    // INTER-LAYER EDGES (forward only — strictly top-to-bottom)
     // ════════════════════════════════════════════════════════════════
 
     // L1 → L2
@@ -260,29 +238,6 @@ digraph orchestrate {
 
     // L5 forward
     merge -> replan [label="all phases\n+ auto_replan" penwidth=1.5 weight=5]
-
-    // ════════════════════════════════════════════════════════════════
-    // BACK-EDGES — routed through LEFT waypoint column
-    // ════════════════════════════════════════════════════════════════
-
-    // Retry → Ralph (L4 → L3): go left through waypoints
-    retry -> wp_L4 [style=dashed color="#FF6F00" arrowhead=none constraint=false]
-    wp_L4 -> wp_L3 [style=dashed color="#FF6F00" arrowhead=none constraint=false]
-    wp_L3 -> ralph [label="resume +\ncontext" style=dashed color="#FF6F00" constraint=false]
-
-    // Stall recovery: Monitor → Ralph (within L3)
-    monitor -> ralph [label="resume stalled\n(300s cd)" style=dashed color="#FF6F00" constraint=false headport=w tailport=w]
-
-    // Replan → Dispatch (L5 → L3): go left through waypoints
-    replan -> wp_L5 [style=dashed color="#1565C0" arrowhead=none constraint=false]
-    wp_L5 -> wp_L3 [style=dashed color="#1565C0" arrowhead=none constraint=false weight=0]
-    wp_L3 -> dispatch [label="new changes" style=dashed color="#1565C0" constraint=false]
-
-    // Monitor → Dispatch (within L3): short left loop
-    monitor -> dispatch [label="dispatch\nready" style=dashed constraint=false color="#9E9E9E" headport=w tailport=w]
-
-    // Monitor → All Done (L3 → L5): forward skip
-    monitor -> all_done [label="all done\nno replan" style=dashed constraint=false color="#9E9E9E"]
 
     // ════════════════════════════════════════════════════════════════
     // LAYOUT ORDERING (invisible edges to force vertical stacking)
