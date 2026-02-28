@@ -144,19 +144,33 @@ parse_duration() {
     echo "$total"
 }
 
-# Check if time limit has been exceeded.
-# Returns 0 (true) if exceeded, 1 (false) if still within limit.
-check_time_limit() {
-    local limit_seconds="$1"
-    [[ "$limit_seconds" -le 0 ]] && return 1
-
+# Check if any running Ralph loop has made recent progress.
+# A loop is "active" if its loop-state.json was modified within the last 5 minutes.
+# Returns 0 (true) if at least one loop is active, 1 (false) if all stalled.
+any_loop_active() {
+    local stale_threshold=300  # 5 minutes
     local now
     now=$(date +%s)
-    local elapsed=$((now - ORCHESTRATOR_START_EPOCH))
-    if [[ "$elapsed" -ge "$limit_seconds" ]]; then
-        return 0
-    fi
-    return 1
+    local running
+    running=$(get_changes_by_status "running" 2>/dev/null || true)
+    [[ -z "$running" ]] && return 1
+
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        local wt_path
+        wt_path=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME" 2>/dev/null)
+        [[ -z "$wt_path" ]] && continue
+        local loop_state="$wt_path/.claude/loop-state.json"
+        if [[ -f "$loop_state" ]]; then
+            local mtime
+            mtime=$(stat --format='%Y' "$loop_state" 2>/dev/null || echo 0)
+            local age=$((now - mtime))
+            if [[ "$age" -lt "$stale_threshold" ]]; then
+                return 0  # at least one loop is active
+            fi
+        fi
+    done <<< "$running"
+    return 1  # all loops stalled or no loop-state files
 }
 
 # Format seconds into human-readable duration
@@ -1278,18 +1292,20 @@ cmd_status() {
     replan_cycle=$(jq '.replan_cycle // 0' "$STATE_FILENAME" 2>/dev/null)
     [[ "$replan_cycle" -gt 0 ]] && echo "  Replan:   cycle $replan_cycle"
 
-    # Show elapsed time and remaining limit
+    # Show elapsed time (wall clock + active) and remaining limit
     local started_epoch
     started_epoch=$(jq -r '.started_epoch // 0' "$STATE_FILENAME" 2>/dev/null)
     local limit_secs
     limit_secs=$(jq -r '.time_limit_secs // 0' "$STATE_FILENAME" 2>/dev/null)
+    local active_secs
+    active_secs=$(jq -r '.active_seconds // 0' "$STATE_FILENAME" 2>/dev/null)
     if [[ "$started_epoch" -gt 0 ]]; then
-        local now elapsed
+        local now wall_elapsed
         now=$(date +%s)
-        elapsed=$((now - started_epoch))
-        local time_info="  Elapsed:  $(format_duration "$elapsed")"
+        wall_elapsed=$((now - started_epoch))
+        local time_info="  Active:   $(format_duration "$active_secs")"
         if [[ "$limit_secs" -gt 0 ]]; then
-            local remaining=$((limit_secs - elapsed))
+            local remaining=$((limit_secs - active_secs))
             if [[ "$remaining" -gt 0 ]]; then
                 time_info="$time_info / $(format_duration "$limit_secs") limit ($(format_duration "$remaining") remaining)"
             else
@@ -1297,6 +1313,11 @@ cmd_status() {
             fi
         fi
         echo "$time_info"
+        # Show wall clock if different from active (indicates wait time)
+        if [[ "$wall_elapsed" -gt $((active_secs + 120)) ]]; then
+            local wait_time=$((wall_elapsed - active_secs))
+            echo "  Wall:     $(format_duration "$wall_elapsed") ($(format_duration "$wait_time") idle/waiting)"
+        fi
     fi
 
     if [[ "$status" == "time_limit" ]]; then
@@ -1893,18 +1914,30 @@ monitor_loop() {
     update_state_field "started_epoch" "$ORCHESTRATOR_START_EPOCH"
     update_state_field "time_limit_secs" "$time_limit_secs"
 
+    # Active seconds: only counts time when loops are making progress.
+    # Restored on resume so the timer is cumulative across restarts.
+    local active_seconds
+    active_seconds=$(jq -r '.active_seconds // 0' "$STATE_FILENAME" 2>/dev/null)
+    local token_wait=false  # true when token budget exceeded, waiting for reset
+
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
 
     while true; do
         sleep "$POLL_INTERVAL"
 
-        # Check time limit
-        if [[ "$time_limit_secs" -gt 0 ]] && check_time_limit "$time_limit_secs"; then
-            local elapsed=$(($(date +%s) - ORCHESTRATOR_START_EPOCH))
-            warn "Time limit reached ($(format_duration "$elapsed") elapsed)"
-            log_info "Time limit reached after $(format_duration "$elapsed")"
+        # Track active time: only count this interval if loops are making progress
+        if any_loop_active; then
+            active_seconds=$((active_seconds + POLL_INTERVAL))
+            update_state_field "active_seconds" "$active_seconds"
+        fi
+
+        # Check time limit against ACTIVE time (not wall clock)
+        if [[ "$time_limit_secs" -gt 0 && "$active_seconds" -ge "$time_limit_secs" ]]; then
+            local wall_elapsed=$(($(date +%s) - ORCHESTRATOR_START_EPOCH))
+            warn "Time limit reached ($(format_duration "$active_seconds") active, $(format_duration "$wall_elapsed") wall clock)"
+            log_info "Time limit reached: $(format_duration "$active_seconds") active / $(format_duration "$wall_elapsed") wall"
             update_state_field "status" '"time_limit"'
-            send_notification "wt-orchestrate" "Time limit reached ($(format_duration "$elapsed")). Run 'wt-orchestrate start' to continue." "normal"
+            send_notification "wt-orchestrate" "Time limit reached ($(format_duration "$active_seconds") active). Run 'wt-orchestrate start' to continue." "normal"
             break
         fi
 
@@ -1927,23 +1960,34 @@ monitor_loop() {
             poll_change "$name" "$test_command" "$merge_policy"
         done <<< "$running_changes"
 
-        # Dispatch newly ready changes
-        dispatch_ready_changes "$max_parallel"
-
-        # Retry merge queue + any merge-blocked items not in queue
-        retry_merge_queue
-
-        # Check token budget
+        # Check token budget — if exceeded, skip dispatch but keep polling
+        # (waiting for rate limit window to reset; running loops will finish naturally)
         if [[ "$token_budget" -gt 0 ]]; then
             local total_tokens
             total_tokens=$(jq '[.changes[].tokens_used] | add // 0' "$STATE_FILENAME")
             if [[ "$total_tokens" -gt "$token_budget" ]]; then
-                warn "Token budget exceeded ($total_tokens > $token_budget)"
-                log_warn "Token budget exceeded: $total_tokens > $token_budget"
-                trigger_checkpoint "token_budget_exceeded"
+                if [[ "$token_wait" != true ]]; then
+                    warn "Token budget exceeded ($total_tokens > $token_budget) — waiting for running loops to finish"
+                    log_warn "Token budget exceeded: $total_tokens > $token_budget — entering wait mode"
+                    token_wait=true
+                fi
+                # Don't dispatch new changes, but continue polling running ones
+                retry_merge_queue
                 continue
+            else
+                if [[ "$token_wait" == true ]]; then
+                    info "Token budget available again — resuming dispatch"
+                    log_info "Token wait ended, resuming dispatch"
+                    token_wait=false
+                fi
             fi
         fi
+
+        # Dispatch newly ready changes (skipped during token_wait)
+        dispatch_ready_changes "$max_parallel"
+
+        # Retry merge queue + any merge-blocked items not in queue
+        retry_merge_queue
 
         # Check if checkpoint needed
         local changes_since
@@ -2073,12 +2117,21 @@ print(len(novel))
     prev_total_tokens=$(jq '[.changes[].tokens_used] | add // 0' "$STATE_FILENAME")
     local prev_cycles
     prev_cycles=$(jq '.replan_cycle // 0' "$STATE_FILENAME")
+    local prev_active_seconds
+    prev_active_seconds=$(jq '.active_seconds // 0' "$STATE_FILENAME")
+    local prev_started_epoch
+    prev_started_epoch=$(jq '.started_epoch // 0' "$STATE_FILENAME")
+    local prev_time_limit
+    prev_time_limit=$(jq '.time_limit_secs // 0' "$STATE_FILENAME")
 
     init_state "$PLAN_FILENAME"
 
     # Restore cumulative metadata
     update_state_field "replan_cycle" "$cycle"
     update_state_field "prev_total_tokens" "$prev_total_tokens"
+    update_state_field "active_seconds" "$prev_active_seconds"
+    update_state_field "started_epoch" "$prev_started_epoch"
+    update_state_field "time_limit_secs" "$prev_time_limit"
 
     # Dispatch newly ready changes
     dispatch_ready_changes "$max_parallel"
