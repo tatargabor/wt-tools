@@ -35,6 +35,62 @@ has_remote_branch() {
     git -C "$project_path" ls-remote --heads origin "$branch_name" 2>/dev/null | grep -q "$branch_name"
 }
 
+bootstrap_env_files() {
+    local source_dir="$1"
+    local target_dir="$2"
+
+    local copied=0
+    for envfile in .env .env.local .env.development .env.development.local; do
+        if [[ -f "$source_dir/$envfile" && ! -f "$target_dir/$envfile" ]]; then
+            cp "$source_dir/$envfile" "$target_dir/$envfile"
+            copied=$((copied + 1))
+        fi
+    done
+
+    if [[ $copied -gt 0 ]]; then
+        info "Copied $copied env file(s) from main project"
+    fi
+}
+
+bootstrap_dependencies() {
+    local wt_path="$1"
+
+    # Skip if no package.json
+    [[ -f "$wt_path/package.json" ]] || return 0
+
+    # Skip if node_modules already exists
+    [[ -d "$wt_path/node_modules" ]] && return 0
+
+    # Detect package manager
+    local pm=""
+    if [[ -f "$wt_path/pnpm-lock.yaml" ]]; then
+        pm="pnpm"
+    elif [[ -f "$wt_path/yarn.lock" ]]; then
+        pm="yarn"
+    elif [[ -f "$wt_path/bun.lockb" || -f "$wt_path/bun.lock" ]]; then
+        pm="bun"
+    elif [[ -f "$wt_path/package-lock.json" ]]; then
+        pm="npm"
+    fi
+
+    if [[ -z "$pm" ]]; then
+        warn "package.json found but no lockfile — skipping dependency install"
+        return 0
+    fi
+
+    if ! command -v "$pm" &>/dev/null; then
+        warn "$pm not found — skipping dependency install"
+        return 0
+    fi
+
+    info "Installing dependencies with $pm..."
+    if (cd "$wt_path" && "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install 2>/dev/null); then
+        info "Dependencies installed"
+    else
+        warn "Dependency install failed (non-fatal) — agent can retry"
+    fi
+}
+
 main() {
     local change_id=""
     local project_name=""
@@ -164,6 +220,12 @@ main() {
         error "Failed to create worktree"
         exit 1
     fi
+
+    # Bootstrap: copy .env files from main project
+    bootstrap_env_files "$project_path" "$wt_path"
+
+    # Bootstrap: install dependencies if package manager detected
+    bootstrap_dependencies "$wt_path"
 
     # Deploy Claude Code hooks to the new worktree
     if command -v wt-deploy-hooks &>/dev/null; then

@@ -916,7 +916,106 @@ validate_plan() {
         errors=$((errors + 1))
     fi
 
+    # Check for scope overlap between planned changes
+    check_scope_overlap "$plan_file"
+
     return $errors
+}
+
+# Detect overlapping scopes between changes in a plan (and vs active/merged changes).
+# Uses keyword jaccard similarity. Warns but does not block.
+check_scope_overlap() {
+    local plan_file="$1"
+
+    local change_count
+    change_count=$(jq '.changes | length' "$plan_file")
+    [[ "$change_count" -lt 2 ]] && return 0
+
+    local warnings=0
+
+    # Build keyword sets for each change (name → lowercase words from scope)
+    local -A scope_words
+    local names=()
+    while IFS= read -r name; do
+        names+=("$name")
+        local scope_text
+        scope_text=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .scope // ""' "$plan_file")
+        # Extract lowercase words (3+ chars), deduplicate
+        scope_words["$name"]=$(echo "$scope_text" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ')
+    done < <(jq -r '.changes[].name' "$plan_file")
+
+    # Pairwise jaccard comparison
+    for ((i=0; i<${#names[@]}; i++)); do
+        for ((j=i+1; j<${#names[@]}; j++)); do
+            local name_a="${names[$i]}"
+            local name_b="${names[$j]}"
+            local words_a="${scope_words[$name_a]}"
+            local words_b="${scope_words[$name_b]}"
+
+            # Skip if either has very few words
+            local count_a count_b
+            count_a=$(echo "$words_a" | wc -w)
+            count_b=$(echo "$words_b" | wc -w)
+            [[ "$count_a" -lt 3 || "$count_b" -lt 3 ]] && continue
+
+            # Compute jaccard: |intersection| / |union|
+            local intersection union
+            intersection=$(comm -12 <(echo "$words_a" | tr ' ' '\n' | sort) <(echo "$words_b" | tr ' ' '\n' | sort) | wc -l)
+            union=$(cat <(echo "$words_a" | tr ' ' '\n') <(echo "$words_b" | tr ' ' '\n') | sort -u | grep -c . || true)
+
+            if [[ "$union" -gt 0 ]]; then
+                local similarity=$((intersection * 100 / union))
+                if [[ "$similarity" -ge 40 ]]; then
+                    warn "Scope overlap detected: '$name_a' ↔ '$name_b' (${similarity}% keyword similarity)"
+                    log_warn "Scope overlap: $name_a ↔ $name_b = ${similarity}% (intersection=$intersection, union=$union)"
+                    warnings=$((warnings + 1))
+                fi
+            fi
+        done
+    done
+
+    # Also check against active worktrees (if state file exists)
+    if [[ -f "$STATE_FILENAME" ]]; then
+        local active_changes
+        active_changes=$(jq -r '.changes[]? | select(.status == "running" or .status == "dispatched" or .status == "done") | .name' "$STATE_FILENAME" 2>/dev/null || true)
+
+        if [[ -n "$active_changes" ]]; then
+            while IFS= read -r active_name; do
+                local active_scope
+                active_scope=$(jq -r --arg n "$active_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+                local active_words
+                active_words=$(echo "$active_scope" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ')
+                local active_count
+                active_count=$(echo "$active_words" | wc -w)
+                [[ "$active_count" -lt 3 ]] && continue
+
+                for name in "${names[@]}"; do
+                    [[ "$name" == "$active_name" ]] && continue
+                    local words="${scope_words[$name]}"
+                    local wcount
+                    wcount=$(echo "$words" | wc -w)
+                    [[ "$wcount" -lt 3 ]] && continue
+
+                    local intersection union
+                    intersection=$(comm -12 <(echo "$words" | tr ' ' '\n' | sort) <(echo "$active_words" | tr ' ' '\n' | sort) | wc -l)
+                    union=$(cat <(echo "$words" | tr ' ' '\n') <(echo "$active_words" | tr ' ' '\n') | sort -u | grep -c . || true)
+
+                    if [[ "$union" -gt 0 ]]; then
+                        local similarity=$((intersection * 100 / union))
+                        if [[ "$similarity" -ge 40 ]]; then
+                            warn "New change '$name' overlaps with ACTIVE change '$active_name' (${similarity}% similarity)"
+                            log_warn "Overlap with active: $name ↔ $active_name = ${similarity}%"
+                            warnings=$((warnings + 1))
+                        fi
+                    fi
+                done
+            done <<< "$active_changes"
+        fi
+    fi
+
+    if [[ $warnings -gt 0 ]]; then
+        send_notification "wt-orchestrate" "Plan has $warnings scope overlap warning(s) — review for duplicates" "normal"
+    fi
 }
 
 # ─── Notifications ───────────────────────────────────────────────────
@@ -2938,14 +3037,87 @@ handle_change_done() {
         return
     fi
 
+    # ── Step 3b: Check for test file existence (warning only) ──
+    local test_files_count=0
+    test_files_count=$(cd "$wt_path" && git diff --name-only "$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo HEAD~5)..HEAD" 2>/dev/null | grep -cE '\.(test|spec)\.' || true)
+    if [[ "$test_files_count" -eq 0 ]]; then
+        log_warn "Verify gate: $change_name has NO test files in the diff — consider adding tests"
+        update_change_field "$change_name" "has_tests" "false"
+        send_notification "wt-orchestrate" "Change '$change_name' has no test files" "warning"
+    else
+        log_info "Verify gate: $change_name has $test_files_count test file(s)"
+        update_change_field "$change_name" "has_tests" "true"
+    fi
+
+    # ── Step 4: Build verification (if build command detectable) ──
+    local gate_build_ms=0
+    local build_command=""
+    if [[ -f "$wt_path/package.json" ]]; then
+        build_command=$(cd "$wt_path" && node -e "
+            const p = require('./package.json');
+            const s = p.scripts || {};
+            if (s['build:ci']) console.log('build:ci');
+            else if (s['build']) console.log('build');
+        " 2>/dev/null || true)
+    fi
+
+    if [[ -n "$build_command" ]]; then
+        # Detect package manager
+        local pm="npm"
+        [[ -f "$wt_path/pnpm-lock.yaml" ]] && pm="pnpm"
+        [[ -f "$wt_path/yarn.lock" ]] && pm="yarn"
+        [[ -f "$wt_path/bun.lockb" || -f "$wt_path/bun.lock" ]] && pm="bun"
+
+        info "Running build for $change_name ($pm run $build_command)..."
+        log_info "Verify gate: build start for $change_name"
+        local _b_start=$(($(date +%s%N) / 1000000))
+
+        local build_output=""
+        local build_rc=0
+        build_output=$(cd "$wt_path" && timeout 300 "$pm" run "$build_command" 2>&1) || build_rc=$?
+        gate_build_ms=$(( $(date +%s%N) / 1000000 - _b_start ))
+        update_change_field "$change_name" "gate_build_ms" "$gate_build_ms"
+
+        if [[ $build_rc -ne 0 ]]; then
+            log_error "Verify gate: build failed for $change_name (exit $build_rc)"
+            update_change_field "$change_name" "build_result" '"fail"'
+            local escaped_build
+            escaped_build=$(printf '%s' "$build_output" | tail -c 2000 | jq -Rs .)
+            update_change_field "$change_name" "build_output" "$escaped_build"
+
+            # Retry with build failure context
+            if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+                verify_retry_count=$((verify_retry_count + 1))
+                info "Build failed for $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+                update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+                update_change_field "$change_name" "status" '"verify-failed"'
+                local scope
+                scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+                local retry_prompt="Build failed after implementation. Fix the build errors.\n\nBuild command: $pm run $build_command\nBuild output (last 2000 chars):\n${build_output: -2000}\n\nOriginal scope: $scope"
+                update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+                local _snap_tokens
+                _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+                update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+                resume_change "$change_name"
+                return
+            fi
+            update_change_field "$change_name" "status" '"failed"'
+            send_notification "wt-orchestrate" "Change '$change_name' failed build after $max_verify_retries retries" "critical"
+            return
+        fi
+
+        log_info "Verify gate: build passed for $change_name (${gate_build_ms}ms)"
+        update_change_field "$change_name" "build_result" '"pass"'
+    fi
+
     # ── Store gate total ──
-    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms))
+    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms + gate_build_ms))
     update_change_field "$change_name" "gate_total_ms" "$gate_total_ms"
     local gate_retry_tokens
     gate_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
     local gate_retry_count
     gate_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
-    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
+    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, build=${gate_build_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
 
     # ── Step 4: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
