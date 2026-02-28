@@ -2043,19 +2043,19 @@ auto_replan_cycle() {
 
     # Check if new plan has any changes not in old plan
     local new_changes
-    new_changes=$(jq -r '[.changes[].name]' "$PLAN_FILENAME")
+    new_changes=$(jq -c '[.changes[].name]' "$PLAN_FILENAME")
     local old_changes
-    old_changes=$(jq -r '[.changes[].name]' "$old_plan")
+    old_changes=$(jq -c '[.changes[].name]' "$old_plan")
     rm -f "$old_plan"
 
     local novel_count
     novel_count=$(python3 -c "
 import json, sys
-new = set(json.loads('$new_changes'))
-old = set(json.loads('$old_changes'))
+new = set(json.loads(sys.argv[1]))
+old = set(json.loads(sys.argv[2]))
 novel = new - old
 print(len(novel))
-" 2>/dev/null || echo "0")
+" "$new_changes" "$old_changes" 2>/dev/null || echo "0")
 
     if [[ "$novel_count" -eq 0 ]]; then
         log_info "No new changes found in replan — all work done"
