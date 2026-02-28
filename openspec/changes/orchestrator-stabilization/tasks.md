@@ -52,3 +52,15 @@
 - [x] 8.1 Add "### Deferred" section to human-checkpoint/spec.md marking the 24-hour checkpoint reminder as not-yet-implemented.
 - [x] 8.2 Add "### Deferred" section to orchestration-engine/spec.md marking self-test Level 2-4 fixtures and integration test scripts as not-yet-implemented.
 - [x] 8.3 Add "### Deferred" section to orchestration-engine/spec.md marking ASCII DAG dependency graph in `--show` output as not-yet-implemented.
+
+## 9. Live Testing Fixes
+
+Bugs discovered and fixed during live orchestrator operation on a 6-change batch.
+
+- [x] 9.1 Fix stall_count reset race and merge-retry branch staleness: reset stall_count atomically when change recovers; ensure merge-retry branches track latest main. (dc6f24c41)
+- [x] 9.2 Check PID before declaring change stale: poll_change() now verifies the loop process is actually dead before marking a change as stalled, preventing false stall detection on slow iterations. (d11363977)
+- [x] 9.3 SIGTERM exits cleanly: trap SIGTERM in orchestrator main loop to exit gracefully instead of leaving orphan child processes. (220d147a6)
+- [x] 9.4 wt-merge auto-stashes all main repo changes: unconditionally stash uncommitted changes before merge and restore on both success and failure paths, preventing false merge conflicts from dirty working tree. (469779c2e)
+- [x] 9.5 Retry iterations use manual done-criteria: when resuming with retry_context (build fix), use `--done manual --max 2` instead of `--done openspec --max 30` so the agent reads the build error instead of openspec declaring "all tasks done" and exiting immediately. (b03d6edab)
+- [x] 9.6 Recover verify-failed changes on restart: monitor_loop detects orphaned verify-failed changes, rebuilds retry_context from stored build_output, increments verify_retry_count, and resumes them. Previously verify-failed was a transient state with no recovery path after restart. (f5f4ee5fe)
+- [x] 9.7 merge_change returns correct exit code on conflict: return 0 when agent rebase started (caller should wait), return 1 when merge-blocked (actual failure). Previously always returned 0, causing false "Merge succeeded" log messages. (337e98265)
