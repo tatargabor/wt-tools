@@ -43,6 +43,7 @@ DEFAULT_SUMMARIZE_MODEL="haiku"
 DEFAULT_REVIEW_MODEL="sonnet"
 
 # Runtime state
+MAX_REPLAN_RETRIES=3     # max consecutive replan failures before giving up
 DEFAULT_TIME_LIMIT="5h"  # safety net: stop after 5 hours if no --time-limit given
 CLI_TIME_LIMIT=""        # set via --time-limit <duration>, "none" to disable
 ORCHESTRATOR_START_EPOCH=""  # set at start time
@@ -2690,6 +2691,7 @@ monitor_loop() {
     local active_seconds
     active_seconds=$(jq -r '.active_seconds // 0' "$STATE_FILENAME" 2>/dev/null)
     local token_wait=false  # true when token budget exceeded, waiting for reset
+    local replan_retry_count=0  # consecutive replan failures, reset on success
 
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
     log_info "Directives: test_command=$test_command, review_before_merge=$review_before_merge, review_model=$review_model, test_timeout=$test_timeout, max_verify_retries=$max_verify_retries"
@@ -2810,6 +2812,7 @@ monitor_loop() {
 
                 if [[ $replan_rc -eq 0 ]]; then
                     # New plan dispatched, continue monitoring
+                    replan_retry_count=0
                     info "Replan cycle $cycle: new changes dispatched, continuing..."
                     log_info "Replan cycle $cycle started"
                     continue
@@ -2822,10 +2825,20 @@ monitor_loop() {
                     log_info "Auto-replan found no new work — orchestration complete"
                     break
                 else
-                    # Replan failed (rc=2) — retry next cycle, don't declare "done"
-                    warn "Replan failed (cycle $cycle) — will retry on next poll cycle"
-                    log_error "Auto-replan error (cycle $cycle, rc=$replan_rc) — NOT marking complete, retrying"
-                    # Don't increment cycle on failure so it retries with same number
+                    # Replan failed (rc=2) — retry with limit
+                    replan_retry_count=$((replan_retry_count + 1))
+                    if [[ $replan_retry_count -ge $MAX_REPLAN_RETRIES ]]; then
+                        warn "Replan failed $replan_retry_count consecutive times — giving up"
+                        log_error "Auto-replan exhausted after $replan_retry_count failures (cycle $cycle)"
+                        local failed_names
+                        failed_names=$(jq -r '[.changes[] | select(.status == "failed") | .name] | join(", ")' "$STATE_FILENAME")
+                        [[ -n "$failed_names" ]] && warn "Failed changes: $failed_names"
+                        update_state_field "status" '"done"'
+                        update_state_field "replan_exhausted" 'true'
+                        break
+                    fi
+                    warn "Replan failed (cycle $cycle, attempt $replan_retry_count/$MAX_REPLAN_RETRIES) — will retry"
+                    log_error "Auto-replan error (cycle $cycle, rc=$replan_rc, attempt $replan_retry_count/$MAX_REPLAN_RETRIES)"
                     sleep 30
                     continue
                 fi
