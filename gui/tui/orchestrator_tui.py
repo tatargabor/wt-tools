@@ -332,12 +332,21 @@ class OrchestratorTUI(App):
         header.update(f"{line1}\n{line2}")
 
     def _update_table(self, state) -> None:
-        """Repopulate the change table."""
+        """Repopulate the change table, preserving cursor position."""
         table = self.query_one("#change-table", DataTable)
+
+        # Preserve cursor row before clearing
+        try:
+            saved_row = table.cursor_coordinate.row
+        except Exception:
+            saved_row = 0
+
         table.clear()
 
         for change in state.get("changes", []):
             name = change.get("name", "?")
+            status = change.get("status", "?")
+
             # Show depends_on for blocked/pending changes
             deps = change.get("depends_on", [])
             if deps and status in ("pending", "dispatched"):
@@ -347,8 +356,6 @@ class OrchestratorTUI(App):
                 name_display = name
             if len(name) > 25:
                 name = name[:24] + "…"
-
-            status = change.get("status", "?")
             color, icon = STATUS_DISPLAY.get(status, ("white", "?"))
             status_cell = f"[{color}]{icon} {status}[/]"
 
@@ -365,6 +372,12 @@ class OrchestratorTUI(App):
                 gates = format_gates(change)
 
             table.add_row(name_display, status_cell, iteration, tokens, gates)
+
+        # Restore cursor position (clamp to valid range)
+        if table.row_count > 0:
+            from textual.coordinate import Coordinate
+            restored_row = min(saved_row, table.row_count - 1)
+            table.cursor_coordinate = Coordinate(restored_row, 0)
 
     def _update_log(self, new_lines) -> None:
         """Append new log lines to the RichLog widget."""
