@@ -441,7 +441,7 @@ build_prompt() {
     local specific_task=""
     local openspec_instructions=""
 
-    if [[ -d "$wt_path/openspec" ]]; then
+    if [[ -d "$wt_path/openspec" ]] && [[ "$done_criteria" == "openspec" ]]; then
         change_action=$(detect_next_change_action "$wt_path")
 
         case "$change_action" in

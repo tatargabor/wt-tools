@@ -2631,17 +2631,23 @@ resume_change() {
     retry_ctx=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_context // empty' "$STATE_FILENAME")
 
     local task_desc
+    local done_criteria="openspec"
+    local max_iter=30
     if [[ -n "$retry_ctx" ]]; then
         task_desc="$retry_ctx"
         log_info "Resuming $change_name with retry context (${#retry_ctx} chars)"
         # Clear retry_context to prevent stale context on future resumes
         update_change_field "$change_name" "retry_context" "null"
+        # Use manual done criteria for retries — openspec would see "all tasks done"
+        # and tell the agent there's nothing to do, ignoring the build/test fix task.
+        done_criteria="manual"
+        max_iter=2
     else
         task_desc="Continue $change_name: ${scope:0:200}"
     fi
     (
         cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model opus
+        wt-loop start "$task_desc" --max "$max_iter" --done "$done_criteria" --label "$change_name" --model opus
     ) &
     wait $! 2>/dev/null || true
 
