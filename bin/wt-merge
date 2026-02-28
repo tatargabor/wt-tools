@@ -367,18 +367,15 @@ main() {
     # Pull latest
     git pull origin "$target_branch" 2>/dev/null || true
 
-    # Merge
-    local merge_result
+    # Merge (|| true to prevent set -e from killing on conflict)
+    local merge_result=0
     if $squash; then
-        git merge --squash "$source_branch"
-        merge_result=$?
+        git merge --squash "$source_branch" || merge_result=$?
         if [[ $merge_result -eq 0 ]]; then
-            git commit -m "Squashed merge of '$source_branch'"
-            merge_result=$?
+            git commit -m "Squashed merge of '$source_branch'" || merge_result=$?
         fi
     else
-        git merge "$source_branch" -m "Merge '$source_branch' into '$target_branch'"
-        merge_result=$?
+        git merge "$source_branch" -m "Merge '$source_branch' into '$target_branch'" || merge_result=$?
     fi
 
     if [[ $merge_result -ne 0 ]]; then
