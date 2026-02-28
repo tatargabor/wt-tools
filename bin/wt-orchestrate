@@ -2875,23 +2875,22 @@ auto_replan_cycle() {
     fi
     unset _REPLAN_COMPLETED _REPLAN_CYCLE _REPLAN_MEMORY
 
-    # Check if new plan has any changes not already in current state
-    # (comparing against state, not old plan, because a prior failed replan
-    # may have already updated the plan file)
+    # Check if new plan has actionable changes not already completed
+    # Failed changes are NOT considered "done" — they should be retried
     local new_changes
     new_changes=$(jq -c '[.changes[].name]' "$PLAN_FILENAME")
-    local state_changes
-    state_changes=$(jq -c '[.changes[].name]' "$STATE_FILENAME")
+    local completed_changes
+    completed_changes=$(jq -c '[.changes[]? | select(.status == "done" or .status == "merged" or .status == "merge-blocked") | .name]' "$STATE_FILENAME")
     rm -f "$old_plan"
 
     local novel_count
     novel_count=$(python3 -c "
 import json, sys
 new = set(json.loads(sys.argv[1]))
-existing = set(json.loads(sys.argv[2]))
-novel = new - existing
+completed = set(json.loads(sys.argv[2]))
+novel = new - completed
 print(len(novel))
-" "$new_changes" "$state_changes" 2>/dev/null || echo "0")
+" "$new_changes" "$completed_changes" 2>/dev/null || echo "0")
 
     if [[ "$novel_count" -eq 0 ]]; then
         log_info "No new changes found in replan — all work done"
