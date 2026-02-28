@@ -47,6 +47,7 @@ Start Options:
   --iteration-timeout <n>  Per-iteration timeout in minutes (default: 45)
   --capacity-limit <pct>   Stop if capacity exceeds (default: 80%)
   --permission-mode <mode> Claude permission mode: auto-accept|allowedTools|plan (default: config)
+  --model <name>           Claude model: opus|sonnet|haiku or full ID (default: opus from config)
   --label <text>           Label for this loop instance (shown in banner and terminal title)
   --force                  Force start even with incompatible permission mode (e.g. plan)
 
@@ -548,6 +549,8 @@ cmd_run() {
     iteration_timeout_min=$(jq -r '.iteration_timeout_min // 45' "$state_file")
     label=$(jq -r '.label // empty' "$state_file")
     permission_mode=$(jq -r '.permission_mode // "default"' "$state_file")
+    local claude_model
+    claude_model=$(jq -r '.model // empty' "$state_file")
 
     # Signal trap variables for cleanup
     local current_iter_started=""
@@ -613,7 +616,7 @@ cmd_run() {
     echo "║  Branch: $git_branch"
     echo "║  Task: $task"
     echo "║  ──────────────────────────────────────────────────────────────"
-    echo "║  Mode: $permission_mode | Max: $max_iter | Stall: $stall_threshold | Timeout: ${iteration_timeout_min}m"
+    echo "║  Mode: $permission_mode | Model: ${claude_model:-default} | Max: $max_iter | Stall: $stall_threshold | Timeout: ${iteration_timeout_min}m"
     echo "║  Memory: $memory_status"
     echo "║  Started: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "╚════════════════════════════════════════════════════════════════╝"
@@ -671,6 +674,14 @@ cmd_run() {
         local perm_flags
         perm_flags=$(get_claude_permission_flags "$perm_mode")
 
+        # Build model flag from state
+        local model_flag=""
+        local state_model
+        state_model=$(jq -r '.model // empty' "$state_file" 2>/dev/null)
+        if [[ -n "$state_model" ]]; then
+            model_flag="--model $state_model"
+        fi
+
         while [[ $retry_count -lt $max_retries ]]; do
             # Pipe prompt via stdin to run in interactive mode (not -p print mode).
             # Interactive mode enables skills (/opsx:ff, /opsx:apply) and hooks.
@@ -678,10 +689,10 @@ cmd_run() {
             # - --foreground: keep child in foreground process group (prevents Tl stops)
             if [[ -n "$TIMEOUT_CMD" ]]; then
                 echo "$prompt" | env -u CLAUDECODE $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
-                    claude $perm_flags \
+                    claude $perm_flags $model_flag \
                        --verbose
             else
-                echo "$prompt" | env -u CLAUDECODE claude $perm_flags \
+                echo "$prompt" | env -u CLAUDECODE claude $perm_flags $model_flag \
                    --verbose
             fi
             claude_exit_code=$?
@@ -978,6 +989,7 @@ cmd_start() {
     local iteration_timeout=45
     local fullscreen=false
     local permission_mode_override=""
+    local model_override=""
     local force_start=false
     local label=""
 
@@ -1006,6 +1018,10 @@ cmd_start() {
                 ;;
             --permission-mode)
                 permission_mode_override="$2"
+                shift 2
+                ;;
+            --model)
+                model_override="$2"
                 shift 2
                 ;;
             --force)
@@ -1116,6 +1132,13 @@ cmd_start() {
     local tmp_pm
     tmp_pm=$(mktemp)
     jq --arg pm "$effective_permission_mode" '.permission_mode = $pm' "$state_file_init" > "$tmp_pm" && mv "$tmp_pm" "$state_file_init"
+
+    # Resolve and save model in state (default: opus)
+    local effective_model
+    effective_model=$(resolve_model_id "${model_override:-opus}")
+    local tmp_model
+    tmp_model=$(mktemp)
+    jq --arg m "$effective_model" '.model = $m' "$state_file_init" > "$tmp_model" && mv "$tmp_model" "$state_file_init"
 
     # Spawn terminal with logging
     info "Spawning terminal for Ralph loop..."

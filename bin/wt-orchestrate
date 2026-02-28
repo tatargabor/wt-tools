@@ -2392,7 +2392,7 @@ MEMORY_EOF
     local task_desc="Implement $change_name: ${scope:0:200}"
     (
         cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model opus
     ) &
     wait $! 2>/dev/null || true
 
@@ -2499,7 +2499,7 @@ resume_change() {
     fi
     (
         cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name"
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model opus
     ) &
     wait $! 2>/dev/null || true
 
