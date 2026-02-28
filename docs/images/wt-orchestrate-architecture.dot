@@ -1,0 +1,87 @@
+// wt-orchestrate Architecture Diagram
+// Generate: dot -Tpng -Gdpi=150 wt-orchestrate-architecture.dot -o wt-orchestrate-architecture.png
+
+digraph orchestrate {
+    graph [
+        label="wt-orchestrate — Autonomous Multi-Phase Spec Orchestration"
+        labelloc=t fontname="Helvetica" fontsize=20
+        bgcolor="white" pad=0.3 nodesep=0.5 ranksep=0.6
+    ]
+    node [fontname="Helvetica" fontsize=9 style="filled,rounded" shape=box margin="0.12,0.06"]
+    edge [fontname="Helvetica" fontsize=7 arrowsize=0.7]
+
+    // ═══ MAIN VERTICAL FLOW ═══
+
+    input [label="1 INPUT\nSpec (.spec) or Brief (.md)" fillcolor="#FFE0B2" color="#F57C00"]
+
+    plan [label="3 PLAN (Opus)\ndecompose → changes[]\ntest-aware: \"every scope MUST have tests\"\nif no infra → test-setup-first rule\n+ test infra scan context" fillcolor="#FFF9C4" color="#F9A825"]
+
+    dispatch [label="4 DISPATCH\nmax_parallel | topo order\nwt-new → openspec ff → wt-loop" fillcolor="#BBDEFB" color="#1565C0"]
+
+    ralph [label="5 RALPH LOOP\nClaude agent in git worktree\niterative implementation\nloop-state.json tracking" fillcolor="#A5D6A7" color="#2E7D32"]
+
+    monitor [label="6 MONITOR\npoll 15s | active_seconds tracking\ntoken budget | stall detect (3x)" fillcolor="#BBDEFB" color="#1565C0"]
+
+    // ═══ QUALITY GATE (cluster for visual grouping) ═══
+    subgraph cluster_gate {
+        label="7 QUALITY GATE (on ralph done)"
+        style="filled,rounded,bold" fillcolor="#FCE4EC" color="#C62828"
+        fontsize=10 fontname="Helvetica Bold" penwidth=2
+        labeljust=l
+
+        g_test [label="Test Execution\nrun_tests_in_worktree()\ntimeout: test_timeout (300s)\ncapture output (2000 chars)" fillcolor="#FFCDD2" color="#C62828"]
+        g_review [label="LLM Code Review (Sonnet)\ngit diff → check CRITICAL severity\n(if review_before_merge: true)" fillcolor="#FFCDD2" color="#C62828"]
+        g_verify [label="/opsx:verify\nartifact coherence check" fillcolor="#FFCDD2" color="#C62828" fontsize=8]
+
+        g_test -> g_review [label="pass" color="#388E3C" penwidth=1.5]
+        g_review -> g_verify [label="pass / skipped" color="#388E3C" penwidth=1.5]
+    }
+
+    retry [label="Retry Ralph\nresume + failure context\nstatus: verify-failed\n(max_verify_retries, default 1)" fillcolor="#EF9A9A" color="#B71C1C" fontsize=8]
+    failed [label="FAILED" fillcolor="#EF5350" color="#B71C1C" fontcolor=white shape=octagon fontsize=9]
+
+    merge [label="8 MERGE\ngit merge + auto-resolve\neager | checkpoint | manual\nfail → merge-blocked → retry" fillcolor="#C5CAE9" color="#303F9F"]
+
+    replan [label="9 AUTO-REPLAN (Opus)\ncollect completed → compare state\nadvance to NEXT phase" fillcolor="#FFF9C4" color="#F9A825"]
+
+    all_done [label="ALL DONE" fillcolor="#A5D6A7" color="#2E7D32" fontsize=10 shape=doubleoctagon]
+
+    // ═══ SIDE NODES ═══
+    config [label="2 DIRECTIVES\n4-level: CLI > yaml > doc > defaults\n──────────────────────────\norchestration.yaml:\nmerge_policy | max_parallel\nreview_before_merge | test_timeout\nmax_verify_retries | token_budget\nsummarize_model | review_model" fillcolor="#FFE0B2" color="#F57C00" fontsize=7]
+
+    models [label="Model Tiering\n─────────────\nOpus: plan decomposition\nSonnet: code review + fix\nHaiku: spec summarization\n(configurable via directives)" fillcolor="#E1BEE7" color="#7B1FA2" fontsize=7 shape=note]
+
+    stop [label="STOP CONDITIONS\nTime limit (5h active) | Ctrl+C\nToken budget exceeded → wait\nCrash: stale >2min → auto-recover\nAll resumable" fillcolor="#FFCDD2" color="#C62828" fontsize=7]
+
+    files [label="Files\n─────────────\norchestration-{plan,state}.json\norchestration-summary.md\n.claude/orchestration.{yaml,log}\n<wt>/.claude/loop-state.json" fillcolor="#CFD8DC" color="#455A64" fontsize=7 shape=note]
+
+    // ═══ MAIN FLOW EDGES ═══
+    input -> plan [penwidth=2]
+    plan -> dispatch [label="changes[]" penwidth=2]
+    dispatch -> ralph [penwidth=2]
+    ralph -> monitor [label="loop-state" style=dashed]
+    monitor -> g_test [label="ralph done" penwidth=2 color="#C62828"]
+    g_verify -> merge [label="all pass" penwidth=2 color="#388E3C"]
+    merge -> monitor [label="continue polling" style=dashed constraint=false]
+    monitor -> dispatch [label="dispatch ready" style=dashed constraint=false]
+    monitor -> replan [label="all done + auto_replan" penwidth=1.5]
+    replan -> dispatch [label="new changes" penwidth=1.5 constraint=false]
+    replan -> all_done [label="no more phases"]
+    monitor -> all_done [label="all done\nno replan" style=dashed]
+
+    // Quality gate failure edges
+    g_test -> retry [label="fail" color="#C62828"]
+    g_review -> retry [label="CRITICAL" color="#C62828"]
+    g_verify -> retry [label="fail" color="#C62828" style=dashed]
+    retry -> ralph [label="resume\n+ context" style=dashed color="#FF6F00" constraint=false]
+    retry -> failed [label="retries exhausted" color="#C62828"]
+
+    // Side connections
+    config -> plan [style=dashed]
+    config -> monitor [style=dashed constraint=false]
+
+    // Layout hints
+    { rank=same; input; config }
+    { rank=same; models; files; stop }
+    { rank=same; replan; all_done }
+}
