@@ -3047,6 +3047,7 @@ merge_change() {
         local merge_retry_count
         merge_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .merge_retry_count // 0' "$STATE_FILENAME")
         if [[ "$merge_retry_count" -eq 0 && -n "$wt_path" && -d "$wt_path" ]]; then
+            update_change_field "$change_name" "merge_retry_count" "1"
             log_info "First merge conflict for $change_name — triggering agent-assisted rebase"
             local main_branch
             main_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
