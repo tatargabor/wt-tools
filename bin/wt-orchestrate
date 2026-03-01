@@ -46,6 +46,7 @@ DEFAULT_SMOKE_COMMAND=""
 DEFAULT_SMOKE_TIMEOUT=120
 DEFAULT_DEPLOY_SMOKE_URL=""
 DEFAULT_DEPLOY_HEALTHCHECK="/api/health"
+DEFAULT_TOKEN_HARD_LIMIT=20000000  # 20M tokens — checkpoint to ask human before spending more
 
 # Runtime state
 MAX_REPLAN_RETRIES=3     # max consecutive replan failures before giving up
@@ -305,6 +306,7 @@ parse_directives() {
     local smoke_timeout="$DEFAULT_SMOKE_TIMEOUT"
     local deploy_smoke_url="$DEFAULT_DEPLOY_SMOKE_URL"
     local deploy_healthcheck="$DEFAULT_DEPLOY_HEALTHCHECK"
+    local token_hard_limit="$DEFAULT_TOKEN_HARD_LIMIT"
 
     while IFS= read -r line; do
         # Detect ## Orchestrator Directives header
@@ -363,6 +365,13 @@ parse_directives() {
                         token_budget="$val"
                     else
                         warn "Invalid token_budget '$val', using default $DEFAULT_TOKEN_BUDGET"
+                    fi
+                    ;;
+                token_hard_limit)
+                    if [[ "$val" =~ ^[0-9]+$ ]]; then
+                        token_hard_limit="$val"
+                    else
+                        warn "Invalid token_hard_limit '$val', using default $DEFAULT_TOKEN_HARD_LIMIT"
                     fi
                     ;;
                 pause_on_exit)
@@ -472,6 +481,7 @@ parse_directives() {
         --argjson smoke_timeout "$smoke_timeout" \
         --arg deploy_smoke_url "$deploy_smoke_url" \
         --arg deploy_healthcheck "$deploy_healthcheck" \
+        --argjson token_hard_limit "$token_hard_limit" \
         '{
             max_parallel: $max_parallel,
             merge_policy: $merge_policy,
@@ -490,7 +500,8 @@ parse_directives() {
             smoke_command: $smoke_command,
             smoke_timeout: $smoke_timeout,
             deploy_smoke_url: $deploy_smoke_url,
-            deploy_healthcheck: $deploy_healthcheck
+            deploy_healthcheck: $deploy_healthcheck,
+            token_hard_limit: $token_hard_limit
         }'
 }
 
@@ -3020,6 +3031,8 @@ monitor_loop() {
     deploy_smoke_url=$(echo "$directives" | jq -r '.deploy_smoke_url // ""')
     local deploy_healthcheck
     deploy_healthcheck=$(echo "$directives" | jq -r '.deploy_healthcheck // "/api/health"')
+    local token_hard_limit
+    token_hard_limit=$(echo "$directives" | jq -r ".token_hard_limit // $DEFAULT_TOKEN_HARD_LIMIT")
 
     # Parse time limit (default 5h, --time-limit none to disable)
     local time_limit_secs=0
@@ -3169,6 +3182,32 @@ monitor_loop() {
 
         # Retry failed builds before declaring all-done (cheaper than replan)
         retry_failed_builds "$max_verify_retries"
+
+        # Check token hard limit — pause for human approval before spending more
+        if [[ "$token_hard_limit" -gt 0 ]]; then
+            local hl_total_tokens
+            hl_total_tokens=$(jq '[.changes[].tokens_used] | add // 0' "$STATE_FILENAME")
+            # Include tokens from previous replan cycles
+            local hl_prev_tokens
+            hl_prev_tokens=$(jq -r '.prev_total_tokens // 0' "$STATE_FILENAME")
+            local hl_cumulative=$((hl_total_tokens + hl_prev_tokens))
+            if [[ "$hl_cumulative" -gt "$token_hard_limit" ]]; then
+                local hl_already_triggered
+                hl_already_triggered=$(jq -r '.token_hard_limit_triggered // false' "$STATE_FILENAME")
+                if [[ "$hl_already_triggered" != "true" ]]; then
+                    update_state_field "token_hard_limit_triggered" "true"
+                    local hl_m=$((hl_cumulative / 1000000))
+                    warn "Token hard limit reached: ${hl_m}M / $((token_hard_limit / 1000000))M tokens"
+                    log_warn "Token hard limit reached: $hl_cumulative > $token_hard_limit"
+                    trigger_checkpoint "token_hard_limit"
+                    # After approval, reset flag so it can trigger again at next multiple
+                    update_state_field "token_hard_limit_triggered" "false"
+                    token_hard_limit=$((token_hard_limit + DEFAULT_TOKEN_HARD_LIMIT))
+                    log_info "Token hard limit raised to $token_hard_limit for next checkpoint"
+                    continue
+                fi
+            fi
+        fi
 
         # Check if checkpoint needed
         local changes_since

@@ -29,6 +29,7 @@ The system SHALL support a `.claude/orchestration.yaml` file for orchestrator di
   - `max_verify_retries`: integer (default: 1) — max retries for failed verify gate
   - `test_timeout`: integer in seconds (default: 300) — timeout for test command
   - `auto_replan`: boolean (default: false) — re-plan when all changes complete
+  - `token_hard_limit`: integer (default: 20000000) — cumulative token checkpoint; triggers approval prompt at each multiple
 
 #### Scenario: Config file absent
 - **WHEN** `.claude/orchestration.yaml` does not exist

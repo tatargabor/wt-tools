@@ -117,10 +117,24 @@ The monitor loop SHALL attempt lightweight retries for build failures before ful
 ### Requirement: Token budget enforcement
 The orchestrator SHALL enforce a cumulative token budget across all changes.
 
-#### Scenario: Budget exceeded
+#### Scenario: Soft budget exceeded
 - **WHEN** `token_budget` > 0 and total tokens across all changes exceed it
 - **THEN** the orchestrator SHALL stop dispatching new changes
 - **AND** continue polling running changes until they complete naturally
+
+### Requirement: Token hard limit checkpoint
+The orchestrator SHALL pause for human approval when cumulative token usage exceeds a hard limit.
+
+#### Scenario: Hard limit reached
+- **WHEN** cumulative tokens (current cycle + previous replan cycles) exceed `token_hard_limit` (default: 20M)
+- **THEN** the orchestrator SHALL trigger a checkpoint with reason `"token_hard_limit"`
+- **AND** send a desktop notification with the token count
+- **AND** wait for `wt-orchestrate approve` before continuing
+
+#### Scenario: Hard limit escalation after approval
+- **WHEN** the human approves the token hard limit checkpoint
+- **THEN** the orchestrator SHALL raise the limit by another `token_hard_limit` increment (e.g., 20M → 40M → 60M)
+- **AND** continue dispatching and polling normally
 
 ### Requirement: Auto-replan system
 The orchestrator SHALL support automatic replanning when all changes complete.
