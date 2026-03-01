@@ -400,6 +400,14 @@ e2e/features/
 
 **Scope guideline:** Test ONE happy path per feature, not exhaustive scenarios. The goal is "agent didn't forget a route/button/action", not "every edge case works".
 
+**Execution order matters:** Functional e2e tests often follow a CRUD lifecycle where each step depends on the previous one. Use `test.describe.serial` (Playwright) or equivalent to enforce order:
+
+```
+list (verify page loads) → create (fill form, submit) → edit (modify, save) → delete (remove, verify gone)
+```
+
+Each step validates its own result AND sets up data for the next. If "create" fails, "edit" and "delete" are skipped (not falsely failed). Describe the intended flow order in the spec so the agent structures the test correctly.
+
 **Prerequisites pattern:** Auth fixtures, seed data, shared test helpers — reuse from smoke setup or create a shared `e2e/fixtures/` directory.
 
 **Test data strategies:** The agent has three tools for ensuring test data exists. Choose based on what the test needs:
