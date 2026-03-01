@@ -150,6 +150,7 @@ init_loop_state() {
     local stall_threshold="${7:-$DEFAULT_STALL_THRESHOLD}"
     local iteration_timeout="${8:-45}"
     local label="${9:-}"
+    local change="${10:-}"
 
     local state_file
     state_file=$(get_loop_state_file "$wt_path")
@@ -173,7 +174,8 @@ init_loop_state() {
   "stall_threshold": $stall_threshold,
   "iteration_timeout_min": $iteration_timeout,
   "total_tokens": 0,
-  "label": $(if [[ -n "$label" ]]; then echo "\"$label\""; else echo "null"; fi)
+  "label": $(if [[ -n "$label" ]]; then echo "\"$label\""; else echo "null"; fi),
+  "change": $(if [[ -n "$change" ]]; then echo "\"$change\""; else echo "null"; fi)
 }
 EOF
 }
@@ -370,15 +372,17 @@ check_tasks_done() {
 check_done() {
     local wt_path="$1"
     local criteria="$2"
+    local target_change="${3:-}"
 
     case "$criteria" in
         tasks)
             check_tasks_done "$wt_path"
             ;;
         openspec)
-            # All OpenSpec changes complete when detect_next_change_action returns "done"
+            # When --change is set, only check that specific change
+            # When --change is not set, scan all changes (existing behavior)
             local action
-            action=$(detect_next_change_action "$wt_path")
+            action=$(detect_next_change_action "$wt_path" "$target_change")
             [[ "$action" == "done" ]]
             ;;
         manual)
@@ -448,11 +452,44 @@ get_new_commits() {
 }
 
 # Detect the next OpenSpec change action needed.
-# Returns: "ff:<change-name>" or "apply:<change-name>" or "done"
+# Args: $1=wt_path, $2=target_change (optional — if set, only inspect that change)
+# Returns: "ff:<change-name>" or "apply:<change-name>" or "done" or "none"
 detect_next_change_action() {
     local wt_path="$1"
+    local target_change="${2:-}"
 
-    # Get ordered change names from docs/benchmark/NN-*.md or openspec/changes/
+    # If a specific change is targeted, only inspect that one
+    if [[ -n "$target_change" ]]; then
+        local change_dir="$wt_path/openspec/changes/$target_change"
+        local tasks_file="$change_dir/tasks.md"
+
+        if [[ ! -d "$change_dir" ]]; then
+            echo "none"
+            return
+        fi
+
+        # Does tasks.md exist? (ff done)
+        if [[ ! -f "$tasks_file" ]]; then
+            echo "ff:$target_change"
+            return
+        fi
+
+        # Are all tasks checked? (apply done)
+        local unchecked
+        unchecked=$(grep -cE '^\s*-\s*\[\s*\]' "$tasks_file" 2>/dev/null)
+        unchecked=${unchecked//[^0-9]/}
+        unchecked=${unchecked:-0}
+        if [[ "$unchecked" -gt 0 ]]; then
+            echo "apply:$target_change"
+            return
+        fi
+
+        echo "done"
+        return
+    fi
+
+    # No target change — scan all changes (used by check_done for solo loops
+    # and benchmark mode with numbered files)
     local change_order=()
     if ls "$wt_path"/docs/benchmark/[0-9]*.md &>/dev/null; then
         # Derive from numbered benchmark files: 01-product-catalog.md → product-catalog
@@ -517,6 +554,7 @@ build_prompt() {
     local max_iter="$3"
     local wt_path="$4"
     local done_criteria="$5"
+    local target_change="${6:-}"
 
     local prev_commits=""
     local state_file
@@ -538,8 +576,9 @@ build_prompt() {
     local specific_task=""
     local openspec_instructions=""
 
-    if [[ -d "$wt_path/openspec" ]] && [[ "$done_criteria" == "openspec" ]]; then
-        change_action=$(detect_next_change_action "$wt_path")
+    if [[ -d "$wt_path/openspec" ]] && [[ "$done_criteria" == "openspec" ]] && [[ -n "$target_change" ]]; then
+        # Scoped detection: only inspect the assigned change
+        change_action=$(detect_next_change_action "$wt_path" "$target_change")
 
         case "$change_action" in
             ff:*)
@@ -661,6 +700,8 @@ cmd_run() {
     permission_mode=$(jq -r '.permission_mode // "default"' "$state_file")
     local claude_model
     claude_model=$(jq -r '.model // empty' "$state_file")
+    local change_name
+    change_name=$(jq -r '.change // empty' "$state_file")
 
     # Signal trap variables for cleanup
     local current_iter_started=""
@@ -773,7 +814,7 @@ cmd_run() {
 
         # Build prompt
         local prompt
-        prompt=$(build_prompt "$task" "$iteration" "$max_iter" "$wt_path" "$done_criteria")
+        prompt=$(build_prompt "$task" "$iteration" "$max_iter" "$wt_path" "$done_criteria" "$change_name")
 
         # Run Claude with retry logic and per-iteration timeout
         local timeout_seconds=$((iteration_timeout_min * 60))
@@ -1031,7 +1072,7 @@ except:
 
         # Check done
         local is_done=false
-        if check_done "$wt_path" "$done_criteria"; then
+        if check_done "$wt_path" "$done_criteria" "$change_name"; then
             is_done=true
         fi
 
@@ -1136,6 +1177,7 @@ cmd_start() {
     local model_override=""
     local force_start=false
     local label=""
+    local change_name=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -1178,6 +1220,10 @@ cmd_start() {
                 ;;
             --label)
                 label="$2"
+                shift 2
+                ;;
+            --change)
+                change_name="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -1268,7 +1314,7 @@ cmd_start() {
 
     # Initialize state
     info "Initializing loop state..."
-    init_loop_state "$wt_path" "$worktree_name" "$task" "$max_iter" "$done_criteria" "$capacity_limit" "$stall_threshold" "$iteration_timeout" "$label"
+    init_loop_state "$wt_path" "$worktree_name" "$task" "$max_iter" "$done_criteria" "$capacity_limit" "$stall_threshold" "$iteration_timeout" "$label" "$change_name"
 
     # Save permission mode in state
     local state_file_init
