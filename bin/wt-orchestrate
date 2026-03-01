@@ -1993,9 +1993,31 @@ PYEOF
 }
 
 cmd_start() {
+    # Auto-plan if no plan exists or CLI --spec/--brief differs from plan's input
+    local need_plan=false
     if [[ ! -f "$PLAN_FILENAME" ]]; then
-        error "No plan found. Run 'wt-orchestrate plan' first."
-        return 1
+        need_plan=true
+    elif [[ -n "$SPEC_OVERRIDE" || -n "$BRIEF_OVERRIDE" ]]; then
+        # CLI spec/brief provided — check if it matches the existing plan
+        local plan_input_path
+        plan_input_path=$(jq -r '.input_path // ""' "$PLAN_FILENAME" 2>/dev/null)
+        local cli_input=""
+        [[ -n "$SPEC_OVERRIDE" ]] && cli_input="$SPEC_OVERRIDE"
+        [[ -n "$BRIEF_OVERRIDE" ]] && cli_input="$BRIEF_OVERRIDE"
+        # Normalize paths for comparison (resolve ./ prefix, etc.)
+        local norm_plan norm_cli
+        norm_plan=$(realpath -m "$plan_input_path" 2>/dev/null || echo "$plan_input_path")
+        norm_cli=$(realpath -m "$cli_input" 2>/dev/null || echo "$cli_input")
+        if [[ "$norm_plan" != "$norm_cli" ]]; then
+            info "CLI input ($cli_input) differs from plan ($plan_input_path) — replanning"
+            log_info "Input mismatch detected: CLI=$cli_input plan=$plan_input_path — auto-replanning"
+            need_plan=true
+        fi
+    fi
+
+    if [[ "$need_plan" == true ]]; then
+        info "Creating plan..."
+        cmd_plan || return 1
     fi
 
     # Record start time for time-limit tracking
