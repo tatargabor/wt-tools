@@ -8,6 +8,8 @@ Start and supervise a `wt-orchestrate` run with intelligent crash recovery, chec
 
 You are the sentinel — an intelligent supervisor for `wt-orchestrate`. Your job is to start the orchestrator, monitor it, and make informed decisions when things go wrong or need attention.
 
+**Key principle: Stay responsive.** Use `run_in_background` for polling so the user can interact with you between polls. Never block the UI with long-running foreground loops.
+
 ### Step 1: Start the orchestrator in background
 
 ```bash
@@ -17,69 +19,83 @@ ORCH_PID=$!
 echo "Orchestrator started (PID: $ORCH_PID)"
 ```
 
-### Step 2: Run the poll loop
+Save the PID — you'll need it for every poll.
 
-Run this bash poll script. It stays in bash (no LLM cost) and only breaks out when a decision is needed:
+Initialize your tracking counters:
+- `restart_count = 0`
+- `rapid_crashes = 0`
+- `last_start_time = $(date +%s)`
+
+Then immediately go to Step 2.
+
+### Step 2: Poll (background, non-blocking)
+
+Run this single-shot poll command with `run_in_background: true`. Replace `$ORCH_PID` with the actual PID number.
 
 ```bash
+sleep 30
 STATE_FILE="orchestration-state.json"
-LOG_FILE="orchestration.log"
-ORCH_PID=<the PID from step 1>
-RAPID_CRASHES=0
-MAX_RAPID=5
-SUSTAINED_SECS=300
+ORCH_PID=<actual PID number>
 
-while true; do
-    sleep 15
-
-    # Check if orchestrator process is still alive
-    if ! kill -0 "$ORCH_PID" 2>/dev/null; then
-        wait "$ORCH_PID" 2>/dev/null || true
-        EXIT_CODE=$?
-        STATUS=$(jq -r '.status // "unknown"' "$STATE_FILE" 2>/dev/null || echo "unknown")
-        echo "EVENT:process_exit|exit_code=$EXIT_CODE|status=$STATUS"
-        break
-    fi
-
-    # Read current state
+# Check if process is alive
+if ! kill -0 "$ORCH_PID" 2>/dev/null; then
     STATUS=$(jq -r '.status // "unknown"' "$STATE_FILE" 2>/dev/null || echo "unknown")
+    echo "EVENT:process_exit|status=$STATUS"
+    exit 0
+fi
 
-    # Terminal states
-    if [[ "$STATUS" == "done" || "$STATUS" == "stopped" || "$STATUS" == "time_limit" ]]; then
-        echo "EVENT:terminal|status=$STATUS"
-        break
-    fi
+# Read current state
+STATUS=$(jq -r '.status // "unknown"' "$STATE_FILE" 2>/dev/null || echo "unknown")
 
-    # Checkpoint needs decision
-    if [[ "$STATUS" == "checkpoint" ]]; then
-        REASON=$(jq -r '.checkpoints[-1].reason // "unknown"' "$STATE_FILE" 2>/dev/null || echo "unknown")
-        APPROVED=$(jq -r '.checkpoints[-1].approved // false' "$STATE_FILE" 2>/dev/null || echo "false")
-        if [[ "$APPROVED" == "true" ]]; then
-            true  # already approved, continue polling
-        else
-            echo "EVENT:checkpoint|reason=$REASON"
-            break
-        fi
-    fi
+# Terminal states
+if [[ "$STATUS" == "done" || "$STATUS" == "stopped" || "$STATUS" == "time_limit" ]]; then
+    echo "EVENT:terminal|status=$STATUS"
+    exit 0
+fi
 
-    # Stale detection: state says running but file hasn't been updated in >120s
-    if [[ "$STATUS" == "running" && -f "$STATE_FILE" ]]; then
-        MTIME=$(stat -c %Y "$STATE_FILE" 2>/dev/null || stat -f %m "$STATE_FILE" 2>/dev/null || echo 0)
-        NOW=$(date +%s)
-        AGE=$(( NOW - MTIME ))
-        if [[ $AGE -gt 120 ]]; then
-            echo "EVENT:stale|age=${AGE}s|status=$STATUS"
-            break
-        fi
+# Checkpoint
+if [[ "$STATUS" == "checkpoint" ]]; then
+    REASON=$(jq -r '.checkpoints[-1].reason // "unknown"' "$STATE_FILE" 2>/dev/null || echo "unknown")
+    APPROVED=$(jq -r '.checkpoints[-1].approved // false' "$STATE_FILE" 2>/dev/null || echo "false")
+    if [[ "$APPROVED" == "true" ]]; then
+        echo "EVENT:running|status=checkpoint_approved"
+    else
+        echo "EVENT:checkpoint|reason=$REASON"
     fi
-done
+    exit 0
+fi
+
+# Stale detection
+if [[ "$STATUS" == "running" && -f "$STATE_FILE" ]]; then
+    MTIME=$(stat -c %Y "$STATE_FILE" 2>/dev/null || stat -f %m "$STATE_FILE" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    AGE=$(( NOW - MTIME ))
+    if [[ $AGE -gt 120 ]]; then
+        echo "EVENT:stale|age=${AGE}s"
+        exit 0
+    fi
+fi
+
+# Quick progress summary
+CHANGES_DONE=$(jq '[.changes[] | select(.status == "done" or .status == "merged")] | length' "$STATE_FILE" 2>/dev/null || echo "?")
+CHANGES_TOTAL=$(jq '.changes | length' "$STATE_FILE" 2>/dev/null || echo "?")
+TOKENS=$(jq '.prev_total_tokens // 0' "$STATE_FILE" 2>/dev/null || echo "0")
+echo "EVENT:running|status=$STATUS|progress=${CHANGES_DONE}/${CHANGES_TOTAL}|tokens=$TOKENS"
 ```
 
-When the poll loop breaks, **you decide what to do** based on the EVENT line.
+**IMPORTANT:** This command runs in the background. You remain available for user interaction while it sleeps and checks.
 
-### Step 3: Decision tree
+### Step 3: Handle the poll result
 
-Process the event returned by the poll loop:
+When the background poll completes, you'll be notified. Read the output and act based on the EVENT:
+
+#### EVENT: running
+
+**This is the fast path — keep it minimal.** Do NOT analyze, think deeply, or produce lengthy output.
+
+Just say something brief like: `Orchestration running (3/7 changes, 1.2M tokens). Polling...`
+
+Then **immediately go back to Step 2** (start another background poll).
 
 #### EVENT: terminal
 
@@ -119,7 +135,7 @@ The orchestrator exited unexpectedly. **Read the last 50 lines of orchestration.
 
    **Unknown** — restart once. If the same error recurs on the next crash, stop and report.
 
-4. Track rapid crashes: if the orchestrator ran less than 5 minutes before crashing, increment the counter. After 5 rapid crashes, **stop regardless of diagnosis**.
+4. Track rapid crashes: if the orchestrator ran less than 5 minutes before crashing, increment `rapid_crashes`. After 5 rapid crashes, **stop regardless of diagnosis**.
 
 5. Before restarting, fix stale state:
    - If state is `running` → reset to `stopped` (so orchestrator can resume)
@@ -132,7 +148,7 @@ The orchestrator exited unexpectedly. **Read the last 50 lines of orchestration.
    wt-orchestrate start $ARGUMENTS &
    ORCH_PID=$!
    ```
-   Then go back to Step 2 (poll loop).
+   Update `restart_count`, `last_start_time`, then go back to Step 2.
 
 #### EVENT: checkpoint
 
@@ -140,7 +156,6 @@ Read the checkpoint reason from the event. Decision:
 
 **If reason is `periodic`** — auto-approve:
 ```bash
-# Read state, approve latest checkpoint, atomic write
 python3 -c "
 import json, os, tempfile
 from datetime import datetime, timezone
@@ -156,9 +171,9 @@ os.rename(tmp, 'orchestration-state.json')
 print('Checkpoint auto-approved (reason: periodic)')
 "
 ```
-Then go back to Step 2 (poll loop).
+Then go back to Step 2.
 
-**If reason is anything else** (e.g., `budget_exceeded`, `too_many_failures`, `manual`):
+**If reason is anything else** (e.g., `budget_exceeded`, `too_many_failures`, `manual`, `token_hard_limit`):
 - Report the checkpoint reason and current orchestration status to the user
 - Wait for user input on whether to approve or stop
 - Do NOT auto-approve non-periodic checkpoints
@@ -172,16 +187,19 @@ The state file hasn't been updated in >120s while status is "running":
    kill -0 $ORCH_PID 2>/dev/null && echo "alive" || echo "dead"
    ```
 2. Read last 20 log lines to understand what's happening
-3. If PID alive + logs show activity → likely a long operation, continue monitoring (go back to Step 2)
+3. If PID alive + logs show activity → likely a long operation, go back to Step 2
 4. If PID dead → treat as crash (go to process_exit handling)
 5. If PID alive but no log activity for >5 minutes → report to user as potential hang
 
-### Step 4: Restart tracking
+### Step 4: User interaction
 
-Maintain these counters across the session:
-- `restart_count`: total restarts in this sentinel session
-- `rapid_crashes`: consecutive crashes with <5min runtime (reset on sustained run)
-- `last_error`: summary of last crash for the report
+**You can respond to user questions anytime between polls.** If the user asks about status, read the state directly:
+
+```bash
+jq '{status, changes: [.changes[] | {name, status}], tokens: .prev_total_tokens, active_seconds}' orchestration-state.json
+```
+
+Don't wait for the next poll cycle — just answer the user and the background poll will continue independently.
 
 ### Step 5: Completion report
 
@@ -223,8 +241,10 @@ Read `active_seconds`, `started_epoch`, `changes[]`, `prev_total_tokens`, `repla
 ## What happens
 
 1. Orchestrator starts in background
-2. Sentinel polls state.json every 15 seconds (no LLM cost during normal operation)
-3. On events (crash, checkpoint, completion, stale), the agent makes a decision
-4. Periodic checkpoints are auto-approved
-5. Crashes are diagnosed from log analysis before restarting
-6. On completion or failure, a summary report is produced
+2. Sentinel polls state.json every 30 seconds using background commands (non-blocking)
+3. You remain responsive to user messages between polls
+4. On events (crash, checkpoint, completion, stale), the agent makes a decision
+5. `EVENT:running` is handled instantly — no analysis, just start next poll
+6. Periodic checkpoints are auto-approved
+7. Crashes are diagnosed from log analysis before restarting
+8. On completion or failure, a summary report is produced
