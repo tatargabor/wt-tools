@@ -29,66 +29,67 @@ deploy_wt_tools() {
         ((_warnings++))
     fi
 
-    # 2. Deploy /wt:* commands (symlink for always-fresh)
+    # 2. Deploy /wt:* commands (copy)
     local src_commands="$WT_TOOLS_ROOT/.claude/commands/wt"
     local dst_commands="$claude_dir/commands/wt"
     if [[ -d "$src_commands" ]]; then
-        mkdir -p "$claude_dir/commands"
-        if [[ "$(realpath "$src_commands" 2>/dev/null)" != "$(realpath "$dst_commands" 2>/dev/null)" ]]; then
-            rm -rf "$dst_commands"
-            ln -sfn "$src_commands" "$dst_commands"
+        # Replace symlink with directory if needed
+        [[ -L "$dst_commands" ]] && rm -f "$dst_commands"
+        mkdir -p "$dst_commands"
+        if [[ "$(realpath "$src_commands")" != "$(realpath "$dst_commands")" ]]; then
+            cp -r "$src_commands"/* "$dst_commands/"
         fi
         local cmd_count
         cmd_count=$(ls -1 "$src_commands"/*.md 2>/dev/null | wc -l)
-        success "  Linked $cmd_count command(s) .claude/commands/wt/ → wt-tools"
+        success "  Deployed $cmd_count command(s) to .claude/commands/wt/"
     else
         warn "  Source commands not found: $src_commands"
     fi
 
-    # 2b. Deploy /opsx:* commands (symlink)
+    # 2b. Deploy /opsx:* commands (copy)
     local src_opsx_commands="$WT_TOOLS_ROOT/.claude/commands/opsx"
     local dst_opsx_commands="$claude_dir/commands/opsx"
     if [[ -d "$src_opsx_commands" ]]; then
-        mkdir -p "$claude_dir/commands"
-        if [[ "$(realpath "$src_opsx_commands" 2>/dev/null)" != "$(realpath "$dst_opsx_commands" 2>/dev/null)" ]]; then
-            rm -rf "$dst_opsx_commands"
-            ln -sfn "$src_opsx_commands" "$dst_opsx_commands"
+        [[ -L "$dst_opsx_commands" ]] && rm -f "$dst_opsx_commands"
+        mkdir -p "$dst_opsx_commands"
+        if [[ "$(realpath "$src_opsx_commands")" != "$(realpath "$dst_opsx_commands")" ]]; then
+            cp -r "$src_opsx_commands"/* "$dst_opsx_commands/"
         fi
         local opsx_cmd_count
         opsx_cmd_count=$(ls -1 "$src_opsx_commands"/*.md 2>/dev/null | wc -l)
-        success "  Linked $opsx_cmd_count command(s) .claude/commands/opsx/ → wt-tools"
+        success "  Deployed $opsx_cmd_count command(s) to .claude/commands/opsx/"
     fi
 
-    # 3. Deploy wt skills (symlink)
+    # 3. Deploy wt skills (copy)
     local src_skills="$WT_TOOLS_ROOT/.claude/skills/wt"
     local dst_skills="$claude_dir/skills/wt"
     if [[ -d "$src_skills" ]]; then
-        mkdir -p "$claude_dir/skills"
-        if [[ "$(realpath "$src_skills" 2>/dev/null)" != "$(realpath "$dst_skills" 2>/dev/null)" ]]; then
-            rm -rf "$dst_skills"
-            ln -sfn "$src_skills" "$dst_skills"
+        [[ -L "$dst_skills" ]] && rm -f "$dst_skills"
+        mkdir -p "$dst_skills"
+        if [[ "$(realpath "$src_skills")" != "$(realpath "$dst_skills")" ]]; then
+            cp -r "$src_skills"/* "$dst_skills/"
         fi
-        success "  Linked skills .claude/skills/wt/ → wt-tools"
+        success "  Deployed skills to .claude/skills/wt/"
     else
         warn "  Source skills not found: $src_skills"
     fi
 
-    # 3a-ii. Deploy openspec-* skills (symlink each)
+    # 3a-ii. Deploy openspec-* skills (copy each)
     local openspec_skill_count=0
     for src_skill_dir in "$WT_TOOLS_ROOT/.claude/skills"/openspec-*/; do
         [[ -d "$src_skill_dir" ]] || continue
         local skill_name
         skill_name=$(basename "$src_skill_dir")
         local dst_skill_dir="$claude_dir/skills/$skill_name"
-        mkdir -p "$claude_dir/skills"
-        if [[ "$(realpath "$src_skill_dir" 2>/dev/null)" != "$(realpath "$dst_skill_dir" 2>/dev/null)" ]]; then
-            rm -rf "$dst_skill_dir"
-            ln -sfn "$src_skill_dir" "$dst_skill_dir"
+        [[ -L "$dst_skill_dir" ]] && rm -f "$dst_skill_dir"
+        mkdir -p "$dst_skill_dir"
+        if [[ "$(realpath "$src_skill_dir")" != "$(realpath "$dst_skill_dir")" ]]; then
+            cp -r "$src_skill_dir"/* "$dst_skill_dir/"
             openspec_skill_count=$((openspec_skill_count + 1))
         fi
     done
     if [[ $openspec_skill_count -gt 0 ]]; then
-        success "  Linked $openspec_skill_count openspec skill(s) .claude/skills/ → wt-tools"
+        success "  Deployed $openspec_skill_count openspec skill(s) to .claude/skills/"
     fi
 
     # 3b. Deploy rules (path-scoped project rules)
@@ -123,17 +124,18 @@ deploy_wt_tools() {
         fi
     fi
 
-    # 3c. Deploy agents (symlink)
+    # 3c. Deploy agents (copy)
     local src_agents="$WT_TOOLS_ROOT/.claude/agents"
     local dst_agents="$claude_dir/agents"
     if [[ -d "$src_agents" ]]; then
-        if [[ "$(realpath "$src_agents" 2>/dev/null)" != "$(realpath "$dst_agents" 2>/dev/null)" ]]; then
-            rm -rf "$dst_agents"
-            ln -sfn "$src_agents" "$dst_agents"
+        [[ -L "$dst_agents" ]] && rm -f "$dst_agents"
+        mkdir -p "$dst_agents"
+        if [[ "$(realpath "$src_agents")" != "$(realpath "$dst_agents")" ]]; then
+            cp "$src_agents"/*.md "$dst_agents/" 2>/dev/null || true
         fi
         local agent_count
         agent_count=$(ls -1 "$src_agents"/*.md 2>/dev/null | wc -l)
-        success "  Linked $agent_count agent(s) .claude/agents/ → wt-tools"
+        success "  Deployed $agent_count agent(s) to .claude/agents/"
     fi
 
     # 4. Remove deprecated inline memory hooks from OpenSpec skill/command files
