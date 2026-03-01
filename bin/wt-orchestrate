@@ -3157,7 +3157,8 @@ auto_replan_cycle() {
     local replan_memory
     replan_memory=$(orch_recall "orchestration merge conflict test failure review" 5 "source:orchestrator" || true)
     if [[ -n "$replan_memory" ]]; then
-        export _REPLAN_MEMORY="$replan_memory"
+        # Cap replan memory to prevent unbounded growth across cycles
+        export _REPLAN_MEMORY="${replan_memory:0:2000}"
     fi
 
     # Restore input path from plan so cmd_plan's find_input() can find it
@@ -3465,8 +3466,16 @@ REVIEW_EOF
 )
 
     REVIEW_OUTPUT=$(echo "$review_prompt" | run_claude --model "$(model_id "$rev_model")") || {
-        log_warn "Code review failed for $change_name — skipping"
-        return 0
+        if [[ "$rev_model" != "opus" ]]; then
+            log_warn "Code review failed with $rev_model for $change_name, escalating to opus"
+            REVIEW_OUTPUT=$(echo "$review_prompt" | run_claude --model "$(model_id opus)") || {
+                log_warn "Code review failed with opus for $change_name — skipping"
+                return 0
+            }
+        else
+            log_warn "Code review failed for $change_name — skipping"
+            return 0
+        fi
     }
 
     log_info "Code review complete for $change_name (${#REVIEW_OUTPUT} chars)"
@@ -3971,9 +3980,16 @@ merge_change() {
             if [[ $post_merge_rc -ne 0 ]]; then
                 log_error "Post-merge: build FAILED on main after merging $change_name"
                 log_error "Post-merge build output: ${post_merge_build_output: -500}"
-                send_notification "wt-orchestrate" "Post-merge build broken after $change_name merge! Manual fix needed." "critical"
-                orch_remember "Post-merge build failed after merging $change_name — main branch is broken" Decision "phase:post-merge,change:$change_name"
-                # Don't revert — the merge is done, but alert the user
+                # Store build output for fix_base_build_with_llm
+                BASE_BUILD_STATUS="fail"
+                BASE_BUILD_OUTPUT="$post_merge_build_output"
+                log_info "Post-merge: attempting automatic build fix for $change_name"
+                if fix_base_build_with_llm "$PROJECT_PATH"; then
+                    log_info "Post-merge: build fix succeeded after merging $change_name"
+                else
+                    send_notification "wt-orchestrate" "Post-merge build broken after $change_name merge! Auto-fix failed." "critical"
+                    orch_remember "Post-merge build failed after merging $change_name — auto-fix attempted but failed" Decision "phase:post-merge,change:$change_name"
+                fi
             else
                 log_info "Post-merge: build passed on main"
             fi
