@@ -65,11 +65,12 @@ _metrics_timer_elapsed() {
 }
 
 # Append a metrics record to session cache _metrics array.
-# Args: layer event query result_count filtered_count relevance_scores_json duration_ms token_estimate dedup_hit
+# Args: layer event query result_count filtered_count relevance_scores_json duration_ms token_estimate dedup_hit [context_ids_csv]
 _metrics_append() {
     [[ "$METRICS_ENABLED" -eq 0 ]] && return 0
     local layer="$1" event="$2" query="${3:0:500}" result_count="${4:-0}" filtered_count="${5:-0}"
     local scores_json="${6:-[]}" duration_ms="${7:-0}" token_estimate="${8:-0}" dedup_hit="${9:-0}"
+    local context_ids_csv="${10:-}"
 
     python3 -c "
 import json, sys, os
@@ -81,7 +82,7 @@ if os.path.exists(cache_file):
     try:
         with open(cache_file) as f:
             cache = json.load(f)
-    except: pass
+    except Exception: pass
 
 metrics = cache.get('_metrics', [])
 if len(metrics) >= 500:
@@ -91,6 +92,10 @@ scores = json.loads(sys.argv[8])
 avg_r = sum(scores)/len(scores) if scores else None
 max_r = max(scores) if scores else None
 min_r = min(scores) if scores else None
+
+# Parse context_ids from CSV
+cids_csv = sys.argv[11] if len(sys.argv) > 11 else ''
+context_ids = [x for x in cids_csv.split(',') if x] if cids_csv else []
 
 metrics.append({
     'ts': datetime.now(timezone.utc).isoformat(),
@@ -105,12 +110,13 @@ metrics.append({
     'duration_ms': int(sys.argv[7]),
     'token_estimate': int(sys.argv[9]),
     'dedup_hit': int(sys.argv[10]),
+    'context_ids': context_ids,
 })
 cache['_metrics'] = metrics
 with open(cache_file, 'w') as f:
     json.dump(cache, f)
 " "$CACHE_FILE" "$layer" "$event" "$query" "$result_count" "$filtered_count" \
-  "$duration_ms" "$scores_json" "$token_estimate" "$dedup_hit" 2>/dev/null || true
+  "$duration_ms" "$scores_json" "$token_estimate" "$dedup_hit" "$context_ids_csv" 2>/dev/null || true
 }
 
 # Extract relevance scores from proactive/recall JSON output.
@@ -219,6 +225,71 @@ make_dedup_key() {
 }
 
 # ============================================================
+# Helper: Context ID generation for memory usage tracking
+# ============================================================
+
+# Generate a unique 4-char hex context ID within this session.
+# Uses /dev/urandom for randomness, checks session cache for collisions.
+_gen_context_id() {
+    local id
+    while true; do
+        id=$(head -c 2 /dev/urandom | od -An -tx1 | tr -d ' \n')
+        # Check collision in session cache
+        if [[ ! -f "$CACHE_FILE" ]] || ! python3 -c "
+import json, sys
+try:
+    cache = json.load(open(sys.argv[1]))
+    ids = cache.get('_used_context_ids', [])
+    sys.exit(0 if sys.argv[2] in ids else 1)
+except Exception:
+    sys.exit(1)
+" "$CACHE_FILE" "$id" 2>/dev/null; then
+            # No collision — register and return
+            python3 -c "
+import json, sys, os
+cache = {}
+cf = sys.argv[1]
+if os.path.exists(cf):
+    try:
+        with open(cf) as f:
+            cache = json.load(f)
+    except Exception:
+        pass
+ids = cache.get('_used_context_ids', [])
+ids.append(sys.argv[2])
+cache['_used_context_ids'] = ids
+with open(cf, 'w') as f:
+    json.dump(cache, f)
+" "$CACHE_FILE" "$id" 2>/dev/null
+            echo "$id"
+            return 0
+        fi
+    done
+}
+
+# Store injected content in session cache for passive matching at Stop time.
+# Args: $1=context_id, $2=content_text
+_store_injected_content() {
+    [[ "$METRICS_ENABLED" -eq 0 ]] && return 0
+    python3 -c "
+import json, sys, os
+cf = sys.argv[1]
+cache = {}
+if os.path.exists(cf):
+    try:
+        with open(cf) as f:
+            cache = json.load(f)
+    except Exception:
+        pass
+ic = cache.get('_injected_content', {})
+ic[sys.argv[2]] = sys.argv[3][:500]
+cache['_injected_content'] = ic
+with open(cf, 'w') as f:
+    json.dump(cache, f)
+" "$CACHE_FILE" "$1" "$2" 2>/dev/null || true
+}
+
+# ============================================================
 # Helper: Load matching rules from .claude/rules.yaml
 # Returns formatted MANDATORY RULES block, or empty string.
 # Silently skips if file absent, malformed, or yaml unavailable.
@@ -305,10 +376,28 @@ proactive_and_format() {
 
     local result
     result=$(python3 -c "
-import sys, json
+import sys, json, os, random
+
+# Read used IDs from session cache for uniqueness
+cache_file = sys.argv[2]
+used_ids = []
+try:
+    with open(cache_file) as f:
+        used_ids = json.load(f).get('_used_context_ids', [])
+except Exception:
+    pass
+
+def gen_id():
+    while True:
+        cid = format(random.randint(0, 0xffff), '04x')
+        if cid not in used_ids:
+            used_ids.append(cid)
+            return cid
+
 try:
     memories = json.load(open(sys.argv[1]))
-except: sys.exit(1)
+except Exception:
+    sys.exit(1)
 if not memories: sys.exit(1)
 print(f'total={len(memories)}', file=sys.stderr)
 filtered = []
@@ -324,6 +413,8 @@ for m in memories:
 if not filtered: sys.exit(1)
 seen = set()
 emitted = 0
+context_ids = []
+content_map = {}
 for m in filtered:
     c = m.get('content','').replace('\n',' ').strip()
     if len(c) < 20:
@@ -332,15 +423,35 @@ for m in filtered:
     key = c[:50]
     if key in seen: continue
     seen.add(key)
+    cid = gen_id()
+    context_ids.append(cid)
+    content_map[cid] = c[:500]
     score = m.get('relevance_score', '?')
     try: score = f'{float(score):.2f}'
-    except: pass
+    except Exception: pass
     print(f'  [{score}] {c[:100]}', file=sys.stderr)
-    print(f'  - {c}')
+    print(f'  - [MEM#{cid}] {c}')
     emitted += 1
 if not emitted: sys.exit(1)
 print(f'filtered={emitted}', file=sys.stderr)
-" "$TMPFILE" 2>"$TMPFILE.err")
+
+# Write context IDs and content map to side files
+ids_file = sys.argv[1] + '.ids'
+with open(ids_file, 'w') as f:
+    json.dump({'ids': context_ids, 'content': content_map}, f)
+
+# Update session cache with used IDs
+try:
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file) as f:
+            cache = json.load(f)
+    cache['_used_context_ids'] = used_ids
+    with open(cache_file, 'w') as f:
+        json.dump(cache, f)
+except Exception:
+    pass
+" "$TMPFILE" "$CACHE_FILE" 2>"$TMPFILE.err")
     local rc=$?
     if [[ -f "$TMPFILE.err" ]]; then
         while IFS= read -r line; do
@@ -349,6 +460,37 @@ print(f'filtered={emitted}', file=sys.stderr)
     fi
     rm -f "$TMPFILE.err"
     [[ $rc -ne 0 ]] && { _log "proactive: no results after filtering"; return 1; }
+
+    # Store injected content for passive matching (reads side file)
+    local ids_file="$TMPFILE.ids"
+    if [[ -f "$ids_file" ]] && [[ "$METRICS_ENABLED" -eq 1 ]]; then
+        python3 -c "
+import json, sys, os
+ids_file = sys.argv[1]
+cache_file = sys.argv[2]
+try:
+    data = json.load(open(ids_file))
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file) as f:
+            cache = json.load(f)
+    ic = cache.get('_injected_content', {})
+    ic.update(data.get('content', {}))
+    cache['_injected_content'] = ic
+    with open(cache_file, 'w') as f:
+        json.dump(cache, f)
+except Exception:
+    pass
+" "$ids_file" "$CACHE_FILE" 2>/dev/null
+    fi
+
+    # Export IDs for caller
+    _LAST_CONTEXT_IDS=""
+    if [[ -f "$ids_file" ]]; then
+        _LAST_CONTEXT_IDS=$(python3 -c "import json; print(','.join(json.load(open('$ids_file')).get('ids',[])))" 2>/dev/null)
+        rm -f "$ids_file"
+    fi
+
     echo "$result"
 }
 
@@ -360,13 +502,33 @@ recall_and_format() {
 
     local result
     result=$(python3 -c "
-import sys, json
+import sys, json, os, random
+
+# Read used IDs from session cache for uniqueness
+cache_file = sys.argv[2]
+used_ids = []
+try:
+    with open(cache_file) as f:
+        used_ids = json.load(f).get('_used_context_ids', [])
+except Exception:
+    pass
+
+def gen_id():
+    while True:
+        cid = format(random.randint(0, 0xffff), '04x')
+        if cid not in used_ids:
+            used_ids.append(cid)
+            return cid
+
 try:
     memories = json.load(open(sys.argv[1]))
-except: sys.exit(1)
+except Exception:
+    sys.exit(1)
 if not memories: sys.exit(1)
 print(f'total={len(memories)}', file=sys.stderr)
 seen = set()
+context_ids = []
+content_map = {}
 for m in memories:
     score = m.get('relevance_score')
     if score is not None and score != 'N/A':
@@ -382,12 +544,32 @@ for m in memories:
     key = c[:50]
     if key in seen: continue
     seen.add(key)
+    cid = gen_id()
+    context_ids.append(cid)
+    content_map[cid] = c[:500]
     s = m.get('relevance_score', '?')
     try: s = f'{float(s):.2f}'
-    except: pass
+    except Exception: pass
     print(f'  [{s}] {c[:100]}', file=sys.stderr)
-    print(f'  - {c}')
-" "$TMPFILE" 2>"$TMPFILE.err")
+    print(f'  - [MEM#{cid}] {c}')
+
+# Write context IDs and content map to side files
+ids_file = sys.argv[1] + '.ids'
+with open(ids_file, 'w') as f:
+    json.dump({'ids': context_ids, 'content': content_map}, f)
+
+# Update session cache with used IDs
+try:
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file) as f:
+            cache = json.load(f)
+    cache['_used_context_ids'] = used_ids
+    with open(cache_file, 'w') as f:
+        json.dump(cache, f)
+except Exception:
+    pass
+" "$TMPFILE" "$CACHE_FILE" 2>"$TMPFILE.err")
     local rc=$?
     if [[ -f "$TMPFILE.err" ]]; then
         while IFS= read -r line; do
@@ -396,6 +578,37 @@ for m in memories:
     fi
     rm -f "$TMPFILE.err"
     [[ $rc -ne 0 ]] && { _log "recall: no results"; return 1; }
+
+    # Store injected content for passive matching (reads side file)
+    local ids_file="$TMPFILE.ids"
+    if [[ -f "$ids_file" ]] && [[ "$METRICS_ENABLED" -eq 1 ]]; then
+        python3 -c "
+import json, sys, os
+ids_file = sys.argv[1]
+cache_file = sys.argv[2]
+try:
+    data = json.load(open(ids_file))
+    cache = {}
+    if os.path.exists(cache_file):
+        with open(cache_file) as f:
+            cache = json.load(f)
+    ic = cache.get('_injected_content', {})
+    ic.update(data.get('content', {}))
+    cache['_injected_content'] = ic
+    with open(cache_file, 'w') as f:
+        json.dump(cache, f)
+except Exception:
+    pass
+" "$ids_file" "$CACHE_FILE" 2>/dev/null
+    fi
+
+    # Export IDs for caller
+    _LAST_CONTEXT_IDS=""
+    if [[ -f "$ids_file" ]]; then
+        _LAST_CONTEXT_IDS=$(python3 -c "import json; print(','.join(json.load(open('$ids_file')).get('ids',[])))" 2>/dev/null)
+        rm -f "$ids_file"
+    fi
+
     echo "$result"
 }
 
@@ -518,7 +731,7 @@ for m in memories:
     if [[ -z "$OUTPUT" ]]; then
         _dbg "no output, exiting"
         local _dur; _dur=$(_metrics_timer_elapsed)
-        _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" 0 0 "[]" "$_dur" 0 0
+        _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" 0 0 "[]" "$_dur" 0 0 ""
         exit 0
     fi
 
@@ -528,7 +741,7 @@ for m in memories:
     local _dur; _dur=$(_metrics_timer_elapsed)
     local _scores; _scores=$(_extract_scores)
     local _res_count; _res_count=$(echo "$PROJECT_CONTEXT" | grep -c '^  - ' 2>/dev/null || echo 0)
-    _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+    _metrics_append "L1" "SessionStart" "$PROACTIVE_QUERY" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0 "$_LAST_CONTEXT_IDS"
 
     _dbg "=== OUTPUT ($(echo -e "$OUTPUT" | wc -c) bytes) ==="
     output_hook_context "SessionStart" "$_output_text"
@@ -801,7 +1014,7 @@ if m: print(m.group(1))
     if [[ -z "$CONTEXT_TEXT" ]]; then
         _dbg "no output, exiting"
         local _dur; _dur=$(_metrics_timer_elapsed)
-        _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 0
+        _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 0 ""
         exit 0
     fi
 
@@ -809,7 +1022,7 @@ if m: print(m.group(1))
     local _dur; _dur=$(_metrics_timer_elapsed)
     local _scores; _scores=$(_extract_scores)
     local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
-    _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+    _metrics_append "L2" "UserPromptSubmit" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0 "$_LAST_CONTEXT_IDS"
 
     _dbg "=== OUTPUT ($(echo -e "$CONTEXT_TEXT" | wc -c) bytes) ==="
     output_hook_context "UserPromptSubmit" "$CONTEXT_TEXT"
@@ -930,7 +1143,7 @@ handle_post_tool() {
     if dedup_check "$KEY"; then
         _dbg "dedup hit, exiting"
         local _dur; _dur=$(_metrics_timer_elapsed)
-        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 1
+        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "[]" "$_dur" 0 1 ""
         exit 0
     fi
 
@@ -940,7 +1153,7 @@ handle_post_tool() {
         _dbg "no recall results, exiting"
         local _dur; _dur=$(_metrics_timer_elapsed)
         local _scores; _scores=$(_extract_scores)
-        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "$_scores" "$_dur" 0 0
+        _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" 0 0 "$_scores" "$_dur" 0 0 ""
         exit 0
     fi
 
@@ -950,7 +1163,7 @@ handle_post_tool() {
     local _dur; _dur=$(_metrics_timer_elapsed)
     local _scores; _scores=$(_extract_scores)
     local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
-    _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+    _metrics_append "L3" "PostToolUse" "${QUERY:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0 "$_LAST_CONTEXT_IDS"
 
     _dbg "=== OUTPUT ==="
     output_hook_context "PostToolUse" "$_output_text"
@@ -993,7 +1206,7 @@ print(error[:300])
         _dbg "no recall results for error, exiting"
         local _dur; _dur=$(_metrics_timer_elapsed)
         local _scores; _scores=$(_extract_scores)
-        _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" 0 0 "$_scores" "$_dur" 0 0
+        _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" 0 0 "$_scores" "$_dur" 0 0 ""
         exit 0
     fi
 
@@ -1002,7 +1215,7 @@ print(error[:300])
     local _dur; _dur=$(_metrics_timer_elapsed)
     local _scores; _scores=$(_extract_scores)
     local _res_count; _res_count=$(echo "$FORMATTED" | grep -c '^  - ' 2>/dev/null || echo 0)
-    _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0
+    _metrics_append "L4" "PostToolUseFailure" "${ERROR_TEXT:0:200}" "$_res_count" "$_res_count" "$_scores" "$_dur" "$_tok_est" 0 "$_LAST_CONTEXT_IDS"
 
     _dbg "=== OUTPUT ==="
     output_hook_context "PostToolUseFailure" "$_output_text"
@@ -1182,6 +1395,9 @@ metrics = cache.get('_metrics', [])
 if not metrics:
     sys.exit(0)
 
+# Read injected content for passive matching
+injected_content = cache.get('_injected_content', {})
+
 # Resolve project name
 project = 'unknown'
 try:
@@ -1193,14 +1409,22 @@ try:
 except Exception:
     pass
 
-# Scan transcript for citations
+# Scan transcript for citations + passive matches
 citations = []
+mem_matches = []
 if transcript_path and os.path.exists(transcript_path):
-    citations = scan_transcript_citations(transcript_path, session_id)
+    results = scan_transcript_citations(transcript_path, session_id, injected_content)
+    # Split into legacy citations and mem_matches
+    for r in results:
+        if r.get('context_id'):
+            mem_matches.append(r)
+        else:
+            citations.append(r)
 
 # Flush to SQLite
-flush_session(session_id, project, metrics, citations)
-print(f'Flushed {len(metrics)} metrics, {len(citations)} citations', file=sys.stderr)
+flush_session(session_id, project, metrics, citations, mem_matches)
+match_info = f', {len(mem_matches)} passive matches' if mem_matches else ''
+print(f'Flushed {len(metrics)} metrics, {len(citations)} citations{match_info}', file=sys.stderr)
 " "$CACHE_FILE" "$SESSION_ID" "$TRANSCRIPT_PATH" 2>/dev/null || true
     _log "metrics: flushed to SQLite"
 }
