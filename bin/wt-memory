@@ -3309,7 +3309,8 @@ lines = []
 now = datetime.now().strftime('%H:%M:%S')
 title = f'  Memory Overview Dashboard'
 lines.append(f'{BOLD}{CYN}{title}{RST}  {DIM}(last {since_days}d, updated {now}){RST}')
-lines.append(f'{CYN}{'━' * 66}{RST}')
+sep = '━' * 66
+lines.append(f'{CYN}{sep}{RST}')
 lines.append('')
 
 # Section 1: Memory Database
@@ -3411,8 +3412,10 @@ if total_rel > 0:
         val = rel.get(key, 0)
         pct = val / total_rel * 100
         bar_len = int(pct / 3)
-        bar = f'{bar_color}{'█' * bar_len}{RST}'
-        lines.append(f'  {label:<18} {bar}{'·' * (33 - bar_len)} {pct:>5.1f}% {DIM}({val}){RST}')
+        filled = '█' * bar_len
+        dots = '·' * (33 - bar_len)
+        bar = f'{bar_color}{filled}{RST}'
+        lines.append(f'  {label:<18} {bar}{dots} {pct:>5.1f}% {DIM}({val}){RST}')
     lines.append('')
 
 # Section 4: Daily Trend (sparklines)
