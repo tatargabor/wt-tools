@@ -1322,6 +1322,28 @@ handle_stop() {
         exit 0
     fi
 
+    # Check for Ralph loop no-op marker — skip memory extraction if present and fresh
+    local noop_marker=".claude/loop-iteration-noop"
+    if [[ -f "$noop_marker" ]]; then
+        local marker_ts
+        marker_ts=$(cat "$noop_marker" 2>/dev/null)
+        local marker_epoch now_epoch age_secs
+        marker_epoch=$(date -d "$marker_ts" +%s 2>/dev/null || echo 0)
+        now_epoch=$(date +%s)
+        age_secs=$((now_epoch - marker_epoch))
+        if [[ "$marker_epoch" -gt 0 && "$age_secs" -lt 3600 ]]; then
+            _log "Skipping memory save — no-op loop iteration (age: ${age_secs}s)"
+            rm -f "$noop_marker"
+            # Still flush metrics (lightweight), but skip transcript/commit extraction
+            _stop_flush_metrics
+            dedup_clear
+            exit 0
+        fi
+        # Stale marker (>1 hour) — ignore and proceed normally
+        _dbg "no-op marker stale (${age_secs}s), proceeding normally"
+        rm -f "$noop_marker"
+    fi
+
     # Flush metrics to SQLite before clearing dedup cache
     _stop_flush_metrics
 

@@ -2265,6 +2265,10 @@ cmd_status() {
     [[ "$failed" -gt 0 ]] && echo "  Failed:   $failed"
     [[ "$stalled" -gt 0 ]] && echo "  Stalled:  $stalled"
 
+    local budget_exceeded
+    budget_exceeded=$(count_changes_by_status "budget_exceeded")
+    [[ "$budget_exceeded" -gt 0 ]] && echo "  Budget:   $budget_exceeded exceeded token budget"
+
     local waiting_human
     waiting_human=$(count_changes_by_status "waiting:human")
     [[ "$waiting_human" -gt 0 ]] && echo "  ⏸ Human:  $waiting_human waiting for manual input"
@@ -2813,10 +2817,23 @@ MEMORY_EOF
     local task_desc="Implement $change_name: ${scope:0:200}"
     local impl_model
     impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL")
-    log_info "Dispatch $change_name with model=$impl_model (default=$DEFAULT_IMPL_MODEL)"
+
+    # Token budget based on change complexity
+    local complexity
+    complexity=$(jq -r --arg n "$change_name" \
+        '.changes[] | select(.name == $n) | .complexity // "M"' "$STATE_FILENAME")
+    local token_budget_flag=""
+    case "$complexity" in
+        S)  token_budget_flag="--token-budget 100" ;;
+        M)  token_budget_flag="--token-budget 300" ;;
+        L)  token_budget_flag="--token-budget 500" ;;
+        XL) token_budget_flag="--token-budget 1000" ;;
+    esac
+
+    log_info "Dispatch $change_name with model=$impl_model (default=$DEFAULT_IMPL_MODEL) budget=${token_budget_flag:---token-budget unlimited}"
     (
         cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model "$impl_model" --change "$change_name"
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model "$impl_model" --change "$change_name" $token_budget_flag
     ) &
     wait $! 2>/dev/null || true
 
@@ -3498,6 +3515,21 @@ poll_change() {
                 done <<< "$manual_summary"
                 info "⏸ $change_name — waiting for human input. Run: wt-manual show $change_name"
                 send_notification "wt-orchestrate" "Change '$change_name' needs human action. Run: wt-manual show $change_name" "warning"
+            fi
+            ;;
+        budget_exceeded)
+            local cur_budget_status
+            cur_budget_status=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .status // ""' "$STATE_FILENAME")
+            if [[ "$cur_budget_status" != "budget_exceeded" ]]; then
+                update_change_field "$change_name" "status" '"budget_exceeded"'
+                local budget_tokens
+                budget_tokens=$(jq -r '.total_tokens // 0' "$loop_state" 2>/dev/null)
+                local budget_limit
+                budget_limit=$(jq -r '.token_budget // 0' "$loop_state" 2>/dev/null)
+                log_warn "Change $change_name exceeded token budget: $((budget_tokens / 1000))K / $((budget_limit / 1000))K"
+                info "💰 $change_name — token budget exceeded ($((budget_tokens / 1000))K / $((budget_limit / 1000))K)"
+                send_notification "wt-orchestrate" "Change '$change_name' exceeded token budget" "warning"
+                trigger_checkpoint "budget"
             fi
             ;;
         stopped|stalled|stuck)

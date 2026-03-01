@@ -48,6 +48,7 @@ Start Options:
   --capacity-limit <pct>   Stop if capacity exceeds (default: 80%)
   --permission-mode <mode> Claude permission mode: auto-accept|allowedTools|plan (default: config)
   --model <name>           Claude model: opus|sonnet|haiku or full ID (default: opus from config)
+  --token-budget <N>       Max token budget in thousands (0=unlimited, default: 0)
   --label <text>           Label for this loop instance (shown in banner and terminal title)
   --force                  Force start even with incompatible permission mode (e.g. plan)
 
@@ -174,6 +175,8 @@ init_loop_state() {
   "stall_threshold": $stall_threshold,
   "iteration_timeout_min": $iteration_timeout,
   "total_tokens": 0,
+  "token_budget": 0,
+  "ff_attempts": 0,
   "label": $(if [[ -n "$label" ]]; then echo "\"$label\""; else echo "null"; fi),
   "change": $(if [[ -n "$change" ]]; then echo "\"$change\""; else echo "null"; fi)
 }
@@ -202,6 +205,8 @@ add_iteration() {
     local tokens_used="${7:-0}"
     local timed_out="${8:-false}"
     local tokens_estimated="${9:-false}"
+    local no_op="${10:-false}"
+    local ff_exhausted="${11:-false}"
 
     local tmp
     tmp=$(mktemp)
@@ -213,6 +218,8 @@ add_iteration() {
        --argjson tokens "$tokens_used" \
        --argjson timed_out "$timed_out" \
        --argjson tokens_estimated "$tokens_estimated" \
+       --argjson no_op "$no_op" \
+       --argjson ff_exhausted "$ff_exhausted" \
        '.iterations += [{
          "n": $n,
          "started": $started,
@@ -221,7 +228,9 @@ add_iteration() {
          "commits": $commits,
          "tokens_used": $tokens,
          "timed_out": $timed_out,
-         "tokens_estimated": $tokens_estimated
+         "tokens_estimated": $tokens_estimated,
+         "no_op": $no_op,
+         "ff_exhausted": $ff_exhausted
        }]' "$state_file" > "$tmp" && mv "$tmp" "$state_file"
 }
 
@@ -767,8 +776,12 @@ cmd_run() {
     echo "║  Branch: $git_branch"
     echo "║  Task: $task"
     echo "║  ──────────────────────────────────────────────────────────────"
+    local budget_display="unlimited"
+    if [[ "$token_budget" -gt 0 ]] 2>/dev/null; then
+        budget_display="$((token_budget / 1000))K"
+    fi
     echo "║  Mode: $permission_mode | Model: ${claude_model:-default} | Max: $max_iter | Stall: $stall_threshold | Timeout: ${iteration_timeout_min}m"
-    echo "║  Memory: $memory_status"
+    echo "║  Memory: $memory_status | Budget: $budget_display"
     echo "║  Started: $(date '+%Y-%m-%d %H:%M:%S')"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
@@ -784,6 +797,11 @@ cmd_run() {
     local stall_count=0
     local repeated_msg_count=0
     local last_commit_msg=""
+    local ff_attempts=0
+    local ff_max_retries
+    ff_max_retries=$(jq -r '.ff_max_retries // 2' "$state_file")
+    local token_budget
+    token_budget=$(jq -r '.token_budget // 0' "$state_file")
     local start_time
     start_time=$(date -Iseconds)
 
@@ -1070,6 +1088,43 @@ except:
             fi
         fi
 
+        # FF retry tracking: if this was an ff: iteration, check if tasks.md was created
+        local iter_ff_exhausted=false
+        local iter_no_op=false
+        if [[ "$done_criteria" == "openspec" && -n "$change_name" ]]; then
+            local post_action
+            post_action=$(detect_next_change_action "$wt_path" "$change_name")
+            if [[ "$post_action" == ff:* ]]; then
+                # FF ran but tasks.md still missing
+                ff_attempts=$((ff_attempts + 1))
+                update_loop_state "$state_file" "ff_attempts" "$ff_attempts"
+                echo "FF attempt $ff_attempts/$ff_max_retries failed — tasks.md not created"
+                if [[ $ff_attempts -ge $ff_max_retries ]]; then
+                    iter_ff_exhausted=true
+                    echo ""
+                    echo "╔════════════════════════════════════════════════════════════════╗"
+                    echo "║  FF failed to create tasks.md after $ff_max_retries attempts       ║"
+                    echo "║  Marking as stalled — manual intervention required.               ║"
+                    echo "╚════════════════════════════════════════════════════════════════╝"
+                    # Record iteration, then exit
+                fi
+            else
+                # tasks.md exists (action is apply: or done) — reset counter
+                if [[ $ff_attempts -gt 0 ]]; then
+                    ff_attempts=0
+                    update_loop_state "$state_file" "ff_attempts" "0"
+                fi
+            fi
+        fi
+
+        # No-op iteration marker for session-end hooks
+        if { [[ "$new_commits" == "[]" ]] || [[ -z "$new_commits" ]]; } && ! $has_artifact_progress; then
+            iter_no_op=true
+            echo "$(date -Iseconds)" > "$wt_path/.claude/loop-iteration-noop"
+        else
+            rm -f "$wt_path/.claude/loop-iteration-noop"
+        fi
+
         # Check done
         local is_done=false
         if check_done "$wt_path" "$done_criteria" "$change_name"; then
@@ -1077,11 +1132,36 @@ except:
         fi
 
         # Add iteration to state with token tracking
-        add_iteration "$state_file" "$iteration" "$iter_start" "$iter_end" "$is_done" "$new_commits" "$tokens_used" "$iter_timed_out" "$tokens_estimated"
+        add_iteration "$state_file" "$iteration" "$iter_start" "$iter_end" "$is_done" "$new_commits" "$tokens_used" "$iter_timed_out" "$tokens_estimated" "$iter_no_op" "$iter_ff_exhausted"
+
+        # Handle ff exhaustion (after recording iteration)
+        if $iter_ff_exhausted; then
+            update_loop_state "$state_file" "status" '"stalled"'
+            update_terminal_title "Ralph: ${worktree_name}${title_suffix} [stalled:ff]"
+            trap - EXIT SIGTERM SIGINT
+            notify-send "Ralph Loop Stalled" "$worktree_name: FF failed to create tasks.md after $ff_max_retries attempts" 2>/dev/null || true
+            exit 0
+        fi
         current_iter_started=""  # Clear so trap doesn't double-record
 
         # Update total tokens in state
         update_loop_state "$state_file" "total_tokens" "$tokens_after"
+
+        # Token budget enforcement
+        if [[ "$token_budget" -gt 0 && "$tokens_after" -gt "$token_budget" ]] 2>/dev/null; then
+            local budget_k=$((token_budget / 1000))
+            local used_k=$((tokens_after / 1000))
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════════╗"
+            echo "║  Token budget exceeded: ${used_k}K / ${budget_k}K               ║"
+            echo "║  Stopping loop. Resume with extended budget to continue.         ║"
+            echo "╚════════════════════════════════════════════════════════════════╝"
+            update_loop_state "$state_file" "status" '"budget_exceeded"'
+            update_terminal_title "Ralph: ${worktree_name}${title_suffix} [budget_exceeded]"
+            trap - EXIT SIGTERM SIGINT
+            notify-send "Ralph Loop Budget Exceeded" "$worktree_name: ${used_k}K / ${budget_k}K tokens" 2>/dev/null || true
+            exit 0
+        fi
 
         if $is_done; then
             # Calculate total time
@@ -1178,6 +1258,7 @@ cmd_start() {
     local force_start=false
     local label=""
     local change_name=""
+    local token_budget_k=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -1224,6 +1305,10 @@ cmd_start() {
                 ;;
             --change)
                 change_name="$2"
+                shift 2
+                ;;
+            --token-budget)
+                token_budget_k="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -1329,6 +1414,14 @@ cmd_start() {
     local tmp_model
     tmp_model=$(mktemp)
     jq --arg m "$effective_model" '.model = $m' "$state_file_init" > "$tmp_model" && mv "$tmp_model" "$state_file_init"
+
+    # Save token budget in state (N in thousands → raw tokens)
+    if [[ -n "$token_budget_k" && "$token_budget_k" -gt 0 ]] 2>/dev/null; then
+        local budget_raw=$((token_budget_k * 1000))
+        local tmp_budget
+        tmp_budget=$(mktemp)
+        jq --argjson b "$budget_raw" '.token_budget = $b' "$state_file_init" > "$tmp_budget" && mv "$tmp_budget" "$state_file_init"
+    fi
 
     # Spawn terminal with logging
     info "Spawning terminal for Ralph loop..."
