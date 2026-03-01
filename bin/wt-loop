@@ -19,6 +19,13 @@ else
     TIMEOUT_CMD=""
 fi
 
+# Find stdbuf for line-buffered output (real-time terminal visibility)
+if command -v stdbuf &>/dev/null; then
+    STDBUF_PREFIX="stdbuf -oL"
+else
+    STDBUF_PREFIX=""
+fi
+
 # Default settings
 DEFAULT_MAX_ITERATIONS=10
 DEFAULT_DONE_CRITERIA="tasks"
@@ -221,6 +228,7 @@ add_iteration() {
     local ff_exhausted="${11:-false}"
     local log_file="${12:-}"
     local resumed="${13:-false}"
+    local ff_recovered="${14:-false}"
 
     local tmp
     tmp=$(mktemp)
@@ -236,6 +244,7 @@ add_iteration() {
        --argjson ff_exhausted "$ff_exhausted" \
        --arg log_file "$log_file" \
        --argjson resumed "$resumed" \
+       --argjson ff_recovered "$ff_recovered" \
        '.iterations += [{
          "n": $n,
          "started": $started,
@@ -248,7 +257,8 @@ add_iteration() {
          "no_op": $no_op,
          "ff_exhausted": $ff_exhausted,
          "log_file": $log_file,
-         "resumed": $resumed
+         "resumed": $resumed,
+         "ff_recovered": $ff_recovered
        }]' "$state_file" > "$tmp" && mv "$tmp" "$state_file"
 }
 
@@ -393,6 +403,45 @@ check_tasks_done() {
     else
         return 1  # Not done
     fi
+}
+
+# Generate a minimal fallback tasks.md when ff exhausted (no tasks.md created by opsx:ff).
+# Reads proposal.md (and design.md if present) to give the agent enough context.
+# Returns 0 if tasks.md was created, 1 if insufficient context (no proposal.md).
+generate_fallback_tasks() {
+    local wt_path="$1"
+    local change_name="$2"
+    local change_dir="$wt_path/openspec/changes/$change_name"
+
+    # Need at least proposal.md to generate meaningful tasks
+    if [[ ! -f "$change_dir/proposal.md" ]]; then
+        return 1
+    fi
+
+    local tasks_file="$change_dir/tasks.md"
+
+    # Don't overwrite existing tasks.md
+    if [[ -f "$tasks_file" ]]; then
+        return 0
+    fi
+
+    # Read scope from proposal
+    local scope
+    scope=$(head -20 "$change_dir/proposal.md" 2>/dev/null | tail -15)
+
+    local context_note="proposal.md"
+    if [[ -f "$change_dir/design.md" ]]; then
+        context_note="proposal.md and design.md"
+    fi
+
+    cat > "$tasks_file" <<FALLBACK_EOF
+# Tasks
+
+- [ ] Implement the change as described in $context_note. Read the artifacts in openspec/changes/$change_name/ for full scope and design details.
+FALLBACK_EOF
+
+    warn "Generated fallback tasks.md from proposal (ff exhausted)"
+    return 0
 }
 
 # Check done criteria
@@ -931,12 +980,12 @@ cmd_run() {
             iter_start_epoch_resume=$(date +%s)
 
             if [[ -n "$TIMEOUT_CMD" ]]; then
-                echo "$effective_prompt" | env -u CLAUDECODE $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
+                echo "$effective_prompt" | env -u CLAUDECODE $STDBUF_PREFIX $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
                     claude $perm_flags $model_flag $session_flags \
-                       --verbose 2>&1 | tee -a "$iter_log_file"
+                       --verbose 2>&1 | $STDBUF_PREFIX tee -a "$iter_log_file"
             else
-                echo "$effective_prompt" | env -u CLAUDECODE claude $perm_flags $model_flag $session_flags \
-                   --verbose 2>&1 | tee -a "$iter_log_file"
+                echo "$effective_prompt" | env -u CLAUDECODE $STDBUF_PREFIX claude $perm_flags $model_flag $session_flags \
+                   --verbose 2>&1 | $STDBUF_PREFIX tee -a "$iter_log_file"
             fi
             claude_exit_code=${PIPESTATUS[0]:-$?}
 
@@ -1187,6 +1236,7 @@ except:
 
         # FF retry tracking: if this was an ff: iteration, check if tasks.md was created
         local iter_ff_exhausted=false
+        local iter_ff_recovered=false
         local iter_no_op=false
         if [[ "$done_criteria" == "openspec" && -n "$change_name" ]]; then
             local post_action
@@ -1197,13 +1247,21 @@ except:
                 update_loop_state "$state_file" "ff_attempts" "$ff_attempts"
                 echo "FF attempt $ff_attempts/$ff_max_retries failed — tasks.md not created"
                 if [[ $ff_attempts -ge $ff_max_retries ]]; then
-                    iter_ff_exhausted=true
-                    echo ""
-                    echo "╔════════════════════════════════════════════════════════════════╗"
-                    echo "║  FF failed to create tasks.md after $ff_max_retries attempts       ║"
-                    echo "║  Marking as stalled — manual intervention required.               ║"
-                    echo "╚════════════════════════════════════════════════════════════════╝"
-                    # Record iteration, then exit
+                    # Try to recover by generating fallback tasks.md from proposal
+                    if generate_fallback_tasks "$wt_path" "$change_name"; then
+                        iter_ff_recovered=true
+                        ff_attempts=0
+                        update_loop_state "$state_file" "ff_attempts" "0"
+                        echo "✓ Recovery: fallback tasks.md generated — continuing loop"
+                    else
+                        iter_ff_exhausted=true
+                        echo ""
+                        echo "╔════════════════════════════════════════════════════════════════╗"
+                        echo "║  FF failed to create tasks.md after $ff_max_retries attempts       ║"
+                        echo "║  No proposal.md found — cannot recover. Stalling.                  ║"
+                        echo "╚════════════════════════════════════════════════════════════════╝"
+                        # Record iteration, then exit
+                    fi
                 fi
             else
                 # tasks.md exists (action is apply: or done) — reset counter
@@ -1238,7 +1296,7 @@ except:
         fi
 
         # Add iteration to state with token tracking
-        add_iteration "$state_file" "$iteration" "$iter_start" "$iter_end" "$is_done" "$new_commits" "$tokens_used" "$iter_timed_out" "$tokens_estimated" "$iter_no_op" "$iter_ff_exhausted" "$iter_log_file" "$is_resumed"
+        add_iteration "$state_file" "$iteration" "$iter_start" "$iter_end" "$is_done" "$new_commits" "$tokens_used" "$iter_timed_out" "$tokens_estimated" "$iter_no_op" "$iter_ff_exhausted" "$iter_log_file" "$is_resumed" "$iter_ff_recovered"
 
         # Handle ff exhaustion (after recording iteration)
         if $iter_ff_exhausted; then
