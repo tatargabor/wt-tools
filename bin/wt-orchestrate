@@ -2056,6 +2056,28 @@ cmd_start() {
     # Initialize state from plan
     init_state "$PLAN_FILENAME"
 
+    # Stale change detection: warn about orphaned openspec change directories
+    if [[ -d "openspec/changes" ]]; then
+        local plan_names
+        plan_names=$(jq -r '.changes[].name' "$PLAN_FILENAME" 2>/dev/null || true)
+        for change_dir in openspec/changes/*/; do
+            [[ -d "$change_dir" ]] || continue
+            local dir_name
+            dir_name=$(basename "$change_dir")
+            # Skip archive and hidden dirs
+            [[ "$dir_name" == "archive" || "$dir_name" == .* ]] && continue
+            # Check if this change is in the current plan
+            if echo "$plan_names" | grep -qxF "$dir_name"; then
+                continue
+            fi
+            # Check if an active worktree exists for this change
+            if find_existing_worktree "$(pwd)" "$dir_name" &>/dev/null; then
+                continue
+            fi
+            log_warn "Orphaned change directory: openspec/changes/$dir_name (not in plan, no active worktree)"
+        done
+    fi
+
     # Setup cleanup trap
     local cleanup_done=false
     cleanup_orchestrator() {
@@ -2682,6 +2704,14 @@ $dispatch_memory
 MEMORY_EOF
             fi
             log_info "Pre-created proposal.md for $change_name"
+        fi
+
+        # Check artifact readiness — if tasks.md exists, agent can go straight to apply
+        local tasks_path="openspec/changes/$change_name/tasks.md"
+        if [[ -f "$tasks_path" ]]; then
+            log_info "Artifacts ready for $change_name — starting apply"
+        else
+            log_info "No tasks.md for $change_name — first iteration will create artifacts"
         fi
     ) || {
         error "Failed to setup change in worktree"
@@ -3908,6 +3938,28 @@ handle_change_done() {
     esac
 }
 
+archive_change() {
+    local change_name="$1"
+    local change_dir="openspec/changes/$change_name"
+
+    # Skip if change directory doesn't exist
+    [[ -d "$change_dir" ]] || return 0
+
+    local archive_dir="openspec/changes/archive"
+    local dated_name="$(date +%Y-%m-%d)-$change_name"
+    local dest="$archive_dir/$dated_name"
+
+    (
+        mkdir -p "$archive_dir"
+        mv "$change_dir" "$dest"
+        git add "$dest" "$change_dir" 2>/dev/null || true
+        git commit -m "chore: archive $change_name change" --no-verify 2>/dev/null || true
+        log_info "Archived $change_name → $dest"
+    ) || {
+        log_warn "Failed to archive $change_name (non-blocking)"
+    }
+}
+
 merge_change() {
     local change_name="$1"
 
@@ -3927,6 +3979,7 @@ merge_change() {
         log_info "Skipping merge for $change_name — branch deleted (assumed merged)"
         update_change_field "$change_name" "status" '"merged"'
         cleanup_worktree "$change_name" "$wt_path"
+        archive_change "$change_name"
         local tmp
         tmp=$(mktemp)
         jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
@@ -3941,6 +3994,7 @@ merge_change() {
         log_info "Skipping merge for $change_name — already merged"
         update_change_field "$change_name" "status" '"merged"'
         cleanup_worktree "$change_name" "$wt_path"
+        archive_change "$change_name"
         local tmp
         tmp=$(mktemp)
         jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
@@ -4013,6 +4067,7 @@ merge_change() {
         orch_remember "Merged $change_name successfully ($iter_count iterations)" Context "phase:merge,change:$change_name"
 
         cleanup_worktree "$change_name" "$wt_path"
+        archive_change "$change_name"
 
         # Remove from merge queue if present
         local tmp
