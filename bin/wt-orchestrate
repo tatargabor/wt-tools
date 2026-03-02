@@ -44,8 +44,8 @@ DEFAULT_REVIEW_MODEL="sonnet"
 DEFAULT_IMPL_MODEL="opus"  # set from directives.default_model in monitor_loop
 DEFAULT_SMOKE_COMMAND=""
 DEFAULT_SMOKE_TIMEOUT=120
-DEFAULT_DEPLOY_SMOKE_URL=""
-DEFAULT_DEPLOY_HEALTHCHECK="/api/health"
+
+
 DEFAULT_POST_MERGE_COMMAND=""       # project-specific command to run after merge (e.g. "pnpm db:generate")
 DEFAULT_TOKEN_HARD_LIMIT=20000000  # 20M tokens — checkpoint to ask human before spending more
 
@@ -305,8 +305,8 @@ parse_directives() {
     local default_model="$DEFAULT_IMPL_MODEL"
     local smoke_command="$DEFAULT_SMOKE_COMMAND"
     local smoke_timeout="$DEFAULT_SMOKE_TIMEOUT"
-    local deploy_smoke_url="$DEFAULT_DEPLOY_SMOKE_URL"
-    local deploy_healthcheck="$DEFAULT_DEPLOY_HEALTHCHECK"
+
+
     local post_merge_command="$DEFAULT_POST_MERGE_COMMAND"
     local token_hard_limit="$DEFAULT_TOKEN_HARD_LIMIT"
 
@@ -442,12 +442,8 @@ parse_directives() {
                         warn "Invalid smoke_timeout '$val', using default $DEFAULT_SMOKE_TIMEOUT"
                     fi
                     ;;
-                deploy_smoke_url)
-                    deploy_smoke_url="$val"
-                    ;;
-                deploy_healthcheck)
-                    deploy_healthcheck="$val"
-                    ;;
+
+
                 post_merge_command)
                     post_merge_command="$val"
                     ;;
@@ -484,8 +480,6 @@ parse_directives() {
         --arg default_model "$default_model" \
         --arg smoke_command "$smoke_command" \
         --argjson smoke_timeout "$smoke_timeout" \
-        --arg deploy_smoke_url "$deploy_smoke_url" \
-        --arg deploy_healthcheck "$deploy_healthcheck" \
         --arg post_merge_command "$post_merge_command" \
         --argjson token_hard_limit "$token_hard_limit" \
         '{
@@ -505,8 +499,6 @@ parse_directives() {
             default_model: $default_model,
             smoke_command: $smoke_command,
             smoke_timeout: $smoke_timeout,
-            deploy_smoke_url: $deploy_smoke_url,
-            deploy_healthcheck: $deploy_healthcheck,
             post_merge_command: $post_merge_command,
             token_hard_limit: $token_hard_limit
         }'
@@ -792,7 +784,8 @@ init_state() {
         tokens_used_prev: 0,
         test_result: null,
         smoke_result: null,
-        deploy_smoke_result: null,
+
+
         verify_retry_count: 0
     }]' "$plan_file")
 
@@ -3053,10 +3046,8 @@ monitor_loop() {
     smoke_command=$(echo "$directives" | jq -r '.smoke_command // ""')
     local smoke_timeout
     smoke_timeout=$(echo "$directives" | jq -r '.smoke_timeout // 120')
-    local deploy_smoke_url
-    deploy_smoke_url=$(echo "$directives" | jq -r '.deploy_smoke_url // ""')
-    local deploy_healthcheck
-    deploy_healthcheck=$(echo "$directives" | jq -r '.deploy_healthcheck // "/api/health"')
+
+
     local token_hard_limit
     token_hard_limit=$(echo "$directives" | jq -r ".token_hard_limit // $DEFAULT_TOKEN_HARD_LIMIT")
 
@@ -3505,7 +3496,7 @@ poll_change() {
         done)
             handle_change_done "$change_name" "$wt_path" "$test_command" "$merge_policy" \
                 "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model" \
-                "$smoke_command" "$smoke_timeout" "$deploy_smoke_url" "$deploy_healthcheck"
+                "$smoke_command" "$smoke_timeout"
             ;;
         running)
             # Check if the loop process is actually alive
@@ -3729,8 +3720,6 @@ handle_change_done() {
     local review_model="${8:-$DEFAULT_REVIEW_MODEL}"
     local smoke_command="${9:-}"
     local smoke_timeout="${10:-$DEFAULT_SMOKE_TIMEOUT}"
-    local deploy_smoke_url="${11:-}"
-    local deploy_healthcheck="${12:-$DEFAULT_DEPLOY_HEALTHCHECK}"
 
     log_info "Change $change_name completed, running checks... (review_before_merge=$review_before_merge, test_command=$test_command, test_timeout=$test_timeout)"
 
@@ -4002,7 +3991,7 @@ handle_change_done() {
     fi
 
     # ── Step 2c: Smoke test (local e2e) ──
-    # NOTE: Smoke/e2e tests run POST-MERGE only (via deploy_smoke), not pre-merge.
+    # NOTE: Smoke/e2e tests run POST-MERGE only, not pre-merge.
     # Pre-merge smoke is unreliable: worktree code isn't running on localhost,
     # so smoke tests hit the old main branch code and produce false failures.
     # This wastes tokens on retry loops that can't fix the "problem".
@@ -4132,49 +4121,6 @@ handle_change_done() {
             info "$change_name ready for manual merge"
             ;;
     esac
-}
-
-deploy_smoke() {
-    local change_name="$1"
-    local smoke_command="$2"
-    local smoke_timeout="${3:-120}"
-    local deploy_smoke_url="$4"
-    local deploy_healthcheck="${5:-/api/health}"
-
-    # Skip if not configured
-    [[ -n "$deploy_smoke_url" && -n "$smoke_command" ]] || return 0
-
-    log_info "Deploy smoke: polling $deploy_smoke_url$deploy_healthcheck for $change_name"
-    local healthy=false
-    for i in $(seq 1 30); do
-        if curl -sf "${deploy_smoke_url}${deploy_healthcheck}" >/dev/null 2>&1; then
-            healthy=true
-            break
-        fi
-        sleep 10
-    done
-
-    if ! $healthy; then
-        log_warn "Deploy smoke: healthcheck timeout for $change_name — skipping"
-        send_notification "wt-orchestrate" "Deploy healthcheck timeout — skipping deploy smoke for $change_name" "warning"
-        update_change_field "$change_name" "deploy_smoke_result" '"skip"'
-        return 0
-    fi
-
-    log_info "Deploy smoke: running against $deploy_smoke_url for $change_name"
-    local deploy_output=""
-    local deploy_rc=0
-    deploy_output=$(SMOKE_BASE_URL="$deploy_smoke_url" timeout "$smoke_timeout" bash -c "$smoke_command" 2>&1) || deploy_rc=$?
-
-    if [[ $deploy_rc -eq 0 ]]; then
-        log_info "Deploy smoke: passed for $change_name"
-        update_change_field "$change_name" "deploy_smoke_result" '"pass"'
-    else
-        log_warn "Deploy smoke: failed for $change_name (exit $deploy_rc) — advisory only"
-        send_notification "wt-orchestrate" "Deploy smoke failed for $change_name (advisory)" "warning"
-        update_change_field "$change_name" "deploy_smoke_result" '"fail"'
-    fi
-    return 0
 }
 
 archive_change() {
@@ -4417,8 +4363,6 @@ SMOKE_FIX_EOF
 
         cleanup_worktree "$change_name" "$wt_path"
         archive_change "$change_name"
-        deploy_smoke "$change_name" "$smoke_command" "$smoke_timeout" "$deploy_smoke_url" "$deploy_healthcheck"
-
         # Remove from merge queue if present
         local tmp
         tmp=$(mktemp)
