@@ -14,10 +14,10 @@
 
 ## 3. Scope verification
 
-- [ ] 3.1 Add `verify_merge_scope()` function in `bin/wt-orchestrate` — takes change_name, checks `git diff --name-only HEAD~1` for non-openspec files
-- [ ] 3.2 Call `verify_merge_scope()` in the post-merge pipeline after custom command, before build verify
-- [ ] 3.3 On failure (only openspec files in diff): log error + send critical notification, but do NOT block pipeline
-- [ ] 3.4 On success: log "Post-merge: scope verification passed for {change_name}"
+- [x] 3.1 Add `verify_merge_scope()` function in `bin/wt-orchestrate` — takes change_name, checks `git diff --name-only HEAD~1` for non-openspec files
+- [x] 3.2 Call `verify_merge_scope()` in the post-merge pipeline after custom command, before build verify
+- [x] 3.3 On failure (only openspec files in diff): log error + send critical notification, but do NOT block pipeline
+- [x] 3.4 On success: log "Post-merge: scope verification passed for {change_name}"
 
 ## 4. Sentinel role boundary
 

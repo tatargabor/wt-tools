@@ -4255,6 +4255,41 @@ archive_change() {
     }
 }
 
+# Verify that a merge actually brought implementation files, not just openspec artifacts.
+# Returns 0 on pass or skip, 1 on failure (only artifacts merged).
+# Non-blocking: caller logs/notifies but does NOT revert.
+verify_merge_scope() {
+    local change_name="$1"
+
+    # Get files changed in the merge commit
+    local diff_files=""
+    diff_files=$(git diff --name-only HEAD~1 2>/dev/null || true)
+    if [[ -z "$diff_files" ]]; then
+        log_warn "Post-merge scope: no diff files found for $change_name (skip)"
+        return 0
+    fi
+
+    # Check if ANY file is outside openspec/changes/ and .claude/
+    local has_impl=false
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        # Skip openspec artifacts and .claude config files
+        if [[ "$f" == openspec/changes/* ]] || [[ "$f" == .claude/* ]]; then
+            continue
+        fi
+        has_impl=true
+        break
+    done <<< "$diff_files"
+
+    if $has_impl; then
+        log_info "Post-merge: scope verification passed for $change_name"
+        return 0
+    else
+        log_error "Post-merge: scope verification FAILED — only artifact files merged for $change_name, no implementation"
+        return 1
+    fi
+}
+
 merge_change() {
     local change_name="$1"
 
@@ -4341,6 +4376,12 @@ merge_change() {
             else
                 log_warn "Post-merge: custom command failed (rc=$pmc_rc)"
             fi
+        fi
+
+        # Post-merge scope verification: did implementation files actually land?
+        if ! verify_merge_scope "$change_name"; then
+            send_notification "wt-orchestrate" "Scope verify FAILED for $change_name — only artifact files merged, no implementation code!" "critical"
+            orch_remember "Scope verification failed for $change_name — merged but no implementation files landed" Decision "phase:post-merge,change:$change_name"
         fi
 
         # Post-merge build verification: ensure main still builds after merge
