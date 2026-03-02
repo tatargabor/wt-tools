@@ -1947,13 +1947,18 @@ PYEOF
         plan_version=$(( $(jq -r '.plan_version // 0' "$PLAN_FILENAME") + 1 ))
     fi
 
+    local input_content_hash=""
+    if [[ -n "$INPUT_PATH" && -f "$INPUT_PATH" ]]; then
+        input_content_hash=$(sha256sum "$INPUT_PATH" 2>/dev/null | cut -d' ' -f1)
+    fi
     echo "$plan_json" | jq \
         --argjson pv "$plan_version" \
         --arg hash "$hash" \
         --arg created "$(date -Iseconds)" \
         --arg imode "$INPUT_MODE" \
         --arg ipath "$INPUT_PATH" \
-        '. + {plan_version: $pv, brief_hash: $hash, created_at: $created, input_mode: $imode, input_path: $ipath}' \
+        --arg ihash "$input_content_hash" \
+        '. + {plan_version: $pv, brief_hash: $hash, created_at: $created, input_mode: $imode, input_path: $ipath, input_hash: $ihash}' \
         > "$PLAN_FILENAME"
 
     # During replan, strip depends_on references to completed changes from prior cycles
@@ -2027,17 +2032,31 @@ cmd_start() {
             info "CLI input ($cli_input) differs from plan ($plan_input_path) — replanning"
             log_info "Input mismatch detected: CLI=$cli_input plan=$plan_input_path — auto-replanning"
             need_plan=true
+        else
+            # Same path — check if content changed since last plan
+            local plan_hash current_hash
+            plan_hash=$(jq -r '.input_hash // ""' "$PLAN_FILENAME" 2>/dev/null)
+            current_hash=$(sha256sum "$cli_input" 2>/dev/null | cut -d' ' -f1)
+            if [[ -n "$plan_hash" && -n "$current_hash" && "$plan_hash" != "$current_hash" ]]; then
+                info "Spec content changed since last plan — replanning"
+                log_info "Content hash mismatch: plan=$plan_hash current=$current_hash"
+                need_plan=true
+            fi
         fi
     fi
 
     if [[ "$need_plan" == true ]]; then
+        # Clean slate: remove all previous plan/state artifacts
+        local stale_files=("$PLAN_FILENAME" "$STATE_FILENAME" "$SUMMARY_FILENAME"
+                           ".claude/orchestration-last-response.txt")
+        for f in "${stale_files[@]}"; do
+            if [[ -f "$f" ]]; then
+                log_info "Removing stale file: $f"
+                rm -f "$f"
+            fi
+        done
         info "Creating plan..."
         cmd_plan || return 1
-        # Fresh plan means fresh start — remove stale state from previous run
-        if [[ -f "$STATE_FILENAME" ]]; then
-            log_info "Removing stale state file (fresh plan created)"
-            rm -f "$STATE_FILENAME"
-        fi
     fi
 
     # Record start time for time-limit tracking
