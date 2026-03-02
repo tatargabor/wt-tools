@@ -3990,14 +3990,6 @@ handle_change_done() {
         update_change_field "$change_name" "has_tests" "true"
     fi
 
-    # ── Step 2c: Smoke test (local e2e) ──
-    # NOTE: Smoke/e2e tests run POST-MERGE only, not pre-merge.
-    # Pre-merge smoke is unreliable: worktree code isn't running on localhost,
-    # so smoke tests hit the old main branch code and produce false failures.
-    # This wastes tokens on retry loops that can't fix the "problem".
-    local gate_smoke_ms=0
-    update_change_field "$change_name" "smoke_result" '"post-merge-only"'
-
     # ── Step 3: LLM Code Review (VG-4) ──
     if [[ "$skip_review" == "true" ]]; then
         update_change_field "$change_name" "review_result" '"skipped"'
@@ -4086,13 +4078,13 @@ handle_change_done() {
     fi
 
     # ── Store gate total ──
-    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms + gate_build_ms + gate_smoke_ms))
+    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms + gate_build_ms))
     update_change_field "$change_name" "gate_total_ms" "$gate_total_ms"
     local gate_retry_tokens
     gate_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
     local gate_retry_count
     gate_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
-    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, build=${gate_build_ms}ms, smoke=${gate_smoke_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
+    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, build=${gate_build_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
 
     # ── Step 5: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
