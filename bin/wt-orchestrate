@@ -4115,21 +4115,18 @@ handle_change_done() {
     count=$(jq -r '.changes_since_checkpoint // 0' "$STATE_FILENAME")
     update_state_field "changes_since_checkpoint" "$((count + 1))"
 
-    # Handle merge policy
+    # All policies queue the merge — the monitor loop drains the queue sequentially.
+    # This ensures merge + post-merge pipeline (build, smoke, fix) is atomic per change.
+    # eager: queue is drained every poll cycle
+    # checkpoint: queue is drained at checkpoint boundaries
+    # manual: queue is not drained automatically (user runs 'approve --merge')
     case "$merge_policy" in
-        eager)
-            if ! merge_change "$change_name" 2>/dev/null; then
-                log_warn "Eager merge failed for $change_name, adding to merge queue for retry"
-                local tmp
-                tmp=$(mktemp)
-                jq --arg n "$change_name" '.merge_queue += [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
-            fi
-            ;;
-        checkpoint)
+        eager|checkpoint)
             local tmp
             tmp=$(mktemp)
             jq --arg n "$change_name" '.merge_queue += [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
-            info "$change_name added to merge queue"
+            log_info "$change_name added to merge queue (policy: $merge_policy)"
+            info "$change_name queued for merge"
             ;;
         manual)
             info "$change_name ready for manual merge"
@@ -4372,8 +4369,45 @@ merge_change() {
                 log_error "Post-merge: smoke tests FAILED for $change_name (exit $pm_smoke_rc)"
                 log_error "Post-merge smoke output: ${pm_smoke_output: -500}"
                 update_change_field "$change_name" "smoke_result" '"fail"'
-                send_notification "wt-orchestrate" "Post-merge smoke FAILED for $change_name — main may be broken" "critical"
-                orch_remember "Post-merge smoke failed for $change_name" Decision "phase:post-merge,change:$change_name"
+                # Attempt LLM fix on main — same pattern as build fix
+                log_info "Post-merge: attempting LLM smoke fix on main for $change_name"
+                local smoke_fix_prompt
+                smoke_fix_prompt=$(cat <<SMOKE_FIX_EOF
+Post-merge smoke/e2e tests failed on main after merging $change_name.
+Fix the code or tests so smoke tests pass again.
+
+Smoke command: $smoke_command
+Smoke output (last 2000 chars):
+${pm_smoke_output: -2000}
+
+Instructions:
+1. Analyze the smoke test failures above
+2. Fix the root cause — either the implementation code or the test expectations
+3. Run: $smoke_command — confirm it passes
+4. Commit the fix with message: "fix: repair smoke tests after $change_name merge"
+
+Do NOT create a worktree — fix directly in the current directory.
+SMOKE_FIX_EOF
+)
+                local smoke_fix_rc=0
+                echo "$smoke_fix_prompt" | run_claude --model "$(model_id sonnet)" --max-turns 20 >>"$LOG_FILE" 2>&1 || smoke_fix_rc=$?
+                if [[ $smoke_fix_rc -eq 0 ]]; then
+                    # Re-run smoke to verify the fix
+                    local recheck_rc=0
+                    timeout "$smoke_timeout" bash -c "$smoke_command" >>"$LOG_FILE" 2>&1 || recheck_rc=$?
+                    if [[ $recheck_rc -eq 0 ]]; then
+                        log_info "Post-merge: smoke fix SUCCEEDED for $change_name"
+                        update_change_field "$change_name" "smoke_result" '"fixed"'
+                        orch_remember "LLM fixed post-merge smoke failure for $change_name" Learning "phase:post-merge,change:$change_name"
+                    else
+                        log_error "Post-merge: smoke fix attempt did not resolve failures for $change_name"
+                        send_notification "wt-orchestrate" "Post-merge smoke FAILED for $change_name — LLM fix attempted but smoke still failing" "critical"
+                        orch_remember "Post-merge smoke failed for $change_name — LLM fix attempt did not resolve" Decision "phase:post-merge,change:$change_name"
+                    fi
+                else
+                    send_notification "wt-orchestrate" "Post-merge smoke FAILED for $change_name — LLM fix also failed" "critical"
+                    orch_remember "Post-merge smoke failed for $change_name — LLM fix failed" Decision "phase:post-merge,change:$change_name"
+                fi
             fi
         fi
 
