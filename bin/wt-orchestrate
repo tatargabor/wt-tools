@@ -46,6 +46,7 @@ DEFAULT_SMOKE_COMMAND=""
 DEFAULT_SMOKE_TIMEOUT=120
 DEFAULT_DEPLOY_SMOKE_URL=""
 DEFAULT_DEPLOY_HEALTHCHECK="/api/health"
+DEFAULT_POST_MERGE_COMMAND=""       # project-specific command to run after merge (e.g. "pnpm db:generate")
 DEFAULT_TOKEN_HARD_LIMIT=20000000  # 20M tokens — checkpoint to ask human before spending more
 
 # Runtime state
@@ -306,6 +307,7 @@ parse_directives() {
     local smoke_timeout="$DEFAULT_SMOKE_TIMEOUT"
     local deploy_smoke_url="$DEFAULT_DEPLOY_SMOKE_URL"
     local deploy_healthcheck="$DEFAULT_DEPLOY_HEALTHCHECK"
+    local post_merge_command="$DEFAULT_POST_MERGE_COMMAND"
     local token_hard_limit="$DEFAULT_TOKEN_HARD_LIMIT"
 
     while IFS= read -r line; do
@@ -446,6 +448,9 @@ parse_directives() {
                 deploy_healthcheck)
                     deploy_healthcheck="$val"
                     ;;
+                post_merge_command)
+                    post_merge_command="$val"
+                    ;;
                 *)
                     warn "Unknown directive '$key', ignoring"
                     ;;
@@ -481,6 +486,7 @@ parse_directives() {
         --argjson smoke_timeout "$smoke_timeout" \
         --arg deploy_smoke_url "$deploy_smoke_url" \
         --arg deploy_healthcheck "$deploy_healthcheck" \
+        --arg post_merge_command "$post_merge_command" \
         --argjson token_hard_limit "$token_hard_limit" \
         '{
             max_parallel: $max_parallel,
@@ -501,6 +507,7 @@ parse_directives() {
             smoke_timeout: $smoke_timeout,
             deploy_smoke_url: $deploy_smoke_url,
             deploy_healthcheck: $deploy_healthcheck,
+            post_merge_command: $post_merge_command,
             token_hard_limit: $token_hard_limit
         }'
 }
@@ -2097,6 +2104,9 @@ cmd_start() {
             local pause_on_exit_val
             pause_on_exit_val=$(echo "$directives" | jq -r '.pause_on_exit')
 
+            # Persist directives in state (may have changed since last run)
+            update_state_field "directives" "$(echo "$directives" | jq -c .)"
+
             # Setup cleanup trap
             local cleanup_done=false
             cleanup_orchestrator() {
@@ -2163,6 +2173,9 @@ cmd_start() {
 
     # Initialize state from plan
     init_state "$PLAN_FILENAME"
+
+    # Persist directives in state so post-merge steps can read them
+    update_state_field "directives" "$(echo "$directives" | jq -c .)"
 
     # Stale change detection: warn about orphaned openspec change directories
     if [[ -d "openspec/changes" ]]; then
@@ -3074,7 +3087,9 @@ monitor_loop() {
     local replan_retry_count=0  # consecutive replan failures, reset on success
 
     info "Monitor loop started (poll every ${POLL_INTERVAL}s, auto_replan=$auto_replan)"
-    log_info "Directives: test_command=$test_command, review_before_merge=$review_before_merge, review_model=$review_model, test_timeout=$test_timeout, max_verify_retries=$max_verify_retries, smoke_command=$smoke_command"
+    local post_merge_command
+    post_merge_command=$(echo "$directives" | jq -r '.post_merge_command // ""')
+    log_info "Directives: test_command=$test_command, review_before_merge=$review_before_merge, review_model=$review_model, test_timeout=$test_timeout, max_verify_retries=$max_verify_retries, smoke_command=$smoke_command, post_merge_command=$post_merge_command"
 
     local _poll_count=0
     while true; do
@@ -3442,6 +3457,7 @@ print('true' if novel and novel <= failed else 'false')
     update_state_field "started_epoch" "$prev_started_epoch"
     update_state_field "time_limit_secs" "$prev_time_limit"
     update_state_field "cycle_started_at" "\"$(date -Iseconds)\""
+    update_state_field "directives" "$(echo "$directives" | jq -c .)"
 
     # Dispatch newly ready changes
     dispatch_ready_changes "$max_parallel"
@@ -4313,6 +4329,20 @@ merge_change() {
             fi
         fi
 
+        # Post-merge custom command (project-specific, e.g. "pnpm db:generate" for Prisma)
+        local pmc=""
+        pmc=$(jq -r '.directives.post_merge_command // empty' "$STATE_FILENAME" 2>/dev/null || true)
+        if [[ -n "$pmc" ]]; then
+            log_info "Post-merge: running custom command: $pmc"
+            local pmc_rc=0
+            timeout 300 bash -c "$pmc" >> "$LOG_FILE" 2>&1 || pmc_rc=$?
+            if [[ $pmc_rc -eq 0 ]]; then
+                log_info "Post-merge: custom command succeeded"
+            else
+                log_warn "Post-merge: custom command failed (rc=$pmc_rc)"
+            fi
+        fi
+
         # Post-merge build verification: ensure main still builds after merge
         if [[ -n "$test_command" || -n "$(jq -r '.directives.test_command // empty' "$STATE_FILENAME" 2>/dev/null)" ]]; then
             local build_command="build"
@@ -4747,8 +4777,9 @@ Examples:
   wt-orchestrate approve --merge                        # Approve + merge
 
 Config (.claude/orchestration.yaml):
-  auto_replan: true      # Auto-plan next phase when all changes complete
-  merge_policy: eager    # Merge immediately (vs checkpoint, manual)
+  auto_replan: true              # Auto-plan next phase when all changes complete
+  merge_policy: eager            # Merge immediately (vs checkpoint, manual)
+  post_merge_command: pnpm db:generate  # Run after each merge (before build verify)
 EOF
 }
 

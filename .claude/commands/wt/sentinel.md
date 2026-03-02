@@ -242,6 +242,37 @@ Read `active_seconds`, `started_epoch`, `changes[]`, `prev_total_tokens`, `repla
 /wt:sentinel --time-limit 4h
 ```
 
+## Guardrails
+
+### Role boundary: monitor, don't modify
+
+The sentinel is a **supervisor**, not an engineer. Its authority is limited to:
+
+1. **Observe** — poll state, read logs, detect problems
+2. **Diagnose** — figure out WHY something is stuck or crashed
+3. **Clear basic errors** — restart after transient failures (JSON parse, network, rate limits)
+4. **Stop** — halt the orchestrator when the problem requires human or deeper intervention
+5. **Report & suggest** — explain what happened and propose fixes for the user to approve
+
+The sentinel MUST NOT:
+- Modify any project files (source code, configs, schemas, package.json, etc.)
+- Modify `.claude/orchestration.yaml` or any orchestration directives
+- Run build/generate/install commands that change project state
+- Merge branches or resolve conflicts
+- Create, edit, or delete worktrees beyond what `wt-orchestrate` manages
+- Make architectural or quality decisions on behalf of the user
+
+**If the sentinel cannot fix a problem with a simple orchestrator restart, it MUST stop and report.** Another agent (or the user) will make the fix, then the sentinel can be restarted to continue.
+
+### NEVER weaken quality gates
+
+Specifically, the sentinel MUST NEVER remove, disable, or modify:
+- `smoke_command` — even if smoke tests fail repeatedly (port mismatch failures are expected pre-merge, retries handle them)
+- `test_command` — or any other test directive
+- `merge_policy`, `review_before_merge`, `max_verify_retries`
+
+If tests fail persistently → **stop and report to the user**, do NOT weaken the gates.
+
 ## What happens
 
 1. Orchestrator starts in background
