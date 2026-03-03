@@ -124,6 +124,9 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         # Initial status check
         self.refresh_status()
 
+        # Auto-scan Chrome sessions after startup
+        QTimer.singleShot(2000, self._auto_scan_chrome)
+
     def get_color(self, name: str) -> str:
         """Get color from active profile"""
         profile = self.config.control_center.get("color_profile", "light")
@@ -347,6 +350,12 @@ class ControlCenter(QMainWindow, TeamMixin, TableMixin, MenusMixin, HandlersMixi
         self.btn_filter.setToolTip("Show only active worktrees")
         self.btn_filter.clicked.connect(self.toggle_active_filter)
         btn_layout.addWidget(self.btn_filter)
+
+        self.btn_scan = QPushButton("\U0001f50d")
+        self.btn_scan.setFixedWidth(30)
+        self.btn_scan.setToolTip("Scan Chrome Sessions")
+        self.btn_scan.clicked.connect(self.on_scan_chrome_sessions)
+        btn_layout.addWidget(self.btn_scan)
 
         self.btn_minimize = QPushButton("−")
         self.btn_minimize.setFixedWidth(30)

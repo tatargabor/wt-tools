@@ -323,6 +323,69 @@ class HandlersMixin:
             except Exception:
                 pass
 
+    def _auto_scan_chrome(self):
+        """Auto-scan Chrome sessions on startup (silent — no dialogs)."""
+        from ...workers.chrome_cookies import scan_chrome_sessions, is_pycookiecheat_available
+        from ...workers.usage import save_accounts
+
+        if not is_pycookiecheat_available():
+            return
+
+        try:
+            sessions = scan_chrome_sessions()
+        except Exception:
+            return
+
+        if not sessions:
+            return
+
+        try:
+            save_accounts(sessions)
+        except Exception:
+            return
+
+        self._restart_usage_worker()
+
+    def on_scan_chrome_sessions(self):
+        """Scan Chrome profiles for Claude session cookies and update accounts."""
+        from ...workers.chrome_cookies import scan_chrome_sessions, is_pycookiecheat_available
+        from ...workers.usage import save_accounts
+
+        if not is_pycookiecheat_available():
+            show_warning(
+                self, "Missing Dependency",
+                "pycookiecheat is not installed.\n\n"
+                "Install it with:\n"
+                "  pip install pycookiecheat"
+            )
+            return
+
+        try:
+            sessions = scan_chrome_sessions()
+        except Exception as e:
+            show_warning(self, "Scan Error", f"Failed to scan Chrome sessions: {e}")
+            return
+
+        if not sessions:
+            show_information(
+                self, "Scan Chrome Sessions",
+                "No Chrome profiles with Claude sessions found."
+            )
+            return
+
+        names = [s["name"] for s in sessions]
+        try:
+            save_accounts(sessions)
+        except Exception as e:
+            show_warning(self, "Error", f"Failed to save accounts: {e}")
+            return
+
+        self._restart_usage_worker()
+        show_information(
+            self, "Scan Chrome Sessions",
+            f"Found {len(sessions)} account(s):\n" + "\n".join(f"  - {n}" for n in names)
+        )
+
     def show_add_account(self):
         """Show dialog to add a new Claude account"""
         from ...workers.usage import load_accounts, save_accounts

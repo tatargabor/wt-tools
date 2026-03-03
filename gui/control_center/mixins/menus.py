@@ -41,6 +41,9 @@ class MenusMixin:
         add_account_action = menu.addAction("Add Account...")
         add_account_action.triggered.connect(self.show_add_account)
 
+        scan_chrome_action = menu.addAction("Scan Chrome Sessions")
+        scan_chrome_action.triggered.connect(self.on_scan_chrome_sessions)
+
         # Only show remove if >1 account
         from ...workers.usage import load_accounts
         accounts = load_accounts()
