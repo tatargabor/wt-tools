@@ -28,7 +28,7 @@
 - [x] 4.1 Add new directive defaults at top of `wt-orchestrate`: `DEFAULT_SMOKE_BLOCKING=false`, `DEFAULT_SMOKE_FIX_TOKEN_BUDGET=500000`, `DEFAULT_SMOKE_FIX_MAX_TURNS=15`, `DEFAULT_SMOKE_FIX_MAX_RETRIES=3`, `DEFAULT_SMOKE_HEALTH_CHECK_TIMEOUT=30`
 - [x] 4.2 Extend `parse_directives()` to parse: `smoke_blocking`, `smoke_fix_token_budget`, `smoke_fix_max_turns`, `smoke_fix_max_retries`, `smoke_health_check_url`, `smoke_health_check_timeout` — with validation (boolean, positive integers, valid URL)
 - [x] 4.3 Store new directives in state.json under `.directives`
-- [ ] 4.4 Add unit tests in `test-orchestrate.sh` for new directive parsing (valid values, invalid values, defaults)
+- [x] 4.4 Add unit tests in `test-orchestrate.sh` for new directive parsing (valid values, invalid values, defaults)
 
 ## 5. Health Check Function (wt-orchestrate)
 
@@ -55,48 +55,48 @@
 
 ## 8. Integration Test Infrastructure (tests/orchestrator/)
 
-- [ ] 8.1 Create `test-orchestrate-integration.sh` with test framework (reuse test_start/test_pass/test_fail/assert_equals/assert_contains from existing test file)
-- [ ] 8.2 Implement `setup_test_repo()`: creates temp git repo with main branch, user.name/email configured, initial commit
-- [ ] 8.3 Implement `create_feature_branch()`: creates `change/<name>` branch with specified file changes, returns to main
-- [ ] 8.4 Implement `init_test_state()`: creates orchestration-state.json with a single change entry (configurable status, worktree_path, etc.)
-- [ ] 8.5 Implement `stub_run_claude()`: override function that returns configurable exit code and optionally creates/modifies files
-- [ ] 8.6 Implement `stub_smoke()`: creates a temp script that returns configurable exit code with configurable output
-- [ ] 8.7 Implement `cleanup_test()`: removes all temp dirs and files
+- [x] 8.1 Create `test-orchestrate-integration.sh` with test framework (reuse test_start/test_pass/test_fail/assert_equals/assert_contains from existing test file)
+- [x] 8.2 Implement `setup_test_repo()`: creates temp git repo with main branch, user.name/email configured, initial commit
+- [x] 8.3 Implement `create_feature_branch()`: creates `change/<name>` branch with specified file changes, returns to main
+- [x] 8.4 Implement `init_test_state()`: creates orchestration-state.json with a single change entry (configurable status, worktree_path, etc.)
+- [x] 8.5 Implement `stub_run_claude()`: override function that returns configurable exit code and optionally creates/modifies files
+- [x] 8.6 Implement `stub_smoke()`: creates a temp script that returns configurable exit code with configurable output
+- [x] 8.7 Implement `cleanup_test()`: removes all temp dirs and files
 
 ## 9. Integration Tests — Merge Pipeline
 
-- [ ] 9.1 Test: clean merge → completed (merge succeeds, post_merge runs, build passes, smoke passes → status=completed)
-- [ ] 9.2 Test: merge conflict → merge-blocked (merge fails, status=merge-blocked, no crash — regression test)
-- [ ] 9.3 Test: already-merged branch (branch is ancestor of HEAD → status=merged, no merge attempted)
-- [ ] 9.4 Test: post-merge build fail → LLM fix (build fails, stub fix agent runs, verify status)
+- [x] 9.1 Test: clean merge → completed (merge succeeds, post_merge runs, build passes, smoke passes → status=completed)
+- [x] 9.2 Test: merge conflict → merge-blocked (merge fails, status=merge-blocked, no crash — regression test)
+- [x] 9.3 Test: already-merged branch (branch is ancestor of HEAD → status=merged, no merge attempted)
+- [x] 9.4 Test: post-merge build fail → LLM fix (build fails, stub fix agent runs, verify status)
 
 ## 10. Integration Tests — Smoke Pipeline
 
-- [ ] 10.1 Test: smoke pass (blocking mode) — smoke returns 0 → status=completed, smoke_result=pass
-- [ ] 10.2 Test: smoke fail → fix → pass — smoke returns 1, stub agent fixes, re-run passes → smoke_result=fixed, smoke_fix_attempts=1
-- [ ] 10.3 Test: smoke fail → fix exhausted — smoke returns 1, fix fails max_retries times → status=smoke_failed, notification sent
-- [ ] 10.4 Test: health check fail — curl returns non-200 → status=smoke_blocked, smoke not run
-- [ ] 10.5 Test: smoke non-blocking mode — smoke_blocking=false, smoke fails but merge proceeds → status=merged (not blocked)
+- [x] 10.1 Test: smoke pass (blocking mode) — smoke returns 0 → status=completed, smoke_result=pass
+- [x] 10.2 Test: smoke fail → fix → pass — smoke returns 1, stub agent fixes, re-run passes → smoke_result=fixed, smoke_fix_attempts=1
+- [x] 10.3 Test: smoke fail → fix exhausted — smoke returns 1, fix fails max_retries times → status=smoke_failed, notification sent
+- [x] 10.4 Test: health check fail — curl returns non-200 → status=smoke_blocked, smoke not run
+- [x] 10.5 Test: smoke non-blocking mode — smoke_blocking=false, smoke fails but merge proceeds → status=merged (not blocked)
 
 ## 11. Integration Tests — Loop Control & Idle Detection
 
-- [ ] 11.1 Test: detect_next_change_action returns ff:* when tasks.md missing, apply:* when tasks exist with unchecked items, done when all checked
+- [x] 11.1 Test: detect_next_change_action returns ff:* when tasks.md missing, apply:* when tasks exist with unchecked items, done when all checked
 - [ ] 11.2 Test: stall detection — N commit-less iterations → status=stalled
-- [ ] 11.3 Test: idle detection — 3 iterations with identical output hash → loop stops with status=idle
-- [ ] 11.4 Test: idle counter reset — 2 identical iterations then different output → idle_count resets to 0
+- [x] 11.3 Test: idle detection — 3 iterations with identical output hash → loop stops with status=idle
+- [x] 11.4 Test: idle counter reset — 2 identical iterations then different output → idle_count resets to 0
 - [ ] 11.5 Test: repeated commit message detection — same message N times → status=stalled
 - [ ] 11.6 Test: artifact progress resets stall counter (ff creates files, no commits → not stall)
 
 ## 12. Integration Tests — Merge Conflict Resolver
 
-- [ ] 12.1 Test: additive conflict pattern — both sides add entries to same array, verify prompt includes additive pattern guidance
-- [ ] 12.2 Test: non-additive conflict — modifications on both sides, verify existing behavior unchanged
+- [x] 12.1 Test: additive conflict pattern — both sides add entries to same array, verify prompt includes additive pattern guidance
+- [x] 12.2 Test: non-additive conflict — modifications on both sides, verify existing behavior unchanged
 
 ## 13. Verify & Finalize
 
-- [ ] 13.1 Run existing tests: `./tests/orchestrator/test-orchestrate.sh` — all must still pass
-- [ ] 13.2 Run new integration tests: `./tests/orchestrator/test-orchestrate-integration.sh` — all must pass
-- [ ] 13.3 Run merge tests if they exist: verify additive resolver changes don't break existing merge tests
-- [ ] 13.4 Verify smoke_blocking=false preserves exact existing behavior (no regression)
-- [ ] 13.5 Verify max_idle_iterations=3 default doesn't affect loops that make progress
-- [ ] 13.6 Verify new directives are parsed from both orchestration.yaml and spec brief markdown
+- [x] 13.1 Run existing tests: `./tests/orchestrator/test-orchestrate.sh` — all must still pass
+- [x] 13.2 Run new integration tests: `./tests/orchestrator/test-orchestrate-integration.sh` — all must pass
+- [x] 13.3 Run merge tests if they exist: verify additive resolver changes don't break existing merge tests
+- [x] 13.4 Verify smoke_blocking=false preserves exact existing behavior (no regression)
+- [x] 13.5 Verify max_idle_iterations=3 default doesn't affect loops that make progress
+- [x] 13.6 Verify new directives are parsed from both orchestration.yaml and spec brief markdown

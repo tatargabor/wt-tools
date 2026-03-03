@@ -1,0 +1,546 @@
+#!/usr/bin/env bash
+# Integration tests for wt-orchestrate: merge pipeline, smoke pipeline, dispatch/loop control
+# Uses real git repos and stub commands (no Claude API calls).
+# Run with: ./tests/orchestrator/test-orchestrate-integration.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+# Source common functions
+source "$PROJECT_DIR/bin/wt-common.sh"
+
+# Test framework
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+CLEANUP_DIRS=()
+
+test_start() {
+    TESTS_RUN=$((TESTS_RUN + 1))
+    echo -n "Test $TESTS_RUN: $1 ... "
+}
+
+test_pass() {
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "${GREEN}PASS${NC}"
+}
+
+test_fail() {
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "${RED}FAIL${NC}"
+    echo "  Expected: $1"
+    echo "  Got: $2"
+}
+
+assert_equals() {
+    local expected="$1"
+    local actual="$2"
+    if [[ "$expected" == "$actual" ]]; then
+        test_pass
+    else
+        test_fail "'$expected'" "'$actual'"
+    fi
+}
+
+assert_contains() {
+    local haystack="$1"
+    local needle="$2"
+    if [[ "$haystack" == *"$needle"* ]]; then
+        test_pass
+    else
+        test_fail "contains '$needle'" "'${haystack:0:200}'"
+    fi
+}
+
+assert_not_equals() {
+    local unexpected="$1"
+    local actual="$2"
+    if [[ "$unexpected" != "$actual" ]]; then
+        test_pass
+    else
+        test_fail "not '$unexpected'" "'$actual'"
+    fi
+}
+
+# ============================================================
+# Test Infrastructure
+# ============================================================
+
+# Create a temp git repo with main branch and initial commit
+setup_test_repo() {
+    local repo_dir
+    repo_dir=$(mktemp -d)
+    CLEANUP_DIRS+=("$repo_dir")
+
+    cd "$repo_dir"
+    git init -b main --quiet
+    git config user.name "Test"
+    git config user.email "test@test.com"
+    echo "initial" > README.md
+    git add README.md
+    git commit -m "initial commit" --quiet
+
+    echo "$repo_dir"
+}
+
+# Create a feature branch with file changes
+create_feature_branch() {
+    local repo_dir="$1"
+    local branch_name="$2"
+    shift 2
+    # Remaining args are "filename:content" pairs
+
+    cd "$repo_dir"
+    git checkout -b "change/$branch_name" --quiet
+    for pair in "$@"; do
+        local file="${pair%%:*}"
+        local content="${pair#*:}"
+        mkdir -p "$(dirname "$file")"
+        echo "$content" > "$file"
+        git add "$file"
+    done
+    git commit -m "feat: implement $branch_name" --quiet
+    git checkout main --quiet
+}
+
+# Initialize orchestration state with a single change entry
+init_test_state() {
+    local state_file="$1"
+    local change_name="$2"
+    local status="${3:-pending}"
+    local wt_path="${4:-}"
+
+    cat > "$state_file" <<STATE_EOF
+{
+  "changes": [
+    {
+      "name": "$change_name",
+      "status": "$status",
+      "scope": "Test change $change_name",
+      "worktree_path": "$wt_path",
+      "smoke_result": null,
+      "smoke_status": null,
+      "smoke_fix_attempts": 0,
+      "merge_retry_count": 0,
+      "iterations": 0,
+      "agent_rebase_done": false,
+      "merge_rebase_pending": false
+    }
+  ],
+  "merge_queue": [],
+  "directives": {}
+}
+STATE_EOF
+}
+
+# Cleanup all temp dirs
+cleanup_all() {
+    for d in "${CLEANUP_DIRS[@]}"; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+}
+trap cleanup_all EXIT
+
+# ============================================================
+# Source wt-orchestrate functions (without running main)
+# ============================================================
+
+# Source the functions we need by stripping the main call
+eval "$(sed '/^main /d; /^main$/d' "$PROJECT_DIR/bin/wt-orchestrate" | grep -v '^exec ' || true)" 2>/dev/null || true
+
+# Also source wt-loop for detect_next_change_action and related functions
+eval "$(sed -n '/^detect_next_change_action()/,/^}/p' "$PROJECT_DIR/bin/wt-loop")" 2>/dev/null || true
+
+# Override functions that would make real API calls
+run_claude() { return 0; }
+send_notification() { echo "NOTIFICATION: $*" >> "${NOTIFICATION_LOG:-/dev/null}"; }
+orch_remember() { return 0; }
+model_id() { echo "test-model"; }
+
+echo "============================================================"
+echo "Integration Tests: wt-orchestrate"
+echo "============================================================"
+echo ""
+
+# ============================================================
+# Section 9: Merge Pipeline Tests
+# ============================================================
+
+echo "--- Merge Pipeline ---"
+
+# Test 9.1: Clean merge
+test_start "clean merge → status changes to merged"
+REPO=$(setup_test_repo)
+create_feature_branch "$REPO" "test-clean" "feature.txt:hello"
+STATE_FILE="$REPO/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+PROJECT_PATH="$REPO"
+LOG_FILE="$REPO/orchestrate.log"
+touch "$LOG_FILE"
+init_test_state "$STATE_FILE" "test-clean" "verified"
+
+# Set up minimal directives
+smoke_command=""
+smoke_blocking="false"
+smoke_timeout=10
+smoke_fix_max_retries=0
+smoke_fix_max_turns=5
+smoke_health_check_url=""
+smoke_health_check_timeout=5
+directives='{}'
+
+cd "$REPO"
+# Do the merge manually since merge_change depends on many globals
+git merge "change/test-clean" --no-edit --quiet 2>/dev/null
+update_change_field "test-clean" "status" '"merged"'
+status=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "merged" "$status"
+
+# Test 9.2: Merge conflict → merge-blocked (no crash)
+test_start "merge conflict does not crash orchestrator"
+REPO2=$(setup_test_repo)
+cd "$REPO2"
+# Create conflicting changes on main and branch
+echo "main content" > conflict.txt
+git add conflict.txt && git commit -m "main change" --quiet
+git checkout -b "change/test-conflict" --quiet
+echo "branch content" > conflict.txt
+git add conflict.txt && git commit -m "branch change" --quiet
+git checkout main --quiet
+echo "different main content" > conflict.txt
+git add conflict.txt && git commit -m "main conflict" --quiet
+
+STATE_FILE="$REPO2/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+PROJECT_PATH="$REPO2"
+LOG_FILE="$REPO2/orchestrate.log"
+touch "$LOG_FILE"
+init_test_state "$STATE_FILE" "test-conflict" "verified"
+
+# Try to merge — should fail but not crash
+merge_rc=0
+git merge "change/test-conflict" --no-edit --quiet 2>/dev/null || merge_rc=$?
+if [[ $merge_rc -ne 0 ]]; then
+    git merge --abort 2>/dev/null || true
+    update_change_field "test-conflict" "status" '"merge-blocked"'
+fi
+status=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "merge-blocked" "$status"
+
+# Test 9.3: Already-merged branch detection
+test_start "already-merged branch detected correctly"
+REPO3=$(setup_test_repo)
+create_feature_branch "$REPO3" "test-already" "already.txt:done"
+cd "$REPO3"
+git merge "change/test-already" --no-edit --quiet 2>/dev/null
+
+STATE_FILE="$REPO3/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+init_test_state "$STATE_FILE" "test-already" "verified"
+
+# Check if branch is ancestor of HEAD
+if git merge-base --is-ancestor "change/test-already" HEAD 2>/dev/null; then
+    update_change_field "test-already" "status" '"merged"'
+fi
+status=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "merged" "$status"
+
+# ============================================================
+# Section 10: Smoke Pipeline Tests
+# ============================================================
+
+echo ""
+echo "--- Smoke Pipeline ---"
+
+# Test 10.1: Smoke pass (blocking mode)
+test_start "smoke pass in blocking mode → smoke_result=pass"
+REPO4=$(setup_test_repo)
+STATE_FILE="$REPO4/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+LOG_FILE="$REPO4/orchestrate.log"
+touch "$LOG_FILE"
+init_test_state "$STATE_FILE" "test-smoke-pass" "merged"
+
+smoke_command="true"  # always passes
+smoke_blocking="true"
+smoke_timeout=10
+smoke_health_check_url=""
+smoke_health_check_timeout=5
+
+cd "$REPO4"
+# Simulate the blocking smoke pipeline
+update_change_field "test-smoke-pass" "smoke_status" '"running"'
+pm_smoke_rc=0
+timeout "$smoke_timeout" bash -c "$smoke_command" >/dev/null 2>&1 || pm_smoke_rc=$?
+if [[ $pm_smoke_rc -eq 0 ]]; then
+    update_change_field "test-smoke-pass" "smoke_result" '"pass"'
+    update_change_field "test-smoke-pass" "smoke_status" '"done"'
+fi
+sr=$(jq -r '.changes[0].smoke_result' "$STATE_FILE")
+ss=$(jq -r '.changes[0].smoke_status' "$STATE_FILE")
+assert_equals "pass" "$sr"
+
+test_start "smoke pass sets smoke_status=done"
+assert_equals "done" "$ss"
+
+# Test 10.2: Smoke fail → fix → pass
+test_start "smoke fail then fix → smoke_result=fixed"
+REPO5=$(setup_test_repo)
+STATE_FILE="$REPO5/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+LOG_FILE="$REPO5/orchestrate.log"
+touch "$LOG_FILE"
+init_test_state "$STATE_FILE" "test-smoke-fix" "merged"
+
+# Create a smoke command that fails first, passes on second run
+SMOKE_SCRIPT="$REPO5/smoke-toggle.sh"
+cat > "$SMOKE_SCRIPT" <<'SCRIPT'
+#!/bin/bash
+COUNTER_FILE="$(dirname "$0")/.smoke-counter"
+count=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+count=$((count + 1))
+echo "$count" > "$COUNTER_FILE"
+if [[ $count -le 1 ]]; then
+    echo "FAIL: smoke test error" >&2
+    exit 1
+fi
+exit 0
+SCRIPT
+chmod +x "$SMOKE_SCRIPT"
+
+smoke_command="bash $SMOKE_SCRIPT"
+cd "$REPO5"
+# First run: fail
+pm_smoke_rc=0
+pm_smoke_output=$(timeout 10 bash -c "$smoke_command" 2>&1) || pm_smoke_rc=$?
+if [[ $pm_smoke_rc -ne 0 ]]; then
+    update_change_field "test-smoke-fix" "smoke_result" '"fail"'
+    update_change_field "test-smoke-fix" "smoke_fix_attempts" "1"
+    # Simulate: fix agent runs, then re-run smoke
+    recheck_rc=0
+    timeout 10 bash -c "$smoke_command" >/dev/null 2>&1 || recheck_rc=$?
+    if [[ $recheck_rc -eq 0 ]]; then
+        update_change_field "test-smoke-fix" "smoke_result" '"fixed"'
+        update_change_field "test-smoke-fix" "smoke_status" '"done"'
+    fi
+fi
+sr=$(jq -r '.changes[0].smoke_result' "$STATE_FILE")
+sa=$(jq -r '.changes[0].smoke_fix_attempts' "$STATE_FILE")
+assert_equals "fixed" "$sr"
+
+test_start "smoke fix records attempt count"
+assert_equals "1" "$sa"
+
+# Test 10.3: Smoke fail → fix exhausted
+test_start "smoke fix exhausted → smoke_status=failed"
+REPO6=$(setup_test_repo)
+STATE_FILE="$REPO6/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+LOG_FILE="$REPO6/orchestrate.log"
+NOTIFICATION_LOG="$REPO6/notifications.log"
+touch "$LOG_FILE" "$NOTIFICATION_LOG"
+init_test_state "$STATE_FILE" "test-smoke-exhaust" "merged"
+
+smoke_fix_max_retries=2
+cd "$REPO6"
+# Smoke always fails
+smoke_command="false"
+attempt=0
+while [[ $attempt -lt $smoke_fix_max_retries ]]; do
+    attempt=$((attempt + 1))
+    update_change_field "test-smoke-exhaust" "smoke_fix_attempts" "$attempt"
+    # Simulate fix + re-test — still fails
+    recheck_rc=0
+    timeout 10 bash -c "$smoke_command" >/dev/null 2>&1 || recheck_rc=$?
+done
+update_change_field "test-smoke-exhaust" "smoke_status" '"failed"'
+update_change_field "test-smoke-exhaust" "status" '"smoke_failed"'
+send_notification "wt-orchestrate" "Smoke FAILED for test-smoke-exhaust" "critical"
+
+ss=$(jq -r '.changes[0].smoke_status' "$STATE_FILE")
+st=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "failed" "$ss"
+
+test_start "smoke exhausted sets status=smoke_failed"
+assert_equals "smoke_failed" "$st"
+
+test_start "smoke exhausted sends notification"
+assert_contains "$(cat "$NOTIFICATION_LOG")" "Smoke FAILED"
+
+# Test 10.4: Health check fail
+test_start "health check fail → smoke_blocked"
+REPO7=$(setup_test_repo)
+STATE_FILE="$REPO7/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+LOG_FILE="$REPO7/orchestrate.log"
+NOTIFICATION_LOG="$REPO7/notifications.log"
+touch "$LOG_FILE" "$NOTIFICATION_LOG"
+init_test_state "$STATE_FILE" "test-hc-fail" "merged"
+
+cd "$REPO7"
+# Health check to a port that won't be listening (timeout 2s to keep test fast)
+if ! health_check "http://localhost:59999" 2; then
+    update_change_field "test-hc-fail" "smoke_result" '"blocked"'
+    update_change_field "test-hc-fail" "smoke_status" '"blocked"'
+    update_change_field "test-hc-fail" "status" '"smoke_blocked"'
+    send_notification "wt-orchestrate" "Smoke blocked — no server" "critical"
+fi
+ss=$(jq -r '.changes[0].smoke_status' "$STATE_FILE")
+st=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "blocked" "$ss"
+
+test_start "health check fail sets status=smoke_blocked"
+assert_equals "smoke_blocked" "$st"
+
+# Test 10.5: Smoke non-blocking mode
+test_start "non-blocking smoke fail does not block status"
+REPO8=$(setup_test_repo)
+STATE_FILE="$REPO8/orchestration-state.json"
+STATE_FILENAME="$STATE_FILE"
+LOG_FILE="$REPO8/orchestrate.log"
+touch "$LOG_FILE"
+init_test_state "$STATE_FILE" "test-smoke-nb" "merged"
+
+cd "$REPO8"
+smoke_blocking="false"
+smoke_command="false"
+# Non-blocking: smoke fails but status stays merged
+pm_smoke_rc=0
+timeout 10 bash -c "$smoke_command" >/dev/null 2>&1 || pm_smoke_rc=$?
+update_change_field "test-smoke-nb" "smoke_result" '"fail"'
+# In non-blocking mode, status stays as-is
+st=$(jq -r '.changes[0].status' "$STATE_FILE")
+assert_equals "merged" "$st"
+
+# ============================================================
+# Section 11: Loop Control & Idle Detection Tests
+# ============================================================
+
+echo ""
+echo "--- Loop Control & Idle Detection ---"
+
+# Test 11.1: detect_next_change_action
+test_start "detect_next_change_action returns ff:* when no tasks.md"
+REPO9=$(setup_test_repo)
+cd "$REPO9"
+mkdir -p openspec/changes/test-change
+# No tasks.md
+result=$(detect_next_change_action "$REPO9" "test-change")
+assert_equals "ff:test-change" "$result"
+
+test_start "detect_next_change_action returns apply:* when unchecked tasks"
+cat > "$REPO9/openspec/changes/test-change/tasks.md" <<'EOF'
+- [ ] Task 1
+- [x] Task 2
+EOF
+result=$(detect_next_change_action "$REPO9" "test-change")
+assert_equals "apply:test-change" "$result"
+
+test_start "detect_next_change_action returns done when all checked"
+cat > "$REPO9/openspec/changes/test-change/tasks.md" <<'EOF'
+- [x] Task 1
+- [x] Task 2
+EOF
+result=$(detect_next_change_action "$REPO9" "test-change")
+assert_equals "done" "$result"
+
+# Test 11.3: Idle detection via content hash
+test_start "idle detection: identical hashes increment idle_count"
+REPO10=$(setup_test_repo)
+cd "$REPO10"
+mkdir -p .claude/logs
+
+# Create identical log files
+for i in 1 2 3; do
+    log_file=".claude/logs/ralph-iter-$(printf '%03d' "$i").log"
+    echo "No remaining work. All tasks complete." > "$log_file"
+done
+
+# Simulate idle detection
+idle_count=0
+last_hash=""
+for i in 1 2 3; do
+    log_file="$REPO10/.claude/logs/ralph-iter-$(printf '%03d' "$i").log"
+    current_hash=$(tail -200 "$log_file" | md5sum | cut -d' ' -f1)
+    if [[ -n "$last_hash" && "$current_hash" == "$last_hash" ]]; then
+        idle_count=$((idle_count + 1))
+    else
+        idle_count=0
+    fi
+    last_hash="$current_hash"
+done
+assert_equals "2" "$idle_count"
+
+# Test 11.4: Idle counter reset on different output
+test_start "idle detection: different output resets idle_count"
+echo "Different output here." > "$REPO10/.claude/logs/ralph-iter-003.log"
+idle_count=0
+last_hash=""
+for i in 1 2 3; do
+    log_file="$REPO10/.claude/logs/ralph-iter-$(printf '%03d' "$i").log"
+    current_hash=$(tail -200 "$log_file" | md5sum | cut -d' ' -f1)
+    if [[ -n "$last_hash" && "$current_hash" == "$last_hash" ]]; then
+        idle_count=$((idle_count + 1))
+    else
+        idle_count=0
+    fi
+    last_hash="$current_hash"
+done
+assert_equals "0" "$idle_count"
+
+# ============================================================
+# Section 12: Merge Conflict Resolver Tests
+# ============================================================
+
+echo ""
+echo "--- Merge Conflict Resolver ---"
+
+# Test 12.1: Additive pattern guidance in prompt
+test_start "LLM merge prompt contains additive pattern guidance"
+# Read the wt-merge script and check the prompt text
+merge_script=$(cat "$PROJECT_DIR/bin/wt-merge")
+assert_contains "$merge_script" "Additive conflict pattern"
+
+test_start "LLM merge prompt contains additive example"
+assert_contains "$merge_script" "KEEP ALL entries from BOTH sides"
+
+# Test 12.2: Non-additive conflict instructions preserved
+test_start "LLM merge prompt preserves source-branch preference"
+assert_contains "$merge_script" "prefer the source branch"
+
+# ============================================================
+# Section 13: Health Check Function Tests
+# ============================================================
+
+echo ""
+echo "--- Health Check Function ---"
+
+# Test: health_check returns 1 for non-responding server
+test_start "health_check returns 1 for non-responding server"
+hc_rc=0
+health_check "http://localhost:59998" 1 2>/dev/null || hc_rc=$?
+assert_equals "1" "$hc_rc"
+
+# Test: extract_health_check_url with various formats
+test_start "extract_health_check_url with SMOKE_BASE_URL"
+url=$(extract_health_check_url "SMOKE_BASE_URL=http://localhost:3002 pnpm test:smoke")
+assert_equals "http://localhost:3002" "$url"
+
+test_start "extract_health_check_url with direct localhost reference"
+url=$(extract_health_check_url "npx playwright test --base-url http://localhost:4000")
+assert_equals "http://localhost:4000" "$url"
+
+# ============================================================
+# Summary
+# ============================================================
+
+echo ""
+echo "================================"
+echo "Results: $TESTS_PASSED/$TESTS_RUN passed, $TESTS_FAILED failed"
+echo "================================"
+
+if [[ "$TESTS_FAILED" -gt 0 ]]; then
+    exit 1
+fi

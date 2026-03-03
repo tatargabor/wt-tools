@@ -542,6 +542,113 @@ else
 fi
 
 # ============================================================
+# Test: parse_directives — smoke blocking directives
+# ============================================================
+
+SMOKE_BRIEF=$(mktemp)
+cat > "$SMOKE_BRIEF" <<'EOF'
+## Orchestrator Directives
+- smoke_command: SMOKE_BASE_URL=http://localhost:3002 pnpm test:smoke
+- smoke_timeout: 180
+- smoke_blocking: true
+- smoke_fix_token_budget: 300000
+- smoke_fix_max_turns: 10
+- smoke_fix_max_retries: 5
+- smoke_health_check_url: http://localhost:3002
+- smoke_health_check_timeout: 60
+EOF
+
+test_start "parse_directives reads smoke_blocking"
+directives=$(parse_directives "$SMOKE_BRIEF")
+sb=$(echo "$directives" | jq -r '.smoke_blocking')
+assert_equals "true" "$sb"
+
+test_start "parse_directives reads smoke_fix_token_budget"
+sftb=$(echo "$directives" | jq -r '.smoke_fix_token_budget')
+assert_equals "300000" "$sftb"
+
+test_start "parse_directives reads smoke_fix_max_turns"
+sfmt=$(echo "$directives" | jq -r '.smoke_fix_max_turns')
+assert_equals "10" "$sfmt"
+
+test_start "parse_directives reads smoke_fix_max_retries"
+sfmr=$(echo "$directives" | jq -r '.smoke_fix_max_retries')
+assert_equals "5" "$sfmr"
+
+test_start "parse_directives reads smoke_health_check_url"
+shcu=$(echo "$directives" | jq -r '.smoke_health_check_url')
+assert_equals "http://localhost:3002" "$shcu"
+
+test_start "parse_directives reads smoke_health_check_timeout"
+shct=$(echo "$directives" | jq -r '.smoke_health_check_timeout')
+assert_equals "60" "$shct"
+
+rm -f "$SMOKE_BRIEF"
+
+# Test defaults for smoke directives
+MINIMAL_BRIEF2=$(mktemp)
+cat > "$MINIMAL_BRIEF2" <<'EOF'
+## Orchestrator Directives
+EOF
+
+test_start "parse_directives defaults smoke_blocking to false"
+directives=$(parse_directives "$MINIMAL_BRIEF2" 2>/dev/null)
+sb=$(echo "$directives" | jq -r '.smoke_blocking')
+assert_equals "false" "$sb"
+
+test_start "parse_directives defaults smoke_fix_max_retries to 3"
+sfmr=$(echo "$directives" | jq -r '.smoke_fix_max_retries')
+assert_equals "3" "$sfmr"
+
+test_start "parse_directives defaults smoke_health_check_timeout to 30"
+shct=$(echo "$directives" | jq -r '.smoke_health_check_timeout')
+assert_equals "30" "$shct"
+
+rm -f "$MINIMAL_BRIEF2"
+
+# Test invalid smoke directive values
+INVALID_SMOKE_BRIEF=$(mktemp)
+cat > "$INVALID_SMOKE_BRIEF" <<'EOF'
+## Orchestrator Directives
+- smoke_blocking: maybe
+- smoke_fix_token_budget: -100
+- smoke_fix_max_turns: abc
+- smoke_fix_max_retries: -1
+- smoke_health_check_timeout: zero
+EOF
+
+test_start "parse_directives rejects invalid smoke_blocking"
+directives=$(parse_directives "$INVALID_SMOKE_BRIEF" 2>/dev/null)
+sb=$(echo "$directives" | jq -r '.smoke_blocking')
+assert_equals "false" "$sb"
+
+test_start "parse_directives rejects invalid smoke_fix_token_budget"
+sftb=$(echo "$directives" | jq -r '.smoke_fix_token_budget')
+assert_equals "500000" "$sftb"
+
+test_start "parse_directives rejects invalid smoke_fix_max_turns"
+sfmt=$(echo "$directives" | jq -r '.smoke_fix_max_turns')
+assert_equals "15" "$sfmt"
+
+test_start "parse_directives rejects invalid smoke_health_check_timeout"
+shct=$(echo "$directives" | jq -r '.smoke_health_check_timeout')
+assert_equals "30" "$shct"
+
+rm -f "$INVALID_SMOKE_BRIEF"
+
+# ============================================================
+# Test: extract_health_check_url
+# ============================================================
+
+test_start "extract_health_check_url extracts from smoke command"
+url=$(extract_health_check_url "SMOKE_BASE_URL=http://localhost:3002 pnpm test:smoke")
+assert_equals "http://localhost:3002" "$url"
+
+test_start "extract_health_check_url returns empty for no URL"
+url=$(extract_health_check_url "pnpm test:smoke")
+assert_equals "" "$url"
+
+# ============================================================
 # Summary
 # ============================================================
 
