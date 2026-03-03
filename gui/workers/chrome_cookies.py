@@ -3,10 +3,16 @@ Chrome Cookie Scanner - Extract Claude session cookies from Chrome profiles
 
 Discovers all local Chrome profiles, resolves profile names,
 and extracts sessionKey cookies for claude.ai using pycookiecheat.
+
+On Linux, Chrome encrypts cookies with a key stored in the system keyring.
+This module retrieves that key via gi.repository.Secret (direct import),
+falling back to a subprocess call to system Python when gi is not available
+in the current interpreter (e.g. conda environments).
 """
 
 import json
 import logging
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,11 +22,12 @@ logger = logging.getLogger("wt-control.chrome-cookies")
 
 
 def is_pycookiecheat_available() -> bool:
-    """Check if pycookiecheat is installed."""
+    """Check if pycookiecheat is installed and importable."""
     try:
         import pycookiecheat  # noqa: F401
         return True
-    except ImportError:
+    except Exception as e:
+        logger.info("pycookiecheat not importable: %s: %s", type(e).__name__, e)
         return False
 
 
@@ -34,6 +41,64 @@ def _get_chrome_data_dir() -> Path | None:
         return None
 
     return path if path.is_dir() else None
+
+
+def _get_chrome_password() -> str | None:
+    """Get Chrome Safe Storage password from the system keyring.
+
+    Tries gi.repository.Secret directly, then falls back to subprocess
+    calling system Python (for conda/venv where gi is unavailable).
+    On macOS, pycookiecheat handles keyring access internally.
+    """
+    if sys.platform == "darwin":
+        return None  # macOS uses Keychain, handled by pycookiecheat
+
+    # Try direct gi import
+    try:
+        import gi
+        gi.require_version("Secret", "1")
+        from gi.repository import Secret
+
+        service = Secret.Service.get_sync(Secret.ServiceFlags.LOAD_COLLECTIONS)
+        collections = service.get_collections()
+        unlocked = service.unlock_sync(collections).unlocked
+
+        for collection in unlocked:
+            for item in collection.get_items():
+                if item.get_label() == "Chrome Safe Storage":
+                    attrs = item.get_attributes()
+                    if attrs.get("application") == "chrome":
+                        item.load_secret_sync()
+                        return item.get_secret().get_text()
+    except Exception:
+        logger.debug("gi.repository.Secret not available, trying subprocess")
+
+    # Fallback: call system Python to read the keyring
+    script = (
+        "import gi; gi.require_version('Secret','1'); "
+        "from gi.repository import Secret; "
+        "s=Secret.Service.get_sync(Secret.ServiceFlags.LOAD_COLLECTIONS); "
+        "cs=s.get_collections(); us=s.unlock_sync(cs).unlocked\n"
+        "for c in us:\n"
+        " for i in c.get_items():\n"
+        "  if i.get_label()=='Chrome Safe Storage' "
+        "and i.get_attributes().get('application')=='chrome':\n"
+        "   i.load_secret_sync(); print(i.get_secret().get_text()); raise SystemExit\n"
+    )
+    for python in ("/usr/bin/python3", "/usr/bin/python"):
+        try:
+            result = subprocess.run(
+                [python, "-c", script],
+                capture_output=True, text=True, timeout=10,
+            )
+            password = result.stdout.strip().split("\n")[0]
+            if password:
+                return password
+        except Exception:
+            continue
+
+    logger.warning("Could not retrieve Chrome keyring password")
+    return None
 
 
 def _discover_profiles(chrome_dir: Path) -> list[Path]:
@@ -73,10 +138,10 @@ def _resolve_profile_name(profile_dir: Path) -> str:
     return profile_dir.name
 
 
-def _extract_session_cookie(profile_dir: Path) -> str | None:
+def _extract_session_cookie(profile_dir: Path, password: str | None = None) -> str | None:
     """Extract the sessionKey cookie for claude.ai from a Chrome profile."""
     try:
-        from pycookiecheat import get_cookies
+        from pycookiecheat import chrome_cookies
     except ImportError:
         return None
 
@@ -85,10 +150,13 @@ def _extract_session_cookie(profile_dir: Path) -> str | None:
         return None
 
     try:
-        cookies = get_cookies(
-            "https://claude.ai",
-            cookie_file=str(cookie_file),
-        )
+        kwargs: dict = {
+            "url": "https://claude.ai",
+            "cookie_file": str(cookie_file),
+        }
+        if password is not None:
+            kwargs["password"] = password
+        cookies = chrome_cookies(**kwargs)
         return cookies.get("sessionKey") or None
     except Exception as e:
         logger.debug("Failed to extract cookie from %s: %s", profile_dir.name, e)
@@ -116,9 +184,12 @@ def scan_chrome_sessions() -> list[dict]:
         logger.info("No Chrome profiles found in %s", chrome_dir)
         return []
 
+    # Get keyring password once for all profiles
+    password = _get_chrome_password()
+
     results = []
     for profile_dir in profiles:
-        session_key = _extract_session_cookie(profile_dir)
+        session_key = _extract_session_cookie(profile_dir, password=password)
         if session_key:
             name = _resolve_profile_name(profile_dir)
             results.append({"name": name, "sessionKey": session_key})

@@ -13,6 +13,10 @@ if [[ -z "${WT_CONTROL_PROFILE_SOURCED:-}" ]]; then
     done
 fi
 
+# Deactivate any active virtualenv (e.g. PlatformIO) to avoid
+# site-packages conflicts with pycookiecheat/keyring/jaraco
+unset VIRTUAL_ENV
+
 # Follow symlinks to find the real script location
 get_real_dir() {
     local script="${BASH_SOURCE[0]}"

@@ -31,6 +31,12 @@ def _load_stdlib_platform():
 
 _stdlib_platform = _load_stdlib_platform()
 
+# Ensure stdlib 'platform' stays in sys.modules so that third-party libraries
+# (jaraco.context, keyring, pycookiecheat) that do `import platform` get the
+# stdlib module, not this gui/platform package.
+if "platform" not in sys.modules or not hasattr(sys.modules["platform"], "system"):
+    sys.modules["platform"] = _stdlib_platform
+
 # Detect current platform
 PLATFORM_NAME = _stdlib_platform.system().lower()
 if PLATFORM_NAME == "darwin":

@@ -329,19 +329,24 @@ class HandlersMixin:
         from ...workers.usage import save_accounts
 
         if not is_pycookiecheat_available():
+            logger.info("auto-scan: pycookiecheat not available")
             return
 
         try:
             sessions = scan_chrome_sessions()
-        except Exception:
+        except Exception as e:
+            logger.warning("auto-scan: scan failed: %s", e)
             return
 
         if not sessions:
+            logger.info("auto-scan: no sessions found")
             return
 
+        logger.info("auto-scan: found %d sessions", len(sessions))
         try:
             save_accounts(sessions)
-        except Exception:
+        except Exception as e:
+            logger.warning("auto-scan: save failed: %s", e)
             return
 
         self._restart_usage_worker()

@@ -133,24 +133,24 @@ def test_resolve_name_empty_account_info(tmp_path):
 
 def test_extract_cookie_success(tmp_path):
     """Extracts sessionKey cookie when pycookiecheat returns it."""
-    from gui.workers.chrome_cookies import _extract_session_cookie
-
     profile = tmp_path / "Default"
     profile.mkdir()
     (profile / "Cookies").touch()
 
-    mock_get_cookies = MagicMock(return_value={"sessionKey": "sk-ant-test123"})
-    with patch("gui.workers.chrome_cookies.get_cookies", mock_get_cookies, create=True):
-        # Need to patch the import inside the function
-        with patch.dict("sys.modules", {"pycookiecheat": MagicMock(get_cookies=mock_get_cookies)}):
-            # Re-import to pick up mock
-            import importlib
-            import gui.workers.chrome_cookies as mod
-            importlib.reload(mod)
+    mock_chrome_cookies = MagicMock(return_value={"sessionKey": "sk-ant-test123"})
+    mock_module = MagicMock()
+    mock_module.chrome_cookies = mock_chrome_cookies
+    with patch.dict("sys.modules", {"pycookiecheat": mock_module}):
+        import importlib
+        import gui.workers.chrome_cookies as mod
+        importlib.reload(mod)
 
-            result = mod._extract_session_cookie(profile)
+        result = mod._extract_session_cookie(profile, password="testpass")
 
     assert result == "sk-ant-test123"
+    mock_chrome_cookies.assert_called_once()
+    call_kwargs = mock_chrome_cookies.call_args
+    assert call_kwargs.kwargs.get("password") == "testpass" or call_kwargs[1].get("password") == "testpass"
 
 
 def test_extract_cookie_no_cookies_file(tmp_path):
@@ -167,14 +167,14 @@ def test_extract_cookie_no_cookies_file(tmp_path):
 
 def test_extract_cookie_no_session_key(tmp_path):
     """Returns None when pycookiecheat returns no sessionKey."""
-    from gui.workers.chrome_cookies import _extract_session_cookie
-
     profile = tmp_path / "Default"
     profile.mkdir()
     (profile / "Cookies").touch()
 
-    mock_get_cookies = MagicMock(return_value={"other_cookie": "value"})
-    with patch.dict("sys.modules", {"pycookiecheat": MagicMock(get_cookies=mock_get_cookies)}):
+    mock_chrome_cookies = MagicMock(return_value={"other_cookie": "value"})
+    mock_module = MagicMock()
+    mock_module.chrome_cookies = mock_chrome_cookies
+    with patch.dict("sys.modules", {"pycookiecheat": mock_module}):
         import importlib
         import gui.workers.chrome_cookies as mod
         importlib.reload(mod)
@@ -182,6 +182,27 @@ def test_extract_cookie_no_session_key(tmp_path):
         result = mod._extract_session_cookie(profile)
 
     assert result is None
+
+
+def test_extract_cookie_no_password(tmp_path):
+    """Works without password parameter (macOS or fallback)."""
+    profile = tmp_path / "Default"
+    profile.mkdir()
+    (profile / "Cookies").touch()
+
+    mock_chrome_cookies = MagicMock(return_value={"sessionKey": "sk-test"})
+    mock_module = MagicMock()
+    mock_module.chrome_cookies = mock_chrome_cookies
+    with patch.dict("sys.modules", {"pycookiecheat": mock_module}):
+        import importlib
+        import gui.workers.chrome_cookies as mod
+        importlib.reload(mod)
+
+        result = mod._extract_session_cookie(profile, password=None)
+
+    assert result == "sk-test"
+    call_kwargs = mock_chrome_cookies.call_args[1]
+    assert "password" not in call_kwargs
 
 
 # --- Chrome data dir tests ---
@@ -262,7 +283,8 @@ def test_scan_end_to_end(tmp_path, monkeypatch):
     }))
     (p3 / "Cookies").touch()
 
-    def mock_get_cookies(url, cookie_file=None):
+    def mock_chrome_cookies(url, cookie_file=None, password=None, **kwargs):
+        cookie_file = cookie_file or ""
         if "Default" in cookie_file:
             return {"sessionKey": "sk-alice"}
         elif "Profile 1" in cookie_file:
@@ -272,14 +294,16 @@ def test_scan_end_to_end(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod, "is_pycookiecheat_available", lambda: True)
     monkeypatch.setattr(mod, "_get_chrome_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(mod, "_get_chrome_password", lambda: "mock-password")
 
     mock_module = MagicMock()
-    mock_module.get_cookies = mock_get_cookies
+    mock_module.chrome_cookies = mock_chrome_cookies
     with patch.dict("sys.modules", {"pycookiecheat": mock_module}):
         import importlib
         importlib.reload(mod)
         monkeypatch.setattr(mod, "is_pycookiecheat_available", lambda: True)
         monkeypatch.setattr(mod, "_get_chrome_data_dir", lambda: tmp_path)
+        monkeypatch.setattr(mod, "_get_chrome_password", lambda: "mock-password")
 
         result = mod.scan_chrome_sessions()
 
