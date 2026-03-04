@@ -84,7 +84,7 @@ print_dimension_guidance() {
         echo "    → ${action}"
         # Split sources by semicolon
         IFS=';' read -ra source_list <<< "$sources"
-        for src in "${source_list[@]}"; do
+        for src in "${source_list[@]+"${source_list[@]}"}"; do
             src=$(echo "$src" | sed 's/^ *//')
             [[ -n "$src" ]] && echo "      ${src}"
         done
@@ -182,7 +182,7 @@ build_json() {
             [[ "$d" != "$dim" ]] && continue
             local sources_arr="[]"
             IFS=';' read -ra source_list <<< "$sources"
-            for src in "${source_list[@]}"; do
+            for src in "${source_list[@]+"${source_list[@]}"}"; do
                 src=$(echo "$src" | sed 's/^ *//')
                 [[ -n "$src" ]] && sources_arr=$(echo "$sources_arr" | jq --arg s "$src" '. + [$s]')
             done

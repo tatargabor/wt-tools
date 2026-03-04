@@ -8,8 +8,10 @@ check_code_signals() {
     add_source "$dim" "package.json"
 
     # ── Large files ──────────────────────────────────────────────────────
-    local -a extensions
-    mapfile -t extensions < <(get_source_extensions)
+    local -a extensions=()
+    while IFS= read -r ext; do
+        extensions+=("$ext")
+    done < <(get_source_extensions)
 
     # Build find expression for extensions
     local find_expr=""
