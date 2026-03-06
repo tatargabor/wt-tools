@@ -89,10 +89,10 @@
 
 ## 10. Dispatcher Enhancements
 
-- [ ] 10.1 Implement targeted context injection in `dispatch_change()` — read feature's `touches` list from project-knowledge.yaml, inject cross-cutting file context into change proposal
-- [ ] 10.2 Include reference implementation path in dispatch context when feature has `reference_impl: true`
-- [ ] 10.3 Implement `dispatch_backend` abstraction — `dispatch_change()` calls a backend-specific function (`dispatch_via_wt_loop` for current, future `dispatch_via_agent_teams`). Default: `wt-loop`. Interface: backend receives change name, model, worktree path, prompt; returns PID
-- [ ] 10.4 Inject sibling status summary at dispatch time — list of other active changes with their file scopes, so agents are aware of parallel work and can avoid conflicts
+- [x] 10.1 Implement targeted context injection in `dispatch_change()` — read feature's `touches` list from project-knowledge.yaml, inject cross-cutting file context into change proposal
+- [x] 10.2 Include reference implementation path in dispatch context when feature has `reference_impl: true`
+- [x] 10.3 Implement `dispatch_backend` abstraction — `dispatch_change()` calls a backend-specific function (`dispatch_via_wt_loop` for current, future `dispatch_via_agent_teams`). Default: `wt-loop`. Interface: backend receives change name, model, worktree path, prompt; returns PID
+- [x] 10.4 Inject sibling status summary at dispatch time — list of other active changes with their file scopes, so agents are aware of parallel work and can avoid conflicts
 
 ## 11. Quality Gate Hooks
 

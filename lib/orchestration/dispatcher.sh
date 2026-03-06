@@ -395,6 +395,52 @@ dispatch_change() {
     dispatch_memory=$(orch_recall "$scope" 3 "" || true)
     dispatch_memory="${dispatch_memory:0:1000}"
 
+    # Build cross-cutting context from project-knowledge.yaml
+    local pk_context=""
+    local pk_file
+    pk_file=$(find_project_knowledge_file 2>/dev/null || true)
+    if [[ -n "$pk_file" && -f "$pk_file" ]] && command -v yq &>/dev/null; then
+        # Check if change touches any known feature
+        local feature_touches=""
+        local feature_names
+        feature_names=$(yq -r '.features | keys[]? // empty' "$pk_file" 2>/dev/null || true)
+        if [[ -n "$feature_names" ]]; then
+            while IFS= read -r fname; do
+                [[ -z "$fname" ]] && continue
+                # Match feature name against change scope
+                if echo "$scope" | grep -qi "$fname"; then
+                    local touches
+                    touches=$(yq -r ".features.\"$fname\".touches[]? // empty" "$pk_file" 2>/dev/null || true)
+                    local ref_impl
+                    ref_impl=$(yq -r ".features.\"$fname\".reference_impl // false" "$pk_file" 2>/dev/null || true)
+                    if [[ -n "$touches" ]]; then
+                        feature_touches+="Feature '$fname' touches: $touches"$'\n'
+                    fi
+                    if [[ "$ref_impl" == "true" ]]; then
+                        feature_touches+="Feature '$fname' has a reference implementation — follow existing patterns."$'\n'
+                    fi
+                fi
+            done <<< "$feature_names"
+        fi
+
+        # Cross-cutting files context
+        local cc_files
+        cc_files=$(yq -r '.cross_cutting_files[]? | "- \(.path): \(.description // "")"' "$pk_file" 2>/dev/null || true)
+        if [[ -n "$cc_files" || -n "$feature_touches" ]]; then
+            pk_context="## Project Knowledge"$'\n'
+            [[ -n "$feature_touches" ]] && pk_context+="$feature_touches"$'\n'
+            [[ -n "$cc_files" ]] && pk_context+="Cross-cutting files (coordinate with other changes):"$'\n'"$cc_files"$'\n'
+        fi
+    fi
+
+    # Build sibling status summary
+    local sibling_context=""
+    local siblings
+    siblings=$(jq -r '.changes[] | select(.status == "running" or .status == "dispatched" or .status == "verifying") | "\(.name): \(.scope[:80])"' "$STATE_FILENAME" 2>/dev/null || true)
+    if [[ -n "$siblings" ]]; then
+        sibling_context="## Active Sibling Changes (avoid conflicts)"$'\n'"$siblings"$'\n'
+    fi
+
     # Create change directory + proposal in worktree
     (
         cd "$wt_path" || exit 1
@@ -433,7 +479,7 @@ $scope
 
 To be determined during design phase.
 PROPOSAL_EOF
-            # Append memory context if available
+            # Append context sections if available
             if [[ -n "$dispatch_memory" ]]; then
                 cat >> "$proposal_path" <<MEMORY_EOF
 
@@ -441,6 +487,14 @@ PROPOSAL_EOF
 
 $dispatch_memory
 MEMORY_EOF
+            fi
+            if [[ -n "$pk_context" ]]; then
+                echo "" >> "$proposal_path"
+                echo "$pk_context" >> "$proposal_path"
+            fi
+            if [[ -n "$sibling_context" ]]; then
+                echo "" >> "$proposal_path"
+                echo "$sibling_context" >> "$proposal_path"
             fi
             log_info "Pre-created proposal.md for $change_name"
         fi
@@ -463,14 +517,23 @@ MEMORY_EOF
     update_change_field "$change_name" "worktree_path" "\"$wt_path\""
     update_change_field "$change_name" "started_at" "\"$(date -Iseconds)\""
 
-    # Start Ralph loop in worktree
-    # wt-loop spawns a terminal process and returns, so we check loop-state.json
-    local task_desc="Implement $change_name: ${scope:0:200}"
+    # Dispatch via backend (default: wt-loop)
     local impl_model
     impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
+    dispatch_via_wt_loop "$change_name" "$impl_model" "$wt_path" "$scope"
+}
+
+# Dispatch backend: wt-loop (default)
+# Interface: receives change name, model, worktree path, scope; starts agent, sets PID + status
+dispatch_via_wt_loop() {
+    local change_name="$1"
+    local impl_model="$2"
+    local wt_path="$3"
+    local scope="$4"
+
+    local task_desc="Implement $change_name: ${scope:0:200}"
 
     # Token budget disabled — iteration limit (--max) provides the safety net.
-    # See: docs/tanulsagok/wt-orchestration-tanulsagok.md B1 (budget restart cascade)
     local token_budget_flag=""
 
     log_info "Dispatch $change_name with model=$impl_model (default=$DEFAULT_IMPL_MODEL) budget=unlimited (iter limit: --max 30)"
