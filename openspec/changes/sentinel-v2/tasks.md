@@ -51,10 +51,10 @@
 
 ## 5. Project Knowledge System
 
-- [ ] 5.1 Create template `templates/project-knowledge.yaml` with version header, cross_cutting_files, features, verification_rules sections
-- [ ] 5.2 Create template `templates/cross-cutting-checklist.md` with path-scoped frontmatter and placeholder checklist items
-- [ ] 5.3 Implement `wt-project init-knowledge` subcommand — scan project for dashboard pages, i18n files, sidebar, activity logger patterns
-- [ ] 5.4 Generate draft `project-knowledge.yaml` from scan results — user reviews and commits
+- [x] 5.1 Create template `templates/project-knowledge.yaml` with version header, cross_cutting_files, features, verification_rules sections
+- [x] 5.2 Create template `templates/cross-cutting-checklist.md` with path-scoped frontmatter and placeholder checklist items
+- [x] 5.3 Implement `wt-project init-knowledge` subcommand — scan project for dashboard pages, i18n files, sidebar, activity logger patterns
+- [x] 5.4 Generate draft `project-knowledge.yaml` from scan results — user reviews and commits
 
 ## 6. Planner Enhancements
 

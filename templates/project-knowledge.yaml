@@ -1,0 +1,49 @@
+# Project Knowledge — wt-tools orchestration context
+# version: 1
+#
+# This file provides project-specific knowledge to the orchestrator:
+# - cross_cutting_files: files touched by multiple features (merge hazards)
+# - features: domain-specific feature mappings for context injection
+# - verification_rules: automated checks triggered by file path patterns
+#
+# Generated via: wt-project init-knowledge
+# Edit manually to refine after initial scan.
+
+version: 1
+
+# Files that multiple features touch — orchestrator uses these for
+# merge hazard detection and scope overlap warnings in planning.
+cross_cutting_files:
+  # Example entries (uncomment and adapt):
+  # - path: src/components/Sidebar.tsx
+  #   description: Navigation sidebar — most features add entries here
+  # - path: src/i18n/en.json
+  #   description: English translations — every user-facing feature adds keys
+  # - path: src/routes.ts
+  #   description: Route definitions — new pages register routes here
+  # - path: src/db/schema.prisma
+  #   description: Database schema — schema changes affect multiple features
+
+# Feature registry — maps logical features to their file scopes,
+# used for targeted context injection at dispatch time.
+features:
+  # Example:
+  # dashboard:
+  #   touches:
+  #     - src/pages/Dashboard.tsx
+  #     - src/components/dashboard/
+  #   description: Main dashboard page with widgets
+  #   reference_impl: false
+
+# Verification rules — triggered by git diff file patterns after tests pass.
+# Errors block merge, warnings are logged.
+verification_rules:
+  # Example:
+  # - name: i18n-completeness
+  #   trigger: "src/i18n/*.json"
+  #   check: "all language files have same keys"
+  #   severity: error
+  # - name: sidebar-order
+  #   trigger: "src/components/Sidebar.tsx"
+  #   check: "sidebar items are in alphabetical order"
+  #   severity: warning

@@ -598,6 +598,114 @@ cmd_default() {
     success "Default project set to '$name'"
 }
 
+cmd_init_knowledge() {
+    if ! is_git_repo; then
+        error "Current directory is not a git repository"
+        exit 1
+    fi
+
+    local git_root
+    git_root=$(get_git_root)
+    local pk_file="$git_root/project-knowledge.yaml"
+    local template="$WT_TOOLS_ROOT/templates/project-knowledge.yaml"
+
+    if [[ -f "$pk_file" ]]; then
+        info "project-knowledge.yaml already exists at $pk_file"
+        echo "Edit it manually to add cross-cutting files and features."
+        return 0
+    fi
+
+    if [[ ! -f "$template" ]]; then
+        error "Template not found: $template"
+        exit 1
+    fi
+
+    # Scan project for common cross-cutting patterns
+    local cross_cutting_entries=""
+    local found=0
+
+    # i18n / translation files
+    local i18n_files
+    i18n_files=$(find "$git_root" -maxdepth 5 \( -path "*/i18n/*.json" -o -path "*/locales/*.json" -o -path "*/lang/*.json" \) -not -path "*/node_modules/*" 2>/dev/null | head -5 || true)
+    if [[ -n "$i18n_files" ]]; then
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            local rel="${f#$git_root/}"
+            cross_cutting_entries+="  - path: $rel"$'\n'"    description: Translation file"$'\n'
+            found=$((found + 1))
+        done <<< "$i18n_files"
+    fi
+
+    # Sidebar / navigation components
+    local sidebar
+    sidebar=$(find "$git_root" -maxdepth 5 \( -iname "*sidebar*" -o -iname "*navigation*" -o -iname "*nav-menu*" \) -not -path "*/node_modules/*" 2>/dev/null | grep -E '\.(tsx?|jsx?|vue|svelte)$' || true)
+    if [[ -n "$sidebar" ]]; then
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            local rel="${f#$git_root/}"
+            cross_cutting_entries+="  - path: $rel"$'\n'"    description: Navigation component"$'\n'
+            found=$((found + 1))
+        done <<< "$sidebar"
+    fi
+
+    # Route definitions
+    local routes
+    routes=$(find "$git_root" -maxdepth 5 \( -iname "routes.*" -o -iname "router.*" \) -not -path "*/node_modules/*" 2>/dev/null | grep -E '\.(tsx?|jsx?|py|rb)$' || true)
+    if [[ -n "$routes" ]]; then
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            local rel="${f#$git_root/}"
+            cross_cutting_entries+="  - path: $rel"$'\n'"    description: Route definitions"$'\n'
+            found=$((found + 1))
+        done <<< "$routes"
+    fi
+
+    # Database schema files
+    local schemas
+    schemas=$(find "$git_root" -maxdepth 4 \( -iname "schema.prisma" -o -iname "schema.rb" \) -not -path "*/node_modules/*" 2>/dev/null | head -3 || true)
+    if [[ -n "$schemas" ]]; then
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            local rel="${f#$git_root/}"
+            cross_cutting_entries+="  - path: $rel"$'\n'"    description: Database schema"$'\n'
+            found=$((found + 1))
+        done <<< "$schemas"
+    fi
+
+    # Copy template
+    cp "$template" "$pk_file"
+
+    # If we found cross-cutting files, inject them
+    if [[ -n "$cross_cutting_entries" && "$found" -gt 0 ]]; then
+        # Replace the commented examples under cross_cutting_files with actual entries
+        local tmp
+        tmp=$(mktemp)
+        awk -v entries="$cross_cutting_entries" '
+            /^cross_cutting_files:/ { print; found=1; next }
+            found && /^[^ #]/ { printf "%s", entries; found=0 }
+            found && /^  #/ { next }
+            { print }
+            END { if (found) printf "%s", entries }
+        ' "$pk_file" > "$tmp" && mv "$tmp" "$pk_file"
+    fi
+
+    success "Created $pk_file"
+    if [[ "$found" -gt 0 ]]; then
+        info "Auto-detected $found cross-cutting file(s) — review and edit the file"
+    else
+        info "No cross-cutting files auto-detected — edit manually to add entries"
+    fi
+
+    # Deploy cross-cutting checklist if not exists
+    local checklist_src="$WT_TOOLS_ROOT/templates/cross-cutting-checklist.md"
+    local checklist_dst="$git_root/.claude/rules/cross-cutting-checklist.md"
+    if [[ -f "$checklist_src" && ! -f "$checklist_dst" ]]; then
+        mkdir -p "$(dirname "$checklist_dst")"
+        cp "$checklist_src" "$checklist_dst"
+        success "Deployed cross-cutting-checklist.md to .claude/rules/"
+    fi
+}
+
 # Main
 if [[ $# -eq 0 ]]; then
     usage
@@ -608,6 +716,10 @@ case "$1" in
     init)
         shift
         cmd_init "$@"
+        ;;
+    init-knowledge)
+        shift
+        cmd_init_knowledge "$@"
         ;;
     list|ls)
         cmd_list
