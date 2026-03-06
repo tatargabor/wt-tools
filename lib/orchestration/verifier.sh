@@ -110,6 +110,82 @@ REVIEW_EOF
     return 0
 }
 
+# ─── Verification Rules ──────────────────────────────────────────────
+
+# Evaluate verification rules from project-knowledge.yaml against git diff.
+# Returns 0 on pass (or no rules), 1 if any error-severity rule triggered.
+# Warnings are logged but don't block.
+evaluate_verification_rules() {
+    local change_name="$1"
+    local wt_path="$2"
+
+    # Graceful degradation: no-op when project-knowledge.yaml absent
+    local pk_file
+    pk_file=$(find_project_knowledge_file 2>/dev/null || true)
+    [[ -z "$pk_file" || ! -f "$pk_file" ]] && return 0
+
+    # Check if yq is available
+    command -v yq &>/dev/null || return 0
+
+    local rules_count
+    rules_count=$(yq -r '.verification_rules | length // 0' "$pk_file" 2>/dev/null || echo 0)
+    [[ "$rules_count" -eq 0 ]] && return 0
+
+    # Get changed files in worktree relative to merge base
+    local changed_files
+    changed_files=$(cd "$wt_path" && git diff --name-only "$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo HEAD~5)..HEAD" 2>/dev/null || true)
+    [[ -z "$changed_files" ]] && return 0
+
+    local errors=0
+    local warnings=0
+
+    local i=0
+    while [[ "$i" -lt "$rules_count" ]]; do
+        local rule_name trigger severity check_desc
+        rule_name=$(yq -r ".verification_rules[$i].name // \"rule-$i\"" "$pk_file")
+        trigger=$(yq -r ".verification_rules[$i].trigger // empty" "$pk_file")
+        severity=$(yq -r ".verification_rules[$i].severity // \"warning\"" "$pk_file")
+        check_desc=$(yq -r ".verification_rules[$i].check // empty" "$pk_file")
+
+        if [[ -z "$trigger" ]]; then
+            i=$((i + 1))
+            continue
+        fi
+
+        # Check if any changed file matches the trigger glob
+        local matched=false
+        while IFS= read -r changed_file; do
+            [[ -z "$changed_file" ]] && continue
+            # Simple glob match using bash pattern matching
+            if [[ "$changed_file" == $trigger ]]; then
+                matched=true
+                break
+            fi
+        done <<< "$changed_files"
+
+        if [[ "$matched" == "true" ]]; then
+            if [[ "$severity" == "error" ]]; then
+                log_error "Verification rule '$rule_name' triggered (error): $check_desc"
+                emit_event "VERIFY_RULE" "$change_name" "{\"rule\":\"$rule_name\",\"severity\":\"error\",\"check\":$(printf '%s' "$check_desc" | jq -Rs .)}"
+                errors=$((errors + 1))
+            else
+                log_warn "Verification rule '$rule_name' triggered (warning): $check_desc"
+                emit_event "VERIFY_RULE" "$change_name" "{\"rule\":\"$rule_name\",\"severity\":\"warning\",\"check\":$(printf '%s' "$check_desc" | jq -Rs .)}"
+                warnings=$((warnings + 1))
+            fi
+        fi
+
+        i=$((i + 1))
+    done
+
+    if [[ "$errors" -gt 0 ]]; then
+        log_error "Verification rules: $errors error(s), $warnings warning(s) for $change_name"
+        return 1
+    fi
+    [[ "$warnings" -gt 0 ]] && log_info "Verification rules: $warnings warning(s) for $change_name"
+    return 0
+}
+
 # ─── Merge Scope Verification ───────────────────────────────────────
 
 # Verify that a merge actually brought implementation files, not just openspec artifacts.
@@ -745,6 +821,21 @@ handle_change_done() {
         update_change_field "$change_name" "review_result" '"pass"'
         log_info "Verify gate: review passed for $change_name"
         orch_remember "Code review passed for $change_name — no critical issues" Context "phase:review,change:$change_name"
+    fi
+
+    # ── Step 3.5: Project verification rules ──
+    if ! evaluate_verification_rules "$change_name" "$wt_path"; then
+        log_error "Verification rules failed for $change_name — blocking merge"
+        update_change_field "$change_name" "status" '"verify-failed"'
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+            resume_change "$change_name"
+            return
+        fi
+        update_change_field "$change_name" "status" '"failed"'
+        send_notification "wt-orchestrate" "Change '$change_name' failed verification rules" "critical"
+        return
     fi
 
     # ── Step 4: Run verify step (existing) ──

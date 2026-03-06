@@ -72,11 +72,11 @@
 
 ## 8. Verifier Enhancements
 
-- [ ] 8.1 Implement `evaluate_verification_rules()` — read rules from project-knowledge.yaml, evaluate triggers against `git diff`
-- [ ] 8.2 Hook verification rules into `handle_change_done()` — run after tests/build pass, before merge
-- [ ] 8.3 Report verification results — errors block merge, warnings logged and included in verify gate result
-- [ ] 8.4 Graceful degradation — all verification no-ops when project-knowledge.yaml absent
-- [ ] 8.5 Add `merge-blocked` change state — when merge fails (LLM resolver output empty), mark as `merge-blocked` instead of crashing. Orchestrator continues with other changes, operator can manually resolve and `wt-orchestrate approve <name>`
+- [x] 8.1 Implement `evaluate_verification_rules()` — read rules from project-knowledge.yaml, evaluate triggers against `git diff`
+- [x] 8.2 Hook verification rules into `handle_change_done()` — run after tests/build pass, before merge
+- [x] 8.3 Report verification results — errors block merge, warnings logged and included in verify gate result
+- [x] 8.4 Graceful degradation — all verification no-ops when project-knowledge.yaml absent
+- [x] 8.5 Add `merge-blocked` change state — when merge fails (LLM resolver output empty), mark as `merge-blocked` instead of crashing. Orchestrator continues with other changes, operator can manually resolve and `wt-orchestrate approve <name>`
 
 ## 9. Enhanced Sentinel
 
