@@ -292,11 +292,13 @@ prune_worktree_context() {
 
 # ─── Model Routing ───────────────────────────────────────────────────
 
-# Resolve effective model for a change: explicit > directive > heuristic
-# Args: change_name, default_model (from directives)
+# Resolve effective model for a change.
+# Three-tier priority: explicit per-change model > complexity-based routing > default_model
+# Args: change_name, default_model, model_routing (off|complexity)
 resolve_change_model() {
     local change_name="$1"
     local default_model="${2:-opus}"
+    local model_routing="${3:-off}"
 
     # Doc-named changes can use sonnet (mechanical text work, no code)
     local is_doc_change=false
@@ -304,13 +306,12 @@ resolve_change_model() {
         is_doc_change=true
     fi
 
-    # 1. Per-change explicit model from plan
+    # 1. Per-change explicit model from plan (highest priority)
     local explicit_model
     explicit_model=$(jq -r --arg n "$change_name" \
         '.changes[] | select(.name == $n) | .model // empty' "$STATE_FILENAME")
     if [[ -n "$explicit_model" && "$explicit_model" != "null" ]]; then
         # Guard: sonnet only allowed for doc-named changes
-        # All code-writing changes MUST use opus regardless of what the planner suggested
         if [[ "$explicit_model" == "sonnet" && "$is_doc_change" == "false" ]]; then
             log_warn "Overriding planner model=sonnet → opus for code change '$change_name'"
             echo "opus"
@@ -320,7 +321,26 @@ resolve_change_model() {
         return
     fi
 
-    # 2. Directive default_model
+    # 2. Complexity-based routing (when model_routing=complexity)
+    if [[ "$model_routing" == "complexity" ]]; then
+        local complexity change_type
+        complexity=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .complexity // "M"' "$STATE_FILENAME")
+        change_type=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .change_type // "feature"' "$STATE_FILENAME")
+
+        # S-complexity non-feature changes route to sonnet
+        if [[ "$complexity" == "S" && "$change_type" != "feature" ]]; then
+            log_info "Model routing: $change_name → sonnet (S-complexity, type=$change_type)"
+            echo "sonnet"
+            return
+        fi
+        # Doc changes always sonnet
+        if [[ "$is_doc_change" == "true" ]]; then
+            echo "sonnet"
+            return
+        fi
+    fi
+
+    # 3. Default model from directive
     if [[ "$is_doc_change" == "true" ]]; then
         echo "sonnet"
         return
@@ -447,7 +467,7 @@ MEMORY_EOF
     # wt-loop spawns a terminal process and returns, so we check loop-state.json
     local task_desc="Implement $change_name: ${scope:0:200}"
     local impl_model
-    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL")
+    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
 
     # Token budget disabled — iteration limit (--max) provides the safety net.
     # See: docs/tanulsagok/wt-orchestration-tanulsagok.md B1 (budget restart cascade)
@@ -607,7 +627,7 @@ resume_change() {
         task_desc="Continue $change_name: ${scope:0:200}"
     fi
     local impl_model
-    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL")
+    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
     log_info "Resume $change_name with model=$impl_model (done=$done_criteria, max=$max_iter)"
     (
         cd "$wt_path" || exit 1
@@ -1069,6 +1089,9 @@ monitor_loop() {
 
     # Apply context pruning directive to global
     CONTEXT_PRUNING=$(echo "$directives" | jq -r '.context_pruning // true')
+
+    # Apply model routing directive to global
+    MODEL_ROUTING=$(echo "$directives" | jq -r '.model_routing // "off"')
 
     # Parse time limit (default 5h, --time-limit none to disable)
     local time_limit_secs=0

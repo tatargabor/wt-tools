@@ -65,10 +65,10 @@
 
 ## 7. Per-Change Model Routing
 
-- [ ] 7.1 Add `model_routing` directive to `parse_directives()` (values: `off` | `complexity`, default: `off`)
-- [ ] 7.2 Enhance `resolve_change_model()` — three-tier priority: explicit per-change model > complexity-based routing > default_model directive
-- [ ] 7.3 Implement complexity-based routing logic — S-complexity non-feature changes route to sonnet when `model_routing: complexity`
-- [ ] 7.4 Add `review_model` directive — configurable model for review gate. Implement Sonnet→Opus auto-escalation: if Sonnet review fails/timeouts, retry with Opus without counting as a verify failure
+- [x] 7.1 Add `model_routing` directive to `parse_directives()` (values: `off` | `complexity`, default: `off`)
+- [x] 7.2 Enhance `resolve_change_model()` — three-tier priority: explicit per-change model > complexity-based routing > default_model directive
+- [x] 7.3 Implement complexity-based routing logic — S-complexity non-feature changes route to sonnet when `model_routing: complexity`
+- [x] 7.4 Add `review_model` directive — configurable model for review gate. Implement Sonnet→Opus auto-escalation: if Sonnet review fails/timeouts, retry with Opus without counting as a verify failure
 
 ## 8. Verifier Enhancements
 

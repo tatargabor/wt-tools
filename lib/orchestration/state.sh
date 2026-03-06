@@ -231,6 +231,7 @@ parse_directives() {
     local max_tokens_per_change=""
     local context_pruning="true"
     local plan_approval="false"
+    local model_routing="off"
 
     while IFS= read -r line; do
         # Detect ## Orchestrator Directives header
@@ -451,6 +452,13 @@ parse_directives() {
                         warn "Invalid plan_approval '$val', using default false"
                     fi
                     ;;
+                model_routing)
+                    if [[ "$val" =~ ^(off|complexity)$ ]]; then
+                        model_routing="$val"
+                    else
+                        warn "Invalid model_routing '$val', using default off"
+                    fi
+                    ;;
                 *)
                     warn "Unknown directive '$key', ignoring"
                     ;;
@@ -499,6 +507,7 @@ parse_directives() {
         --arg max_tokens_per_change "$max_tokens_per_change" \
         --argjson context_pruning "$context_pruning" \
         --argjson plan_approval "$plan_approval" \
+        --arg model_routing "$model_routing" \
         '{
             max_parallel: $max_parallel,
             merge_policy: $merge_policy,
@@ -530,7 +539,8 @@ parse_directives() {
             watchdog_loop_threshold: (if $watchdog_loop_threshold != "" then ($watchdog_loop_threshold | tonumber) else null end),
             max_tokens_per_change: (if $max_tokens_per_change != "" then ($max_tokens_per_change | tonumber) else null end),
             context_pruning: $context_pruning,
-            plan_approval: $plan_approval
+            plan_approval: $plan_approval,
+            model_routing: $model_routing
         } | with_entries(select(.value != null))'
 }
 
