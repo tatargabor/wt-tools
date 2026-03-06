@@ -37,6 +37,15 @@ merge_change() {
 
     log_info "Merging $change_name..."
     info "Merging: $change_name"
+
+    # Pre-merge hook
+    local wt_path_for_hook
+    wt_path_for_hook=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
+    if ! run_hook "pre_merge" "$change_name" "done" "$wt_path_for_hook"; then
+        log_warn "pre_merge hook blocked $change_name"
+        return 1
+    fi
+
     emit_event "MERGE_ATTEMPT" "$change_name" '{}'
 
     local wt_path
@@ -276,6 +285,9 @@ SMOKE_FIX_EOF
         local iter_count
         iter_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .iterations // 0' "$STATE_FILENAME" 2>/dev/null || echo "?")
         orch_remember "Merged $change_name successfully ($iter_count iterations)" Context "phase:merge,change:$change_name"
+
+        # Post-merge hook
+        run_hook "post_merge" "$change_name" "merged" "" || true  # non-blocking
 
         cleanup_worktree "$change_name" "$wt_path"
         archive_change "$change_name"

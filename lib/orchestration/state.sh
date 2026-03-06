@@ -232,6 +232,11 @@ parse_directives() {
     local context_pruning="true"
     local plan_approval="false"
     local model_routing="off"
+    local hook_pre_dispatch=""
+    local hook_post_verify=""
+    local hook_pre_merge=""
+    local hook_post_merge=""
+    local hook_on_fail=""
 
     while IFS= read -r line; do
         # Detect ## Orchestrator Directives header
@@ -459,6 +464,11 @@ parse_directives() {
                         warn "Invalid model_routing '$val', using default off"
                     fi
                     ;;
+                hook_pre_dispatch)  hook_pre_dispatch="$val" ;;
+                hook_post_verify)   hook_post_verify="$val" ;;
+                hook_pre_merge)     hook_pre_merge="$val" ;;
+                hook_post_merge)    hook_post_merge="$val" ;;
+                hook_on_fail)       hook_on_fail="$val" ;;
                 *)
                     warn "Unknown directive '$key', ignoring"
                     ;;
@@ -508,6 +518,11 @@ parse_directives() {
         --argjson context_pruning "$context_pruning" \
         --argjson plan_approval "$plan_approval" \
         --arg model_routing "$model_routing" \
+        --arg hook_pre_dispatch "$hook_pre_dispatch" \
+        --arg hook_post_verify "$hook_post_verify" \
+        --arg hook_pre_merge "$hook_pre_merge" \
+        --arg hook_post_merge "$hook_post_merge" \
+        --arg hook_on_fail "$hook_on_fail" \
         '{
             max_parallel: $max_parallel,
             merge_policy: $merge_policy,
@@ -540,7 +555,12 @@ parse_directives() {
             max_tokens_per_change: (if $max_tokens_per_change != "" then ($max_tokens_per_change | tonumber) else null end),
             context_pruning: $context_pruning,
             plan_approval: $plan_approval,
-            model_routing: $model_routing
+            model_routing: $model_routing,
+            hook_pre_dispatch: (if $hook_pre_dispatch != "" then $hook_pre_dispatch else null end),
+            hook_post_verify: (if $hook_post_verify != "" then $hook_post_verify else null end),
+            hook_pre_merge: (if $hook_pre_merge != "" then $hook_pre_merge else null end),
+            hook_post_merge: (if $hook_post_merge != "" then $hook_post_merge else null end),
+            hook_on_fail: (if $hook_on_fail != "" then $hook_on_fail else null end)
         } | with_entries(select(.value != null))'
 }
 
@@ -725,6 +745,12 @@ update_change_field() {
         if [[ "$old_status" != "$new_status" ]]; then
             emit_event "STATE_CHANGE" "$change_name" \
                 "{\"from\":\"$old_status\",\"to\":\"$new_status\"}"
+            # Trigger on_fail hook when a change transitions to failed
+            if [[ "$new_status" == "failed" ]]; then
+                local wt_path_for_hook
+                wt_path_for_hook=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME" 2>/dev/null || true)
+                run_hook "on_fail" "$change_name" "failed" "$wt_path_for_hook" || true
+            fi
         fi
     fi
 
@@ -820,6 +846,43 @@ if len(result) != len(changes):
 for name in result:
     print(name)
 "
+}
+
+# ─── Quality Gate Hooks ──────────────────────────────────────────────
+
+# Run a lifecycle hook if configured.
+# Args: hook_name, change_name, status, worktree_path
+# Returns: 0 if hook passes or not configured, 1 if hook blocks the transition.
+run_hook() {
+    local hook_name="$1"
+    local change_name="$2"
+    local status="${3:-}"
+    local wt_path="${4:-}"
+
+    # Look up hook script path from directives (stored as global by monitor_loop)
+    local hook_key="hook_${hook_name}"
+    local hook_script="${!hook_key:-}"  # Indirect variable reference
+    [[ -z "$hook_script" ]] && return 0
+    [[ ! -x "$hook_script" ]] && {
+        log_warn "Hook $hook_name: script not executable: $hook_script"
+        return 0
+    }
+
+    log_info "Running hook $hook_name for $change_name: $hook_script"
+    local hook_stderr
+    hook_stderr=$(mktemp)
+    if "$hook_script" "$change_name" "$status" "$wt_path" 2>"$hook_stderr"; then
+        log_info "Hook $hook_name passed for $change_name"
+        rm -f "$hook_stderr"
+        return 0
+    else
+        local reason
+        reason=$(cat "$hook_stderr" 2>/dev/null || echo "unknown")
+        rm -f "$hook_stderr"
+        log_error "Hook $hook_name blocked $change_name: $reason"
+        emit_event "HOOK_BLOCKED" "$change_name" "{\"hook\":\"$hook_name\",\"reason\":$(printf '%s' "$reason" | jq -Rs .)}"
+        return 1
+    fi
 }
 
 # ─── Notifications ───────────────────────────────────────────────────

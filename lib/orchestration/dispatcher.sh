@@ -517,6 +517,13 @@ MEMORY_EOF
     update_change_field "$change_name" "worktree_path" "\"$wt_path\""
     update_change_field "$change_name" "started_at" "\"$(date -Iseconds)\""
 
+    # Pre-dispatch hook
+    if ! run_hook "pre_dispatch" "$change_name" "dispatched" "$wt_path"; then
+        log_warn "pre_dispatch hook blocked $change_name"
+        update_change_field "$change_name" "status" '"pending"'
+        return 1
+    fi
+
     # Dispatch via backend (default: wt-loop)
     local impl_model
     impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
@@ -1155,6 +1162,13 @@ monitor_loop() {
 
     # Apply model routing directive to global
     MODEL_ROUTING=$(echo "$directives" | jq -r '.model_routing // "off"')
+
+    # Apply hook directives to globals (used by run_hook via indirect variable reference)
+    hook_pre_dispatch=$(echo "$directives" | jq -r '.hook_pre_dispatch // empty')
+    hook_post_verify=$(echo "$directives" | jq -r '.hook_post_verify // empty')
+    hook_pre_merge=$(echo "$directives" | jq -r '.hook_pre_merge // empty')
+    hook_post_merge=$(echo "$directives" | jq -r '.hook_post_merge // empty')
+    hook_on_fail=$(echo "$directives" | jq -r '.hook_on_fail // empty')
 
     # Parse time limit (default 5h, --time-limit none to disable)
     local time_limit_secs=0

@@ -96,9 +96,9 @@
 
 ## 11. Quality Gate Hooks
 
-- [ ] 11.1 Add orchestration lifecycle hook points: `pre_dispatch`, `post_verify`, `pre_merge`, `post_merge`, `on_fail` — each an optional shell script path in `orchestration.yaml`
-- [ ] 11.2 Hook receives change name, status, worktree path as arguments. Non-zero exit blocks the transition, stderr logged as reason
-- [ ] 11.3 Add `hooks` section to `parse_directives()` — map of hook name to script path
+- [x] 11.1 Add orchestration lifecycle hook points: `pre_dispatch`, `post_verify`, `pre_merge`, `post_merge`, `on_fail` — each an optional shell script path in `orchestration.yaml`
+- [x] 11.2 Hook receives change name, status, worktree path as arguments. Non-zero exit blocks the transition, stderr logged as reason
+- [x] 11.3 Add `hooks` section to `parse_directives()` — map of hook name to script path
 
 ## 12. Crash-Safe State Recovery
 

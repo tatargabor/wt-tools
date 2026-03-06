@@ -888,6 +888,13 @@ handle_change_done() {
         --argjson retry_tokens "$gate_retry_tokens" \
         '{test:$test, test_ms:$test_ms, build_ms:$build_ms, review_ms:$review_ms, verify_ms:$verify_ms, total_ms:$total_ms, retries:$retries, retry_tokens:$retry_tokens}')"
 
+    # ── Post-verify hook ──
+    if ! run_hook "post_verify" "$change_name" "done" "$wt_path"; then
+        log_warn "post_verify hook blocked $change_name"
+        update_change_field "$change_name" "status" '"verify-failed"'
+        return
+    fi
+
     # ── Step 5: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
     update_change_field "$change_name" "completed_at" "\"$(date -Iseconds)\""
