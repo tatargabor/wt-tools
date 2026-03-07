@@ -13,17 +13,17 @@
 
 ## 3. Phase 2 — wt-memory Split
 
-- [ ] 3.1 Create `lib/memory/core.sh` — extract cmd_remember, cmd_recall, cmd_proactive, cmd_list, cmd_get, cmd_forget, cmd_export, cmd_import, cmd_context, cmd_brain
-- [ ] 3.2 Create `lib/memory/maintenance.sh` — extract cmd_stats, cmd_cleanup, cmd_audit, cmd_dedup, cmd_verify, cmd_consolidation, cmd_graph_stats, cmd_flush, cmd_repair, cmd_cleanup_logs, cmd_health, cmd_status, cmd_projects
-- [ ] 3.3 Create `lib/memory/rules.sh` — extract get_rules_file, _rules_make_id, _rules_match, cmd_rules, cmd_rules_add, cmd_rules_list, cmd_rules_remove
-- [ ] 3.4 Create `lib/memory/todos.sh` — extract cmd_todo, cmd_todo_add, cmd_todo_list, cmd_todo_done, cmd_todo_clear
-- [ ] 3.5 Create `lib/memory/sync.sh` — extract sync_resolve_identity, _sync_work_dir, sync_get_state, sync_update_state, sync_check_preconditions, cmd_sync_push, cmd_sync_pull, cmd_sync, cmd_sync_status
-- [ ] 3.6 Create `lib/memory/migrate.sh` — extract migrations_read, migrations_write, migration_is_applied, migration_mark_applied, migrate_001_branch_tags, run_migrations, auto_migrate, cmd_migrate
-- [ ] 3.7 Create `lib/memory/ui.sh` — extract cmd_metrics, cmd_tui, cmd_dashboard, cmd_seed
-- [ ] 3.8 Refactor `bin/wt-memory` — keep infra (usage, resolve_project, get_storage_path, run_with_lock) + dispatcher that sources lib/memory/*.sh
-- [ ] 3.9 Create `tests/unit/test_memory_sync.sh` — test sync state helpers
-- [ ] 3.10 Create `tests/unit/test_memory_migrate.sh` — test migration framework
-- [ ] 3.11 Run `wt-memory health`, `wt-memory recall test`, `wt-memory rules list` to verify no regressions
+- [x] 3.1 Create `lib/memory/core.sh` — extract cmd_remember, cmd_recall, cmd_proactive, cmd_list, cmd_get, cmd_forget, cmd_export, cmd_import, cmd_context, cmd_brain
+- [x] 3.2 Create `lib/memory/maintenance.sh` — extract cmd_stats, cmd_cleanup, cmd_audit, cmd_dedup, cmd_verify, cmd_consolidation, cmd_graph_stats, cmd_flush, cmd_repair, cmd_cleanup_logs, cmd_health, cmd_status, cmd_projects
+- [x] 3.3 Create `lib/memory/rules.sh` — extract get_rules_file, _rules_make_id, _rules_match, cmd_rules, cmd_rules_add, cmd_rules_list, cmd_rules_remove
+- [x] 3.4 Create `lib/memory/todos.sh` — extract cmd_todo, cmd_todo_add, cmd_todo_list, cmd_todo_done, cmd_todo_clear
+- [x] 3.5 Create `lib/memory/sync.sh` — extract sync_resolve_identity, _sync_work_dir, sync_get_state, sync_update_state, sync_check_preconditions, cmd_sync_push, cmd_sync_pull, cmd_sync, cmd_sync_status
+- [x] 3.6 Create `lib/memory/migrate.sh` — extract migrations_read, migrations_write, migration_is_applied, migration_mark_applied, migrate_001_branch_tags, run_migrations, auto_migrate, cmd_migrate
+- [x] 3.7 Create `lib/memory/ui.sh` — extract cmd_metrics, cmd_tui, cmd_dashboard, cmd_seed
+- [x] 3.8 Refactor `bin/wt-memory` — keep infra + dispatcher (3713 → 377 lines), sources lib/memory/*.sh
+- [x] 3.9 Create `tests/unit/test_memory_sync.sh` — test sync state helpers (3 tests)
+- [x] 3.10 Create `tests/unit/test_memory_migrate.sh` — test migration framework (3 tests)
+- [x] 3.11 Run `wt-memory health`, `wt-memory recall test`, `wt-memory rules list` — all pass
 
 ## 4. Phase 3 — wt-hook-memory Split
 
