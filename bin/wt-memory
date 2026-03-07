@@ -2800,11 +2800,29 @@ sync_resolve_identity() {
     echo "${user}/${machine}"
 }
 
+# Resolve sync working directory: wt/.work/memory/ if wt/ exists, else storage_path
+_sync_work_dir() {
+    local storage_path="$1"
+    if [[ -d "wt/.work" ]]; then
+        local work_dir="wt/.work/memory"
+        mkdir -p "$work_dir"
+        # Legacy migration: copy .sync-state from storage_path on first use
+        if [[ ! -f "$work_dir/.sync-state" && -f "$storage_path/.sync-state" ]]; then
+            cp "$storage_path/.sync-state" "$work_dir/.sync-state"
+        fi
+        echo "$work_dir"
+    else
+        echo "$storage_path"
+    fi
+}
+
 # Read a key from .sync-state JSON
 sync_get_state() {
     local storage_path="$1"
     local key="$2"
-    local state_file="$storage_path/.sync-state"
+    local work_dir
+    work_dir=$(_sync_work_dir "$storage_path")
+    local state_file="$work_dir/.sync-state"
 
     if [[ -f "$state_file" ]]; then
         jq -r ".[\"$key\"] // empty" "$state_file" 2>/dev/null || true
@@ -2815,7 +2833,9 @@ sync_get_state() {
 sync_update_state() {
     local storage_path="$1"
     shift
-    local state_file="$storage_path/.sync-state"
+    local work_dir
+    work_dir=$(_sync_work_dir "$storage_path")
+    local state_file="$work_dir/.sync-state"
 
     local current='{}'
     if [[ -f "$state_file" ]]; then
@@ -3526,6 +3546,102 @@ print(f'Dashboard written to: $html_file')
     fi
 }
 
+# Import memory seeds from wt/knowledge/memory-seed.yaml.
+# Uses content-hash duplicate detection to avoid re-importing existing memories.
+cmd_seed() {
+    local seed_file="wt/knowledge/memory-seed.yaml"
+    local dry_run=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --file) seed_file="$2"; shift 2 ;;
+            --dry-run) dry_run=true; shift ;;
+            -h|--help)
+                echo "Usage: wt-memory seed [--file <path>] [--dry-run]"
+                echo "Import memory seeds from wt/knowledge/memory-seed.yaml"
+                return 0
+                ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$seed_file" ]]; then
+        echo "Error: Seed file not found: $seed_file" >&2
+        return 1
+    fi
+
+    # Parse seeds from YAML
+    if ! command -v yq &>/dev/null; then
+        echo "Error: yq is required for seed import" >&2
+        return 1
+    fi
+
+    local seed_count
+    seed_count=$(yq -r '.seeds | length // 0' "$seed_file" 2>/dev/null)
+    if [[ "$seed_count" -eq 0 ]]; then
+        echo "No seeds found in $seed_file"
+        return 0
+    fi
+
+    local imported=0
+    local skipped=0
+
+    for i in $(seq 0 $((seed_count - 1))); do
+        local content type tags
+        content=$(yq -r ".seeds[$i].content // empty" "$seed_file" 2>/dev/null)
+        type=$(yq -r ".seeds[$i].type // \"Context\"" "$seed_file" 2>/dev/null)
+        tags=$(yq -r ".seeds[$i].tags // \"\"" "$seed_file" 2>/dev/null)
+
+        [[ -z "$content" ]] && continue
+
+        # Content-hash duplicate detection
+        local content_hash
+        content_hash=$(echo -n "$content" | sha256sum | cut -c1-16)
+
+        # Check if a memory with this content already exists (search by hash prefix in content)
+        local existing
+        existing=$(cmd_recall --query "$content" --limit 1 --mode semantic 2>/dev/null | head -1 || true)
+
+        # More precise: check if exact content exists
+        local exact_match=false
+        if [[ -n "$existing" ]]; then
+            local existing_id
+            existing_id=$(echo "$existing" | grep -oP '^[0-9a-f]+' || true)
+            if [[ -n "$existing_id" ]]; then
+                local existing_content
+                existing_content=$(cmd_get "$existing_id" 2>/dev/null | grep -A999 "Content:" | tail -n+2 | head -5 || true)
+                if [[ "$existing_content" == *"$content"* || "$content" == *"$existing_content"* ]]; then
+                    exact_match=true
+                fi
+            fi
+        fi
+
+        if $exact_match; then
+            skipped=$((skipped + 1))
+            $dry_run && echo "  SKIP (duplicate): $content"
+            continue
+        fi
+
+        # Append source:seed tag
+        if [[ -n "$tags" ]]; then
+            tags="$tags,source:seed"
+        else
+            tags="source:seed"
+        fi
+
+        if $dry_run; then
+            echo "  IMPORT: [$type] $content (tags: $tags)"
+        else
+            echo "$content" | cmd_remember --type "$type" --tags "$tags" 2>/dev/null || true
+        fi
+        imported=$((imported + 1))
+    done
+
+    local verb="Imported"
+    $dry_run && verb="Would import"
+    echo "$verb $imported seed(s), skipped $skipped duplicate(s) from $seed_file"
+}
+
 # Main dispatch — parse global --project flag before command
 main() {
     # Parse global options before command
@@ -3578,6 +3694,7 @@ main() {
         graph-stats) cmd_graph_stats "$@" ;;
         flush)    cmd_flush "$@" ;;
         todo)     cmd_todo "$@" ;;
+        seed)     cmd_seed "$@" ;;
         rules)    cmd_rules "$@" ;;
         status)   cmd_status "$@" ;;
         metrics)  cmd_metrics "$@" ;;

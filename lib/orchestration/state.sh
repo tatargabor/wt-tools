@@ -3,6 +3,50 @@
 #
 # Sourced by bin/wt-orchestrate. All functions run in the orchestrator's global scope.
 
+# ─── wt/ Directory Lookup ────────────────────────────────────────────
+
+# Find a wt-tools config file using the fallback chain:
+#   wt/ location → legacy location → empty
+# Usage: wt_find_config <name>
+# Names: orchestration, project-knowledge
+wt_find_config() {
+    local name="$1"
+    case "$name" in
+        orchestration)
+            if [[ -f "wt/orchestration/config.yaml" ]]; then
+                echo "wt/orchestration/config.yaml"
+            elif [[ -f ".claude/orchestration.yaml" ]]; then
+                echo ".claude/orchestration.yaml"
+            fi
+            ;;
+        project-knowledge)
+            if [[ -f "wt/knowledge/project-knowledge.yaml" ]]; then
+                echo "wt/knowledge/project-knowledge.yaml"
+            elif [[ -f "project-knowledge.yaml" ]]; then
+                echo "project-knowledge.yaml"
+            elif [[ -f "project-knowledge.yml" ]]; then
+                echo "project-knowledge.yml"
+            fi
+            ;;
+    esac
+}
+
+# Find the runs directory: wt/orchestration/runs/ or docs/orchestration-runs/ or empty
+wt_find_runs_dir() {
+    if [[ -d "wt/orchestration/runs" ]]; then
+        echo "wt/orchestration/runs"
+    elif [[ -d "docs/orchestration-runs" ]]; then
+        echo "docs/orchestration-runs"
+    fi
+}
+
+# Find the requirements directory: wt/requirements/ or empty
+wt_find_requirements_dir() {
+    if [[ -d "wt/requirements" ]]; then
+        echo "wt/requirements"
+    fi
+}
+
 # ─── Duration Parsing ────────────────────────────────────────────────
 
 # Parse a human-readable duration string into seconds.
@@ -574,10 +618,10 @@ brief_hash() {
 
 # ─── Config & Directives ─────────────────────────────────────────────
 
-# Load directives from .claude/orchestration.yaml
+# Load directives from orchestration config (wt/orchestration/config.yaml or .claude/orchestration.yaml)
 # Outputs JSON with only the keys found in the file (partial)
 load_config_file() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
+    if [[ -z "$CONFIG_FILE" || ! -f "$CONFIG_FILE" ]]; then
         echo '{}'
         return 0
     fi

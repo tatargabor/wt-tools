@@ -37,8 +37,11 @@ _migrate_consumer() {
     local added_directives=0
     local created_files=0
 
-    # 1. Additive directive merge for orchestration.yaml
-    local orch_yaml="$project_path/.claude/orchestration.yaml"
+    # 1. Additive directive merge for orchestration.yaml (check wt/ first)
+    local orch_yaml="$project_path/wt/orchestration/config.yaml"
+    if [[ ! -f "$orch_yaml" ]]; then
+        orch_yaml="$project_path/.claude/orchestration.yaml"
+    fi
     if [[ -f "$orch_yaml" ]]; then
         # Find directives in our known set that are missing from consumer's yaml
         local existing_keys
@@ -367,7 +370,22 @@ COMMIT_SNIPPET
         success "  Added Auto-Commit After Apply section to CLAUDE.md"
     fi
 
-    # 7. Register unified wt-tools MCP server for the project path (and any extra paths, e.g. worktree)
+    # 7. Scaffold wt/ directory structure
+    scaffold_wt_directory "$project_path"
+
+    # 8. Auto-import memory seeds if memory store is empty and seed file exists
+    local seed_file="$project_path/wt/knowledge/memory-seed.yaml"
+    if [[ -f "$seed_file" ]] && command -v wt-memory &>/dev/null; then
+        local mem_count
+        mem_count=$(cd "$project_path" && wt-memory list --limit 1 2>/dev/null | grep -c "^[0-9a-f]" || true)
+        if [[ "$mem_count" -eq 0 ]]; then
+            (cd "$project_path" && wt-memory seed 2>/dev/null) && \
+                success "  Auto-imported memory seeds from wt/knowledge/memory-seed.yaml" || \
+                warn "  Failed to import memory seeds"
+        fi
+    fi
+
+    # 9. Register unified wt-tools MCP server for the project path (and any extra paths, e.g. worktree)
     _register_mcp_server "$project_path" "$@" || ((_warnings++))
 
     return $(( _warnings > 0 ? 1 : 0 ))
@@ -457,6 +475,60 @@ if cleaned != content:
     fi
 }
 
+# Scaffold wt/ directory structure in a project.
+# Creates all standard subdirectories. Idempotent — safe to re-run.
+scaffold_wt_directory() {
+    local project_path="$1"
+    local wt_dir="$project_path/wt"
+
+    mkdir -p \
+        "$wt_dir/orchestration/runs" \
+        "$wt_dir/orchestration/plans" \
+        "$wt_dir/knowledge/patterns" \
+        "$wt_dir/knowledge/lessons" \
+        "$wt_dir/requirements" \
+        "$wt_dir/plugins" \
+        "$wt_dir/.work"
+
+    # Add wt/.work/ to .gitignore if not already present
+    local gitignore="$project_path/.gitignore"
+    if [[ -f "$gitignore" ]]; then
+        if ! grep -qx 'wt/.work/' "$gitignore" 2>/dev/null; then
+            echo 'wt/.work/' >> "$gitignore"
+        fi
+    else
+        echo 'wt/.work/' > "$gitignore"
+    fi
+
+    success "  Scaffolded wt/ directory structure"
+
+    # Detect legacy files and print migration suggestions
+    local found_legacy=false
+    local legacy_msgs=()
+    if [[ -f "$project_path/.claude/orchestration.yaml" ]]; then
+        legacy_msgs+=("    .claude/orchestration.yaml → wt/orchestration/config.yaml")
+        found_legacy=true
+    fi
+    if [[ -f "$project_path/project-knowledge.yaml" ]]; then
+        legacy_msgs+=("    project-knowledge.yaml → wt/knowledge/project-knowledge.yaml")
+        found_legacy=true
+    fi
+    if [[ -d "$project_path/docs/orchestration-runs" ]]; then
+        legacy_msgs+=("    docs/orchestration-runs/ → wt/orchestration/runs/")
+        found_legacy=true
+    fi
+
+    if $found_legacy; then
+        echo ""
+        info "  Found legacy files that can be migrated:"
+        for msg in "${legacy_msgs[@]}"; do
+            echo "$msg"
+        done
+        echo ""
+        info "  Run 'wt-project migrate' to move them."
+    fi
+}
+
 usage() {
     cat <<EOF
 Usage: wt-project <command> [options]
@@ -464,6 +536,7 @@ Usage: wt-project <command> [options]
 Commands:
   init [--name <name>]    Register current git repo as a project
   init-knowledge          Scaffold project-knowledge.yaml from project scan
+  migrate                 Migrate legacy files to wt/ directory structure
   list                    List all registered projects
   remove <name>           Remove a project from registry
   default <name>          Set default project
@@ -732,6 +805,74 @@ cmd_default() {
     success "Default project set to '$name'"
 }
 
+# Migrate legacy files to wt/ directory structure.
+# Uses git mv when in a git repo, plain mv otherwise.
+cmd_migrate() {
+    if ! is_git_repo; then
+        error "Current directory is not a git repository"
+        exit 1
+    fi
+
+    local git_root
+    git_root=$(get_git_root)
+    local use_git=true
+    local migrated=0
+
+    # Helper: move file/dir with git mv or plain mv
+    _migrate_move() {
+        local src="$1"
+        local dst="$2"
+        mkdir -p "$(dirname "$dst")"
+        if $use_git; then
+            git -C "$git_root" mv "$src" "$dst" 2>/dev/null || mv "$src" "$dst"
+        else
+            mv "$src" "$dst"
+        fi
+    }
+
+    # 1. orchestration.yaml → wt/orchestration/config.yaml
+    local orch_src="$git_root/.claude/orchestration.yaml"
+    local orch_dst="$git_root/wt/orchestration/config.yaml"
+    if [[ -f "$orch_src" && ! -f "$orch_dst" ]]; then
+        _migrate_move "$orch_src" "$orch_dst"
+        success "  Migrated .claude/orchestration.yaml → wt/orchestration/config.yaml"
+        migrated=$((migrated + 1))
+    fi
+
+    # 2. project-knowledge.yaml → wt/knowledge/project-knowledge.yaml
+    local pk_src="$git_root/project-knowledge.yaml"
+    local pk_dst="$git_root/wt/knowledge/project-knowledge.yaml"
+    if [[ -f "$pk_src" && ! -f "$pk_dst" ]]; then
+        _migrate_move "$pk_src" "$pk_dst"
+        success "  Migrated project-knowledge.yaml → wt/knowledge/project-knowledge.yaml"
+        migrated=$((migrated + 1))
+    fi
+
+    # 3. docs/orchestration-runs/* → wt/orchestration/runs/
+    local runs_src="$git_root/docs/orchestration-runs"
+    local runs_dst="$git_root/wt/orchestration/runs"
+    if [[ -d "$runs_src" ]] && ls "$runs_src"/*.md &>/dev/null; then
+        mkdir -p "$runs_dst"
+        for f in "$runs_src"/*.md; do
+            local fname
+            fname=$(basename "$f")
+            if [[ ! -f "$runs_dst/$fname" ]]; then
+                _migrate_move "$f" "$runs_dst/$fname"
+            fi
+        done
+        # Remove empty source dir
+        rmdir "$runs_src" 2>/dev/null || true
+        success "  Migrated docs/orchestration-runs/ → wt/orchestration/runs/"
+        migrated=$((migrated + 1))
+    fi
+
+    if [[ $migrated -eq 0 ]]; then
+        info "No legacy files found to migrate."
+    else
+        success "Migrated $migrated item(s). Review with 'git status' and commit."
+    fi
+}
+
 cmd_init_knowledge() {
     if ! is_git_repo; then
         error "Current directory is not a git repository"
@@ -740,12 +881,21 @@ cmd_init_knowledge() {
 
     local git_root
     git_root=$(get_git_root)
+    # Prefer wt/knowledge/ when wt/ exists, fallback to project root
     local pk_file="$git_root/project-knowledge.yaml"
+    if [[ -d "$git_root/wt/knowledge" ]]; then
+        pk_file="$git_root/wt/knowledge/project-knowledge.yaml"
+    fi
     local template="$WT_TOOLS_ROOT/templates/project-knowledge.yaml"
 
     if [[ -f "$pk_file" ]]; then
         info "project-knowledge.yaml already exists at $pk_file"
         echo "Edit it manually to add cross-cutting files and features."
+        return 0
+    fi
+    # Also check legacy location if targeting wt/
+    if [[ "$pk_file" == *"/wt/knowledge/"* && -f "$git_root/project-knowledge.yaml" ]]; then
+        info "project-knowledge.yaml exists at project root. Run 'wt-project migrate' to move it."
         return 0
     fi
 
@@ -854,6 +1004,10 @@ case "$1" in
     init-knowledge)
         shift
         cmd_init_knowledge "$@"
+        ;;
+    migrate)
+        shift
+        cmd_migrate "$@"
         ;;
     list|ls)
         cmd_list

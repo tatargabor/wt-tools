@@ -339,15 +339,9 @@ check_scope_overlap() {
     fi
 }
 
-# Find project-knowledge.yaml in the project root
+# Find project-knowledge.yaml — delegates to wt_find_config fallback chain
 find_project_knowledge_file() {
-    local candidates=("project-knowledge.yaml" "project-knowledge.yml")
-    for c in "${candidates[@]}"; do
-        if [[ -f "$c" ]]; then
-            echo "$c"
-            return
-        fi
-    done
+    wt_find_config project-knowledge
 }
 
 # ─── Subcommands ─────────────────────────────────────────────────────
@@ -520,6 +514,34 @@ $cc_files"
         fi
     fi
 
+    # Scan wt/requirements/ for active requirements (status: captured or planned)
+    local req_context=""
+    local req_dir
+    req_dir=$(wt_find_requirements_dir)
+    if [[ -n "$req_dir" && -d "$req_dir" ]]; then
+        local req_entries=""
+        for req_file in "$req_dir"/*.yaml "$req_dir"/*.yml; do
+            [[ -f "$req_file" ]] || continue
+            local req_status
+            req_status=$(yq -r '.status // "unknown"' "$req_file" 2>/dev/null || true)
+            if [[ "$req_status" == "captured" || "$req_status" == "planned" ]]; then
+                local req_id req_title req_desc req_priority
+                req_id=$(yq -r '.id // "?"' "$req_file" 2>/dev/null || true)
+                req_title=$(yq -r '.title // "Untitled"' "$req_file" 2>/dev/null || true)
+                req_desc=$(yq -r '.description // ""' "$req_file" 2>/dev/null | head -5 || true)
+                req_priority=$(yq -r '.priority // "unknown"' "$req_file" 2>/dev/null || true)
+                req_entries+="- **$req_id: $req_title** (priority: $req_priority, status: $req_status)
+  $req_desc
+"
+            fi
+        done
+        if [[ -n "$req_entries" ]]; then
+            req_context="## Business Requirements (captured/planned)
+Consider these requirements when decomposing — they represent business needs that may map to changes:
+$req_entries"
+        fi
+    fi
+
     local prompt
     if [[ "$INPUT_MODE" == "spec" ]]; then
         # Spec-mode prompt: LLM determines what's next
@@ -549,6 +571,10 @@ fi)
 $(if [[ -n "$pk_context" ]]; then
 echo ""
 echo "$pk_context"
+fi)
+$(if [[ -n "$req_context" ]]; then
+echo ""
+echo "$req_context"
 fi)
 
 ## $test_infra_context
@@ -665,6 +691,10 @@ fi)
 $(if [[ -n "$pk_context" ]]; then
 echo ""
 echo "$pk_context"
+fi)
+$(if [[ -n "$req_context" ]]; then
+echo ""
+echo "$req_context"
 fi)
 
 ## $test_infra_context
@@ -838,6 +868,21 @@ PYEOF
 
     local change_count
     change_count=$(jq '.changes | length' "$PLAN_FILENAME")
+
+    # Save plan history copy to wt/orchestration/plans/ if directory exists
+    local plans_dir
+    plans_dir=$(dirname "$PLAN_FILENAME")
+    # Check for wt/orchestration/plans/ relative to project root
+    local _proj_root
+    _proj_root=$(dirname "$PLAN_FILENAME")  # PLAN_FILENAME is absolute
+    # Go up to project root (PLAN_FILENAME is at project root level)
+    if [[ -d "${_proj_root}/wt/orchestration/plans" ]]; then
+        local plan_date
+        plan_date=$(date +%Y%m%d)
+        local plan_copy="${_proj_root}/wt/orchestration/plans/plan-v${plan_version}-${plan_date}.json"
+        cp "$PLAN_FILENAME" "$plan_copy"
+        log_info "Plan history saved: $plan_copy"
+    fi
 
     success "Plan created: $change_count changes (v$plan_version)"
     log_info "Plan created: $change_count changes (v$plan_version, mode=$INPUT_MODE)"
