@@ -1,3 +1,5 @@
+[< Back to README](../README.md)
+
 # Orchestration Guide
 
 `wt-orchestrate` is an autonomous multi-change execution engine. It reads a specification document, decomposes it into independent changes using an LLM, dispatches each to its own worktree with a Ralph loop, and monitors everything to completion — merging results back to main as they finish.
@@ -491,3 +493,7 @@ Commands:
   replan                 Re-plan from updated spec
   approve [name|--merge] Approve checkpoint / flush merge queue / unblock change
 ```
+
+---
+
+*See also: [Sentinel](sentinel.md) · [Configuration](configuration.md) · [Ralph Loop](ralph.md) · [Architecture](architecture.md)*

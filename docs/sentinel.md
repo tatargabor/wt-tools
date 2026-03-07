@@ -1,3 +1,5 @@
+[< Back to README](../README.md)
+
 # wt-sentinel — Orchestration Supervisor
 
 `wt-sentinel` supervises a `wt-orchestrate` run, handling crashes, checkpoints, and completion reporting.
@@ -79,3 +81,7 @@ Both modes handle orchestration states the same way:
 - **Always** for production orchestration runs — the sentinel catches crashes you'd otherwise miss
 - **Agent mode** when you're starting from a Claude session and want hands-off monitoring
 - **Bash mode** when running from a script, cron, or CI without Claude agent access
+
+---
+
+*See also: [Orchestration](orchestration.md) · [Ralph Loop](ralph.md) · [Architecture](architecture.md)*

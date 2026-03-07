@@ -1,0 +1,118 @@
+[< Back to README](../README.md)
+
+# Getting Started
+
+## Prerequisites
+
+| Requirement | Check | Purpose |
+|-------------|-------|---------|
+| **Git** | `git --version` | Worktree management |
+| **Python 3.10+** | `python3 --version` | GUI and MCP server |
+| **jq** | `jq --version` | JSON processing in shell scripts |
+| **Node.js** | `node --version` | Claude Code CLI |
+
+## Install wt-tools
+
+```bash
+git clone https://github.com/tatargabor/wt-tools.git
+cd wt-tools
+./install.sh
+```
+
+The installer:
+- Symlinks all `wt-*` commands to `~/.local/bin`
+- Sets up shell completions (bash/zsh)
+- Configures the MCP server for Claude Code
+- Deploys Claude Code hooks
+
+## GUI Dependencies (Optional)
+
+The Control Center GUI requires PySide6:
+
+```bash
+pip install PySide6 cloudscraper browser_cookie3
+```
+
+### Linux: Qt Plugin Path
+
+If you use conda or a non-system Python, set the Qt plugin path:
+
+```bash
+QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plugins" wt-control
+```
+
+## Developer Memory (Optional)
+
+For persistent cross-session memory:
+
+```bash
+pip install 'shodh-memory>=0.1.75,!=0.1.80'
+wt-memory health   # verify installation
+```
+
+Memory degrades gracefully — if not installed, all memory commands silently no-op.
+
+## Register Your Project
+
+```bash
+cd ~/my-project
+wt-project init
+```
+
+This registers the project, deploys hooks, commands, skills, and agents to `.claude/`, configures the MCP server, and adds memory sections to `CLAUDE.md`. Re-run anytime to update.
+
+Use `--dry-run` to preview changes without modifying files.
+
+## First Run
+
+### 1. Create a worktree
+
+```bash
+wt-new add-user-auth
+```
+
+Creates a new git worktree with branch `change/add-user-auth`.
+
+### 2. Open it
+
+```bash
+wt-work add-user-auth
+```
+
+Opens the worktree in your configured editor and starts Claude Code automatically.
+
+### 3. Launch the Control Center (optional)
+
+```bash
+wt-control
+```
+
+A compact always-on-top window showing all worktrees and agent status. Double-click any row to jump to that worktree.
+
+### 4. Run the sentinel (for multi-change work)
+
+```bash
+# From a Claude Code session in your project:
+/wt:sentinel --spec docs/my-spec.md --max-parallel 2
+```
+
+The sentinel starts the orchestrator, monitors it, handles crashes, auto-approves checkpoints, and produces a summary when done.
+
+### 5. Clean up
+
+```bash
+wt-merge add-user-auth    # merge branch back to main
+wt-close add-user-auth    # remove worktree and branch
+```
+
+## Next Steps
+
+- [Sentinel & Orchestration](sentinel.md) — autonomous multi-change execution
+- [Worktree Management](worktrees.md) — CLI commands and skills
+- [Ralph Loop](ralph.md) — autonomous single-change execution
+- [Developer Memory](developer-memory.md) — cross-session agent recall
+- [Control Center GUI](gui.md) — real-time monitoring
+
+---
+
+*See also: [CLI Reference](cli-reference.md) · [Configuration](configuration.md) · [Architecture](architecture.md)*

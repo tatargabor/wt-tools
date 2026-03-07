@@ -1,3 +1,5 @@
+[< Back to README](../README.md)
+
 # Developer Memory
 
 Per-project cognitive memory for AI agents. Agents save decisions, learnings, and context as they work — future agents in different sessions recall relevant past experience before starting. Built on [shodh-memory](https://github.com/varun29ankuS/shodh-memory), integrated across CLI, GUI, and OpenSpec workflows.
@@ -834,3 +836,7 @@ The real-world benchmark does not yet show a memory advantage. Root cause: the t
 - **No hard dependency**: Everything degrades gracefully. Memory is an enhancement, not a requirement.
 
 </details>
+
+---
+
+*See also: [Getting Started](getting-started.md) · [Configuration](configuration.md) · [MCP Server](mcp-server.md) · [CLI Reference](cli-reference.md)*
