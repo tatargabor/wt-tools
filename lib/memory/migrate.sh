@@ -121,8 +121,8 @@ run_migrations() {
 
 # Auto-migrate: run pending migrations before storage access.
 # Skipped if --no-migrate is in the global args or storage doesn't exist yet.
-AUTO_MIGRATE_DONE=false
-NO_MIGRATE=false
+AUTO_MIGRATE_DONE="${AUTO_MIGRATE_DONE:-false}"
+NO_MIGRATE="${NO_MIGRATE:-false}"
 
 auto_migrate() {
     if [[ "$AUTO_MIGRATE_DONE" == "true" ]] || [[ "$NO_MIGRATE" == "true" ]]; then

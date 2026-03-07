@@ -166,7 +166,6 @@ check_done() {
             # When --change is not set, scan all changes (existing behavior)
             local action
             action=$(detect_next_change_action "$wt_path" "$target_change")
-            warn "check_done openspec: action='$action' target='$target_change'"
             [[ "$action" == "done" ]]
             ;;
         manual)

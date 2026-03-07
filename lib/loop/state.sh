@@ -86,8 +86,8 @@ init_loop_state() {
   "last_output_hash": null,
   "session_id": null,
   "resume_failures": 0,
-  "label": $(if [[ -n "$label" ]]; then echo "\"$label\""; else echo "null"; fi),
-  "change": $(if [[ -n "$change" ]]; then echo "\"$change\""; else echo "null"; fi)
+  "label": $(if [[ -n "$label" ]]; then printf '%s' "$label" | jq -Rs .; else echo "null"; fi),
+  "change": $(if [[ -n "$change" ]]; then printf '%s' "$change" | jq -Rs .; else echo "null"; fi)
 }
 EOF
 }

@@ -85,7 +85,7 @@ cmd_remember() {
 
     # Validate --metadata is valid JSON dict if provided
     if [[ -n "$metadata" ]]; then
-        if ! echo "$metadata" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d,dict)" 2>/dev/null; then
+        if ! echo "$metadata" | "$SHODH_PYTHON" -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d,dict)" 2>/dev/null; then
             echo "Error: --metadata must be a valid JSON object (e.g., '{\"key\":\"value\"}')" >&2
             return 1
         fi
@@ -996,6 +996,3 @@ except Exception:
 
     return 0
 }
-
-# Repair index integrity
-# Usage: wt-memory repair

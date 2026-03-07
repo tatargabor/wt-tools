@@ -44,9 +44,3 @@ wt_find_requirements_dir() {
         echo "wt/requirements"
     fi
 }
-
-# ─── Duration Parsing ────────────────────────────────────────────────
-
-# Parse a human-readable duration string into seconds.
-# Supports: 30m, 4h, 2h30m, 1h15m, 90 (plain number = minutes)
-# Returns 0 on invalid input.

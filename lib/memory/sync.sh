@@ -308,7 +308,11 @@ cmd_sync() {
             push)   shift; cmd_sync_push "$@"; return $? ;;
             pull)   shift; cmd_sync_pull "$@"; return $? ;;
             status) shift; cmd_sync_status "$@"; return $? ;;
-            -*)     shift ;; # ignore flags for bare sync
+            -*)
+                echo "Error: unknown option '$1'" >&2
+                echo "Usage: wt-memory sync [push|pull|status]" >&2
+                return 1
+                ;;
             *)
                 echo "Error: unknown sync subcommand '$1'" >&2
                 echo "Usage: wt-memory sync [push|pull|status]" >&2

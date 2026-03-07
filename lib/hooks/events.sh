@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # wt-hook-memory event handlers: SessionStart, UserPrompt, PostTool, Stop, etc.
-# Dependencies: util.sh, session.sh, memory-ops.sh must be sourced first
+# Dependencies: util.sh, session.sh, memory-ops.sh, stop.sh must be sourced first
 
 handle_session_start() {
     _metrics_timer_start

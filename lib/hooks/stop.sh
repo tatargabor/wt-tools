@@ -66,8 +66,9 @@ print(f'Flushed {len(metrics)} metrics, {len(citations)} citations{match_info}',
 
 # --- Stop: Background raw transcript filter ---
 
-STOP_LOCK_FILE=".wt-tools/.transcript-extraction.lock"
-STOP_LOG_FILE=".wt-tools/transcript-extraction.log"
+_STOP_PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+STOP_LOCK_FILE="$_STOP_PROJECT_ROOT/.wt-tools/.transcript-extraction.lock"
+STOP_LOG_FILE="$_STOP_PROJECT_ROOT/.wt-tools/transcript-extraction.log"
 
 _stop_extract_change_names() {
     local transcript="$1"
@@ -105,10 +106,10 @@ _stop_raw_filter() {
 
     # Parse and filter transcript — returns JSON array of {type, content} objects
     local filtered_json
-    filtered_json=$(python3 << 'PYEOF'
+    filtered_json=$(TRANSCRIPT_PATH="$transcript" python3 << 'PYEOF'
 import json, sys, os
 
-transcript = sys.argv[1]
+transcript = os.environ['TRANSCRIPT_PATH']
 entries = []
 file_read_counts = {}
 
@@ -176,7 +177,7 @@ with open(transcript) as f:
 
 print(json.dumps(entries))
 PYEOF
-    "$transcript")
+    )
 
     [[ -z "$filtered_json" || "$filtered_json" == "[]" ]] && return 0
 

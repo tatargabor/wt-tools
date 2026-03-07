@@ -2,6 +2,9 @@
 # wt-hook-memory ops: recall, proactive, rules matching, output formatting
 # Dependencies: util.sh, session.sh must be sourced first
 
+# Global state: last context IDs from proactive/recall (used by callers for metrics)
+_LAST_CONTEXT_IDS=""
+
 load_matching_rules() {
     local prompt_text="$1"
 
@@ -79,6 +82,7 @@ proactive_and_format() {
     local query="$1" limit="${2:-5}"
     _log "proactive: query='${query:0:80}' limit=$limit"
 
+    > "$TMPFILE"  # Clear stale data before new query
     wt-memory proactive "$query" --limit "$limit" 2>/dev/null > "$TMPFILE" || { _log "proactive: FAILED"; return 1; }
 
     local result
@@ -205,6 +209,7 @@ recall_and_format() {
     local query="$1" limit="${2:-3}" mode="${3:-hybrid}"
     _log "recall: query='${query:0:80}' mode=$mode limit=$limit"
 
+    > "$TMPFILE"  # Clear stale data before new query
     wt-memory recall "$query" --limit "$limit" --mode "$mode" 2>/dev/null > "$TMPFILE" || { _log "recall: FAILED"; return 1; }
 
     local result
@@ -260,6 +265,8 @@ for m in memories:
     print(f'  [{s}] {c[:100]}', file=sys.stderr)
     print(f'  - [MEM#{cid}] {c}')
 
+if not context_ids: sys.exit(1)
+
 # Write context IDs and content map to side files
 ids_file = sys.argv[1] + '.ids'
 with open(ids_file, 'w') as f:
@@ -284,7 +291,7 @@ except Exception:
         done < "$TMPFILE.err"
     fi
     rm -f "$TMPFILE.err"
-    [[ $rc -ne 0 ]] && { _log "recall: no results"; return 1; }
+    [[ $rc -ne 0 ]] && { _log "recall: no results after filtering"; return 1; }
 
     # Store injected content for passive matching (reads side file)
     local ids_file="$TMPFILE.ids"

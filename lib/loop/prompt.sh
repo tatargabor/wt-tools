@@ -85,6 +85,16 @@ detect_next_change_action() {
             continue  # Skip — this change is verified complete
         fi
 
+        # Check 0.5: Does the change directory exist? (may be archived)
+        if [[ ! -d "$change_dir" ]]; then
+            # Check if archived
+            if [[ -d "$wt_path/openspec/changes/archive/$change" ]]; then
+                continue  # Archived — skip
+            fi
+            echo "ff:$change"
+            return
+        fi
+
         # Check 1: Does tasks.md exist? (ff done)
         if [[ ! -f "$tasks_file" ]]; then
             echo "ff:$change"

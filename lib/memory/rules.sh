@@ -236,6 +236,3 @@ with open(rules_file, "w") as f:
 print(f"Rule removed: {rule_id}")
 PYEOF
 }
-
-# Todo management — lightweight task capture built on memory API
-# Usage: wt-memory todo add|list|done|clear [options]

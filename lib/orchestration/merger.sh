@@ -165,6 +165,15 @@ merge_change() {
         fi
 
         # Post-merge smoke/e2e tests: run on main after merge (not pre-merge — worktree code isn't on localhost)
+        # Read smoke config from persisted state (not monitor_loop locals)
+        local smoke_command smoke_blocking smoke_timeout smoke_health_check_url smoke_health_check_timeout smoke_fix_max_retries smoke_fix_max_turns
+        smoke_command=$(jq -r '.directives.smoke_command // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
+        smoke_blocking=$(jq -r '.directives.smoke_blocking // "false"' "$STATE_FILENAME" 2>/dev/null || echo "false")
+        smoke_timeout=$(jq -r '.directives.smoke_timeout // "120"' "$STATE_FILENAME" 2>/dev/null || echo "120")
+        smoke_health_check_url=$(jq -r '.directives.smoke_health_check_url // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
+        smoke_health_check_timeout=$(jq -r '.directives.smoke_health_check_timeout // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
+        smoke_fix_max_retries=$(jq -r '.directives.smoke_fix_max_retries // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
+        smoke_fix_max_turns=$(jq -r '.directives.smoke_fix_max_turns // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
         if [[ -n "${smoke_command:-}" ]]; then
             update_change_field "$change_name" "smoke_status" '"pending"'
 

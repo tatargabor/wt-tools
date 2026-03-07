@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # wt-memory UI: metrics, tui, dashboard, seed
 # Dependencies: sourced by bin/wt-memory after infra setup
+# Requires: _wt_memory_bin_dir, SHODH_PYTHON, run_with_lock, run_shodh_python — set by bin/wt-memory
 
 cmd_metrics() {
     local since_days=7
@@ -437,7 +438,7 @@ cmd_seed() {
 
         # Check if a memory with this content already exists (search by hash prefix in content)
         local existing
-        existing=$(cmd_recall --query "$content" --limit 1 --mode semantic 2>/dev/null | head -1 || true)
+        existing=$(cmd_recall "$content" --limit 1 --mode semantic 2>/dev/null | head -1 || true)
 
         # More precise: check if exact content exists
         local exact_match=false

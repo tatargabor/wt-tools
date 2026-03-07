@@ -404,6 +404,9 @@ main() {
         esac
     done
 
+    # Project root for cross-module use (merger.sh, builder.sh)
+    PROJECT_PATH=$(pwd)
+
     local command="${1:-}"
     shift 2>/dev/null || true
 

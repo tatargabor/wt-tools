@@ -2,6 +2,91 @@
 # wt-project deploy functions: split from deploy_wt_tools() monolith
 # Dependencies: wt-common.sh must be sourced, WT_TOOLS_ROOT and SCRIPT_DIR must be set
 
+# Runtime guards
+[[ -n "${SCRIPT_DIR:-}" ]] || { echo "deploy.sh: SCRIPT_DIR not set" >&2; return 1; }
+[[ -n "${WT_TOOLS_ROOT:-}" ]] || { echo "deploy.sh: WT_TOOLS_ROOT not set" >&2; return 1; }
+
+# Register wt-tools MCP server for given project paths
+_register_mcp_server() {
+    if ! command -v claude &>/dev/null; then
+        return 0  # claude CLI not available, skip
+    fi
+    local mcp_server_dir="$WT_TOOLS_ROOT/mcp-server"
+    [[ -d "$mcp_server_dir" ]] || return 0
+    local had_failure=0
+    for reg_path in "$@"; do
+        [[ -d "$reg_path" ]] || continue
+        # Remove old server names (may not exist — stderr suppressed intentionally)
+        (cd "$reg_path" && claude mcp remove wt-memory 2>/dev/null; claude mcp remove wt-tools 2>/dev/null) || true
+        # Register — capture errors, do NOT suppress stderr
+        local mcp_err
+        mcp_err=$(cd "$reg_path" && claude mcp add wt-tools -- env CLAUDE_PROJECT_DIR="$reg_path" uv --directory "$mcp_server_dir" run python wt_mcp_server.py 2>&1)
+        if [[ $? -ne 0 ]]; then
+            warn "  MCP registration failed for $reg_path: $mcp_err"
+            had_failure=1
+        fi
+    done
+    if [[ $had_failure -eq 0 ]]; then
+        success "  Registered wt-tools MCP server"
+    fi
+    return $had_failure
+}
+
+# Clean up deprecated memory references from skill/command files
+_cleanup_deprecated_memory_refs() {
+    local project_path="$1"
+
+    # Remove <!-- wt-memory hooks --> blocks from SKILL.md files
+    if [[ -d "$project_path/.claude/skills" ]]; then
+        find "$project_path/.claude/skills" -name "SKILL.md" -type f 2>/dev/null | while read -r f; do
+            if grep -q '<!-- wt-memory hooks' "$f" 2>/dev/null; then
+                if ! python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove all wt-memory hooks blocks (including variants like hooks-midflow, hooks-remember, etc.)
+cleaned = re.sub(r'<!--\s*wt-memory hooks[^>]*-->.*?<!--\s*/wt-memory hooks[^>]*-->\s*\n?', '', content, flags=re.DOTALL)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>&1; then
+                    warn "  Failed to clean up memory hooks in $f"
+                fi
+            fi
+        done
+    fi
+
+    # Remove manual wt-memory recall/remember instructions from command .md files
+    # Exclude commands/wt/ — those are wt-tools' own commands that legitimately use wt-memory
+    if [[ -d "$project_path/.claude/commands" ]]; then
+        find "$project_path/.claude/commands" -name "*.md" -type f 2>/dev/null | while read -r f; do
+            # Skip wt-tools command files (commands/wt/*.md) — they use wt-memory intentionally
+            [[ "$f" == */commands/wt/*.md ]] && continue
+            if grep -qE 'wt-memory (recall|remember)' "$f" 2>/dev/null; then
+                if ! python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove lines containing wt-memory recall or wt-memory remember instructions
+lines = content.split('\n')
+cleaned_lines = [l for l in lines if not re.search(r'wt-memory\s+(recall|remember)', l)]
+cleaned = '\n'.join(cleaned_lines)
+if cleaned != content:
+    with open(sys.argv[1], 'w') as f:
+        f.write(cleaned)
+" "$f" 2>&1; then
+                    warn "  Failed to clean up memory refs in $f"
+                fi
+            fi
+        done
+    fi
+
+    # Delete .claude/hot-topics.json if it exists
+    if [[ -f "$project_path/.claude/hot-topics.json" ]]; then
+        rm -f "$project_path/.claude/hot-topics.json"
+    fi
+}
+
 # Deploy hooks via wt-deploy-hooks
 _deploy_hooks() {
     local project_path="$1"
@@ -100,7 +185,7 @@ _deploy_skills() {
                 local rel_path="${src_file#"$src_rules/"}"
                 local dir_part
                 dir_part=$(dirname "$rel_path")
-                [[ "$dir_part" == gui ]] && continue
+                [[ "$dir_part" == gui ]] && continue  # gui/ rules are for wt-tools' own GUI, not consumer projects
                 local base_name
                 base_name=$(basename "$rel_path")
                 local dst_dir="$dst_rules"

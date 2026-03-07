@@ -62,7 +62,7 @@ cmd_run() {
             add_iteration "$state_file" "$current_iter_num" "$current_iter_started" "$ended" "false" "$commits" "0" "false"
         fi
 
-        if [[ -f "$state_file" ]]; then
+        if [[ -n "${state_file:-}" && -f "$state_file" ]]; then
             update_loop_state "$state_file" "status" '"stopped"'
         fi
     }
@@ -230,13 +230,17 @@ cmd_run() {
             local iter_start_epoch_resume
             iter_start_epoch_resume=$(date +%s)
 
+            # Note: eval is safe here — perm_flags/model_flag/session_flags are
+            # fully controlled strings from get_claude_permission_flags() and jq,
+            # never from user input. eval is needed because --allowedTools "X,Y"
+            # requires proper word splitting of the quoted argument.
             if [[ -n "$TIMEOUT_CMD" ]]; then
-                echo "$effective_prompt" | env -u CLAUDECODE $STDBUF_PREFIX $TIMEOUT_CMD --foreground --signal=TERM "$timeout_seconds" \
+                eval "echo \"\$effective_prompt\" | env -u CLAUDECODE $STDBUF_PREFIX $TIMEOUT_CMD --foreground --signal=TERM \"$timeout_seconds\" \
                     claude $perm_flags $model_flag $session_flags \
-                       --verbose 2>&1 | $STDBUF_PREFIX tee -a "$iter_log_file"
+                       --verbose 2>&1 | $STDBUF_PREFIX tee -a \"\$iter_log_file\""
             else
-                echo "$effective_prompt" | env -u CLAUDECODE $STDBUF_PREFIX claude $perm_flags $model_flag $session_flags \
-                   --verbose 2>&1 | $STDBUF_PREFIX tee -a "$iter_log_file"
+                eval "echo \"\$effective_prompt\" | env -u CLAUDECODE $STDBUF_PREFIX claude $perm_flags $model_flag $session_flags \
+                   --verbose 2>&1 | $STDBUF_PREFIX tee -a \"\$iter_log_file\""
             fi
             claude_exit_code=${PIPESTATUS[0]:-$?}
 

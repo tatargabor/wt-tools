@@ -327,7 +327,7 @@ SCOPED_FIX_EOF
 
         # Verify fix didn't break unit tests or build
         local test_cmd
-        test_cmd=$(echo "$directives" | jq -r '.test_command // ""' 2>/dev/null || echo "")
+        test_cmd=$(jq -r '.directives.test_command // ""' "$STATE_FILENAME" 2>/dev/null || echo "")
         if [[ -n "$test_cmd" ]]; then
             local test_rc=0
             timeout 300 bash -c "$test_cmd" >>"$LOG_FILE" 2>&1 || test_rc=$?
@@ -452,7 +452,7 @@ poll_change() {
                     [[ -n "$line" ]] && log_info "  $line"
                 done <<< "$manual_summary"
                 info "$change_name — waiting for human input. Run: wt-manual show $change_name"
-                send_notification "wt-orchestrate" "Change '$change_name' needs human action. Run: wt-manual show $change_name" "warning"
+                send_notification "wt-orchestrate" "Change '$change_name' needs human action. Run: wt-manual show $change_name" "normal"
             fi
             ;;
         budget_exceeded|waiting:budget)
@@ -467,7 +467,7 @@ poll_change() {
                 budget_limit=$(jq -r '.token_budget // 0' "$loop_state" 2>/dev/null)
                 log_warn "Change $change_name budget checkpoint: $((budget_tokens / 1000))K / $((budget_limit / 1000))K — waiting for human"
                 info "$change_name — budget checkpoint ($((budget_tokens / 1000))K / $((budget_limit / 1000))K). Run: wt-loop resume"
-                send_notification "wt-orchestrate" "Change '$change_name' budget checkpoint — run 'wt-loop resume' to continue" "warning"
+                send_notification "wt-orchestrate" "Change '$change_name' budget checkpoint — run 'wt-loop resume' to continue" "normal"
             fi
             ;;
         stopped|stalled|stuck)
@@ -761,7 +761,7 @@ handle_change_done() {
     if [[ "$test_files_count" -eq 0 ]]; then
         log_warn "Verify gate: $change_name has NO test files in the diff — consider adding tests"
         update_change_field "$change_name" "has_tests" "false"
-        send_notification "wt-orchestrate" "Change '$change_name' has no test files" "warning"
+        send_notification "wt-orchestrate" "Change '$change_name' has no test files" "normal"
     else
         log_info "Verify gate: $change_name has $test_files_count test file(s)"
         update_change_field "$change_name" "has_tests" "true"

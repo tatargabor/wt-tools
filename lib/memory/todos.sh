@@ -270,6 +270,3 @@ print(f'Cleared {count} todos.')
 
     return 0
 }
-
-# Verify index integrity — find orphaned memories not in vector index
-# Usage: wt-memory verify

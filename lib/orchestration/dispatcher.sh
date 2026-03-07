@@ -677,14 +677,14 @@ cmd_start() {
 
         # Plan approval gate: if directive set, wait for user to approve
         local directives_for_gate
-        directives_for_gate=$(parse_directives)
+        directives_for_gate=$(parse_directives "$INPUT_PATH")
         local need_approval
         need_approval=$(echo "$directives_for_gate" | jq -r '.plan_approval // false')
         if [[ "$need_approval" == "true" ]]; then
             info "Plan generated. Review with 'wt-orchestrate plan --show'"
             info "Approve with 'wt-orchestrate approve' to begin dispatch."
             log_info "Plan approval required — entering plan_review state"
-            init_state "$PLAN_FILENAME" "$directives_for_gate"
+            init_state "$PLAN_FILENAME"
             update_state_field "status" '"plan_review"'
             return 0
         fi

@@ -268,9 +268,6 @@ _MEM_OPS_TOTAL_MS=0
 _MEM_RECALL_COUNT=0
 _MEM_RECALL_TOTAL_MS=0
 
-# Save a memory with source:orchestrator tag prefix.
-# Usage: orch_remember "content" [type] [extra,tags]
-
 cmd_status() {
     if [[ ! -f "$STATE_FILENAME" ]]; then
         if [[ -f "$PLAN_FILENAME" ]]; then

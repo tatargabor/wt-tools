@@ -502,9 +502,6 @@ cmd_dedup() {
     return 0
 }
 
-# Export all memories to JSON
-# Usage: wt-memory export [--output FILE]
-
 cmd_verify() {
     if ! cmd_health >/dev/null 2>&1; then
         echo "{}"
@@ -530,6 +527,34 @@ try:
 except AttributeError:
     print(json.dumps({'error': 'verify_index not available — upgrade shodh-memory to >=0.1.81'}))
 " || echo "{}"
+
+    return 0
+}
+
+# Repair index integrity — re-index orphaned memories
+# Usage: wt-memory repair
+cmd_repair() {
+    if ! cmd_health >/dev/null 2>&1; then
+        echo '{"repaired": false, "error": "shodh-memory not available"}'
+        return 0
+    fi
+
+    local storage_path
+    storage_path=$(get_storage_path)
+    mkdir -p "$storage_path"
+
+    _SHODH_STORAGE="$storage_path" \
+    run_with_lock run_shodh_python -c "
+import sys; sys._shodh_star_shown = True
+import json, os
+from shodh_memory import Memory
+m = Memory(storage_path=os.environ['_SHODH_STORAGE'])
+try:
+    result = m.repair_index()
+    print(json.dumps(result, default=str))
+except AttributeError:
+    print(json.dumps({'error': 'repair_index not available — upgrade shodh-memory to >=0.1.81'}))
+" || echo '{"repaired": false}'
 
     return 0
 }
@@ -713,7 +738,7 @@ cmd_projects() {
 
         if cmd_health >/dev/null 2>&1; then
             local count
-            count=$(_SHODH_STORAGE="$dir" run_shodh_python -c "
+            count=$(_SHODH_STORAGE="$dir" run_with_lock run_shodh_python -c "
 import sys; sys._shodh_star_shown = True
 import os
 from shodh_memory import Memory
@@ -730,7 +755,7 @@ print(stats.get('total_memories', 0))
     # Check for legacy storage (sst files directly in root)
     if ls "$SHODH_STORAGE"/*.sst >/dev/null 2>&1; then
         has_projects=true
-        echo "  _legacy: (unmigrared global storage)"
+        echo "  _legacy: (unmigrated global storage)"
     fi
 
     if [[ "$has_projects" == "false" ]]; then

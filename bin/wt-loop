@@ -550,7 +550,8 @@ cmd_list() {
             [[ -z "$wt_path" ]] && continue
             [[ "$wt_path" == "$project_path" ]] && continue
 
-            local state_file="$wt_path/.claude/loop-state.json"
+            local state_file
+            state_file=$(get_loop_state_file "$wt_path")
             if [[ -f "$state_file" ]]; then
                 local status wt_name iteration max_iter
                 status=$(jq -r '.status' "$state_file" 2>/dev/null)
