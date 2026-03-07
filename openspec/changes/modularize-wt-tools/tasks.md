@@ -52,13 +52,13 @@
 
 ## 6. Phase 5 — wt-loop Split
 
-- [ ] 6.1 Create `lib/loop/state.sh` — extract state management functions (get_loop_state_file, init_loop_state, update_loop_state, add_iteration, get_current_tokens, estimate_tokens_from_files)
-- [ ] 6.2 Create `lib/loop/tasks.sh` — extract task detection (count_manual_tasks, parse_manual_tasks, check_tasks_done, generate_fallback_tasks, check_done)
-- [ ] 6.3 Create `lib/loop/prompt.sh` — extract prompt building (detect_next_change_action, build_prompt)
-- [ ] 6.4 Create `lib/loop/engine.sh` — extract cmd_run() refactored
-- [ ] 6.5 Refactor `bin/wt-loop` — keep CLI commands + main dispatcher, source lib/loop/*.sh
-- [ ] 6.6 Create `tests/unit/test_loop_tasks.sh` — test task detection modes
-- [ ] 6.7 Run `wt-loop status` and existing loop tests to verify
+- [x] 6.1 Create `lib/loop/state.sh` — extract state management functions (get_loop_state_file, init_loop_state, update_loop_state, add_iteration, get_current_tokens, estimate_tokens_from_files)
+- [x] 6.2 Create `lib/loop/tasks.sh` — extract task detection (count_manual_tasks, parse_manual_tasks, check_tasks_done, generate_fallback_tasks, check_done)
+- [x] 6.3 Create `lib/loop/prompt.sh` — extract prompt building (detect_next_change_action, build_prompt)
+- [x] 6.4 Create `lib/loop/engine.sh` — extract cmd_run() refactored
+- [x] 6.5 Refactor `bin/wt-loop` — keep CLI commands + main dispatcher, source lib/loop/*.sh
+- [x] 6.6 Create `tests/unit/test_loop_tasks.sh` — test task detection modes
+- [x] 6.7 Run `wt-loop status` and existing loop tests to verify
 
 ## 7. Phase 6 — wt-project Deploy Refactor
 
