@@ -125,27 +125,33 @@ Solo-developer project — community help with cross-platform testing is valued.
 
 | Tool | Stars | Description |
 |------|-------|-------------|
-| [claude-squad](https://github.com/smtg-ai/claude-squad) | 6k | TUI for tmux+worktree multi-agent sessions (Go) |
-| [ccpm](https://github.com/automazeio/ccpm) | 7k | GitHub Issues as PM layer + worktree agent swarm |
-| [automaker](https://github.com/AutoMaker-Org/automaker) | 3k | Electron Kanban board + worktree AI agents |
+| [claude-squad](https://github.com/smtg-ai/claude-squad) | 6.2k | TUI for tmux+worktree multi-agent sessions (Go) |
+| [ccpm](https://github.com/automazeio/ccpm) | 7.6k | GitHub Issues as PM layer + worktree agent swarm |
+| [automaker](https://github.com/AutoMaker-Org/automaker) | 3k | Electron Kanban board + autonomous AI agents |
+| [agent-deck](https://github.com/asheshgoplani/agent-deck) | 1.4k | TUI+Web session manager for multiple AI agents (Go) |
 
 ### Multi-Agent Orchestration
 
 | Tool | Stars | Description |
 |------|-------|-------------|
-| [claude-flow](https://github.com/ruvnet/claude-flow) | 14k | Enterprise agent swarm platform, 87+ MCP tools |
-| [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) | 6k | 5 execution modes (Autopilot/Swarm/Pipeline) |
+| [ruflo](https://github.com/ruvnet/ruflo) | 19.6k | Enterprise agent swarm platform with MCP integration |
+| [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) | 8.7k | Teams-first orchestration with 32 agents, 37 skills |
+| [overstory](https://github.com/jayminwest/overstory) | 748 | Multi-agent orchestration with pluggable runtime adapters |
 
 ### Feature Comparison
 
 ```
-                    Native  Worktree  Ralph  Orchestr- Team   MCP   Memory
-                    GUI     Isolation  Loop  ation     Sync  Server
-────────────────────────────────────────────────────────────────────────
-wt-tools             Y       Y        Y      Y        Y      Y      Y
-claude-squad         TUI     Y        -      -        -      -      -
-ccpm                 -       Y        -      -        -      -      -
-claude-flow          -       -        Y      Y        -      Y      -
+                    GUI    Worktree  Auto   Orchestr- Team   MCP    Memory
+                           Isolation Loop   ation     Sync   Server
+─────────────────────────────────────────────────────────────────────────
+wt-tools             Y       Y       Y       Y        Y      Y       Y
+claude-squad        TUI      Y       Y       -        -      -       -
+ccpm                 -       Y       -       Y        Y      -       Y
+automaker            Y       Y       Y       Y        Y      -       -
+ruflo                -       -       Y       Y        Y      Y       Y
+oh-my-claudecode     -       Y       Y       Y        Y      -       Y
+agent-deck         TUI+W     Y       ~       -        -      Y       -
+overstory          TUI       Y       Y       Y        Y      -       -
 ```
 
 </details>
