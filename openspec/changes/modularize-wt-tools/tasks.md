@@ -38,17 +38,17 @@
 
 ## 5. Phase 4 — Orchestration Refactor
 
-- [ ] 5.1 Create `lib/orchestration/config.sh` — extract wt_find_config, wt_find_runs_dir, wt_find_requirements_dir from state.sh
-- [ ] 5.2 Create `lib/orchestration/orch-memory.sh` — extract orch_remember, orch_recall, orch_recall_by_date from state.sh
-- [ ] 5.3 Create `lib/orchestration/utils.sh` — extract parse_duration, format_duration, brief_hash, parse_directives, parse_next_items from state.sh
-- [ ] 5.4 Refactor `lib/orchestration/state.sh` — keep jq state operations only (~400 lines)
-- [ ] 5.5 Create `lib/orchestration/builder.sh` — extract check_base_build, fix_base_build_with_llm from dispatcher.sh
-- [ ] 5.6 Create `lib/orchestration/monitor.sh` — extract monitor_loop, poll_change, dispatch_queued_changes from dispatcher.sh
-- [ ] 5.7 Refactor `lib/orchestration/dispatcher.sh` — keep dispatch/resume/pause core (~350 lines)
-- [ ] 5.8 Update merger.sh — use builder.sh instead of duplicated BASE_BUILD_* logic
-- [ ] 5.9 Update `bin/wt-orchestrate` — adjust source order for new modules
-- [ ] 5.10 Create `tests/unit/test_orch_state.sh` — test state query functions
-- [ ] 5.11 Run orchestration integration tests
+- [x] 5.1 Create `lib/orchestration/config.sh` — extract wt_find_config, wt_find_runs_dir, wt_find_requirements_dir from state.sh
+- [x] 5.2 Create `lib/orchestration/orch-memory.sh` — extract orch_remember, orch_recall, orch_recall_by_date from state.sh
+- [x] 5.3 Create `lib/orchestration/utils.sh` — extract parse_duration, format_duration, brief_hash, parse_directives, parse_next_items from state.sh
+- [x] 5.4 Refactor `lib/orchestration/state.sh` — keep jq state operations only (~400 lines)
+- [x] 5.5 Create `lib/orchestration/builder.sh` — extract check_base_build, fix_base_build_with_llm from dispatcher.sh
+- [x] 5.6 Create `lib/orchestration/monitor.sh` — extract monitor_loop, poll_change, dispatch_queued_changes from dispatcher.sh
+- [x] 5.7 Refactor `lib/orchestration/dispatcher.sh` — keep dispatch/resume/pause core (~350 lines)
+- [ ] 5.8 Update merger.sh — use builder.sh instead of duplicated BASE_BUILD_* logic (SKIPPED: too risky, tight coupling)
+- [x] 5.9 Update `bin/wt-orchestrate` — adjust source order for new modules
+- [x] 5.10 Create `tests/unit/test_orch_state.sh` — test state query functions
+- [x] 5.11 Run orchestration integration tests
 
 ## 6. Phase 5 — wt-loop Split
 

@@ -114,13 +114,19 @@ rotate_log() {
 
 LIB_DIR="$SCRIPT_DIR/../lib/orchestration"
 
-source "$LIB_DIR/events.sh"
-source "$LIB_DIR/state.sh"
+# Source order matters — modules depend on earlier ones
+source "$LIB_DIR/events.sh"        # foundational: emit_event, query_events
+source "$LIB_DIR/config.sh"        # config/path lookup (extracted from state.sh)
+source "$LIB_DIR/utils.sh"         # parsing, duration, hashing (extracted from state.sh)
+source "$LIB_DIR/state.sh"         # state init, queries, notifications
+source "$LIB_DIR/orch-memory.sh"   # memory helpers (extracted from state.sh)
 source "$LIB_DIR/watchdog.sh"
 source "$LIB_DIR/planner.sh"
-source "$LIB_DIR/dispatcher.sh"
+source "$LIB_DIR/builder.sh"       # base build health (extracted from dispatcher.sh)
+source "$LIB_DIR/dispatcher.sh"    # change lifecycle: dispatch, resume, pause
 source "$LIB_DIR/verifier.sh"
 source "$LIB_DIR/merger.sh"
+source "$LIB_DIR/monitor.sh"       # monitor loop (extracted from dispatcher.sh)
 
 # ─── Self-Test ───────────────────────────────────────────────────────
 
