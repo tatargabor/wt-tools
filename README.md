@@ -14,6 +14,8 @@ Beyond orchestration: **Developer Memory** gives agents persistent cross-session
 
 wt-tools is modular — cherry-pick what's useful. The GUI is optional; CLI tools, Claude Code skills, memory, and the MCP server all work independently.
 
+> **Not a weekend experiment.** wt-tools is built from real production experience — web apps, research projects, sensor systems, education platforms, mobile apps, across Linux and macOS. Every feature is battle-tested on client projects at [ITLine Kft.](https://itline.hu) and continuously updated with the latest Claude Code patterns, community contributions, and best practices from Cursor and other tools. Built on Anthropic's Claude as a stable foundation. Open source because good tooling shouldn't be gatekept.
+
 ```
 spec.md ──► /wt:sentinel ──► orchestrate ──► worktrees (parallel) ──► merged features
                                   │

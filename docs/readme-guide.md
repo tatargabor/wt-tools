@@ -20,6 +20,7 @@ The README MUST contain these 10 sections in this exact order:
 - Mention Developer Memory with benchmark result (+34% convention compliance)
 - Simple ASCII architecture diagram (sentinel-centric, max 10 lines)
 - NO screenshots on the main README — GUI images belong in `docs/gui.md`
+- **Credibility paragraph** (blockquote): Not a weekend experiment — built from real production experience across diverse project types (web, research, sensor, education, apps, Linux/macOS). Battle-tested on client projects at ITLine Kft. Continuously updated with latest Claude Code patterns and community best practices. Built on Anthropic's Claude. Open source.
 - Keep it high-level — details live in doc pages
 
 ### 3. Quick Start
