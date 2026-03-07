@@ -593,6 +593,47 @@ $([ -n "$parent" ] && echo "parent: $parent" || true)
 
 # Stats: ${rules_count} verification rules, ${directives_count} orchestration directives
 # Rules and directives are loaded dynamically from the installed package.
+# Use 'wt-project-base resolve --project-dir .' to see the merged final set.
+
+# ── Project Customizations ──────────────────────────────────────────
+# Add, disable, or override rules and directives below.
+# These sections are yours — wt-project init will not overwrite them.
+
+# Add custom verification rules (same format as package rules):
+# custom_rules:
+#   - id: my-custom-rule
+#     description: "Description of what this rule checks"
+#     check: pattern-absence    # check type
+#     severity: warning         # error, warning, info
+#     config:
+#       pattern: "src/**/*.ts"
+#       forbidden: "some-pattern"
+
+# Disable package rules that don't apply to this project:
+# disabled_rules:
+#   - ghost-button-text
+#   - todo-tracking
+
+# Override config of existing rules:
+# rule_overrides:
+#   file-size-limit:
+#     config:
+#       max_lines: 600
+
+# Add custom orchestration directives:
+# custom_directives:
+#   - id: run-custom-lint
+#     description: "Run custom linter after changes"
+#     trigger: 'change-modifies("src/**")'
+#     action: post-merge
+#     config: { command: "pnpm lint:custom" }
+
+# Disable package directives:
+# disabled_directives:
+#   - install-deps-python
+
+# For personal (non-shared) overrides, create .local-overrides.yaml
+# in this directory — it uses the same format and is gitignored.
 YAML
 
     success "  Project type set to '$type_name' ($rules_count rules, $directives_count directives)"
