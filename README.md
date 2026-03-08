@@ -9,30 +9,65 @@
 
 ## Why wt-tools?
 
-You have a spec with 10 features. You could implement them one by one. Or you could hand the spec to wt-tools and let parallel Claude Code agents implement, test, and merge all of them — while you sleep.
+Claude Code is already incredibly powerful. wt-tools asks: *how far can we push it?*
 
-**The problem:** Claude Code is powerful but single-threaded. Running multiple agents means managing worktrees, tracking progress, handling crashes, and merging results manually.
+You have a spec with 10 features. Hand it to wt-tools — parallel agents decompose, implement, test, and merge all of them while you sleep. Some of these capabilities will eventually land in Claude Code natively (like Agent Teams). We're exploring the frontier now, learning what works in production, and sharing the patterns.
 
-**wt-tools solves this** with an end-to-end pipeline:
+**wt-tools is a full autonomous pipeline:**
 
 ```
-spec.md ──► decompose ──► parallel worktrees ──► verify & merge ──► done
-               │              │        │
-           sentinel      Ralph loops  memory
-           supervises     per change   recall
+spec.md ──► decompose ──► parallel agents ──► merge ──► done
 ```
+
+<details>
+<summary>What's actually happening under the hood</summary>
+
+```
+spec.md
+  │
+  ▼
+┌─────────────────────────────────────────────────────┐
+│ Sentinel                                            │
+│  ├─ decomposes spec into independent changes        │
+│  ├─ dispatches each to its own git worktree         │
+│  ├─ monitors progress, restarts on crash            │
+│  └─ merges verified results back to main            │
+│                                                     │
+│  Per change:                                        │
+│  ┌────────────────────────────────────────────┐     │
+│  │ Ralph Loop                                 │     │
+│  │  ├─ OpenSpec artifacts (design → tasks)     │     │
+│  │  ├─ iterative implementation with tests     │     │
+│  │  ├─ progress-based trend detection          │     │
+│  │  └─ auto-pause on stall or budget limit     │     │
+│  └────────────────────────────────────────────┘     │
+│                                                     │
+│  Across all agents:                                 │
+│  ┌────────────────────────────────────────────┐     │
+│  │ Memory Layer                               │     │
+│  │  ├─ 5-layer hooks inject context per tool   │     │
+│  │  ├─ agents learn from each other's work     │     │
+│  │  └─ conventions survive across sessions     │     │
+│  └────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────┘
+  │
+  ▼
+merged, tested, done
+```
+
+</details>
 
 ![Orchestrator TUI — live dashboard](docs/images/orchestrator-tui.png)
 
-### What makes it different
+### What we've learned pushing the limits
 
-| | wt-tools | Most alternatives |
-|---|---|---|
-| **Pipeline** | Full spec → merge (decompose, dispatch, verify, merge) | Session management only |
-| **Memory** | Persistent cross-session recall (+34% convention compliance) | No memory or basic logs |
-| **Workflow** | OpenSpec: structured proposal → design → spec → tasks → code | Ad-hoc prompts |
-| **Supervision** | Sentinel: auto-restart, crash recovery, progress monitoring | Manual monitoring |
-| **Architecture** | File-based, no daemon, no database, no external service | Often requires servers |
+| Capability | What wt-tools adds |
+|---|---|
+| **Full pipeline** | Spec → decompose → parallel dispatch → verify → merge — hands-off |
+| **Persistent memory** | Cross-session semantic recall — agents learn from each other (+34% convention compliance) |
+| **Structured workflow** | OpenSpec: proposal → design → spec → tasks → code — keeps agents on track |
+| **Autonomous supervision** | Sentinel: crash recovery, progress monitoring, auto-restart |
+| **Zero infrastructure** | File-based, no daemon, no database, no external service |
 
 ---
 
@@ -83,7 +118,7 @@ See [Getting Started](docs/getting-started.md) for the full guide.
 
 | Situation | Tool |
 |---|---|
-| Single agent, single project | You probably don't need wt-tools yet |
+| Single agent, single project | Claude Code alone is great — start there |
 | 2+ agents or switching projects | Control Center GUI + `wt-work` |
 | Structured feature development | OpenSpec (`/opsx:new` → `/opsx:apply`) |
 | Task list to grind through | Ralph Loop (`wt-loop start`) |
@@ -94,16 +129,20 @@ See [Getting Started](docs/getting-started.md) for the full guide.
 
 ## Fork & Adapt
 
-wt-tools is **not a weekend experiment**. It's built from months of real production work across web apps, research projects, sensor systems, education platforms, and mobile apps on Linux and macOS. Every feature is battle-tested on client projects and continuously updated.
+Our primary focus is web development — that's where we push hardest. But wt-tools is project-agnostic by design. The base tooling (worktrees, memory, orchestration) works on any codebase: APIs, mobile apps, data pipelines, research projects. Built from months of production work across web apps, sensor systems, education platforms, and more.
 
-**Why fork or copy from it:**
-- Production-tested orchestration patterns you won't find elsewhere
-- 40+ OpenSpec archived changes showing real development history
+**Why fork or study it:**
+- Battle-tested orchestration patterns from real client projects
+- 40+ archived OpenSpec changes showing real development history
 - Modular — cherry-pick what you need (CLI, memory, orchestration, GUI)
 - Well-structured `.claude/` setup (hooks, skills, commands, agents) ready to adapt
-- Actively maintained with latest Claude Code patterns
+- Continuously updated as Claude Code's capabilities expand
 
 Built and used in production by [ITLine Kft.](https://itline.hu) and [Zengo Kft.](https://zengo.eu).
+
+### On the horizon
+
+Claude Code is evolving fast — Agent Teams, persistent memory, and better autonomous loops are all coming. We're not racing against these; we're exploring ahead of them. When they land natively, we'll integrate or retire gracefully. The patterns and production learnings remain valuable either way.
 
 ---
 
@@ -151,7 +190,7 @@ The Claude Code multi-agent space is evolving fast. Tools fall into three catego
 **Plugins/enhancements** — make Claude Code smarter from within (oh-my-claudecode, wshobson/agents)
 **Spec-driven orchestrators** — decompose work, dispatch, verify, merge (wt-tools, ccpm, overstory)
 
-Note: Claude Code's native Agent Teams feature (experimental) handles basic multi-agent coordination within a single worktree. wt-tools orchestrates *across* worktrees with spec decomposition, verification gates, and persistent memory.
+Note: Claude Code's native Agent Teams (experimental) is moving fast — many wt-tools patterns will likely become built-in. We see this as validation, not competition. The value is in what we've learned building production orchestration, and this repo shares those patterns openly.
 
 | Tool | Stars | Category | Focus |
 |---|---|---|---|
