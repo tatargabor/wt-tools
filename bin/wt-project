@@ -582,6 +582,12 @@ _prompt_modules() {
     echo ""
     info "Optional modules available:"
     echo "$available"
+
+    # Skip interactive prompt if not a TTY (e.g., called from run.sh)
+    if [[ ! -t 0 ]]; then
+        return 0
+    fi
+
     echo ""
     read -rp "  Select modules (comma-separated, or enter to skip): " SELECTED_MODULES
 }

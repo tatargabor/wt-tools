@@ -110,7 +110,7 @@ init_project() {
 
     step "wt-project init"
     handle_name_conflict
-    wt-project init --name "$PROJECT_NAME" --project-type web || true
+    wt-project init --name "$PROJECT_NAME" --project-type web --template nextjs || true
 
     if [[ ! -d ".claude" ]]; then
         die ".claude/ directory not created by wt-project init"
