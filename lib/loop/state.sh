@@ -157,14 +157,14 @@ get_current_tokens() {
     local since="${1:-}"
     local usage_json
 
-    # Derive project dir from $PWD: replace / with -, strip leading -
-    # This matches Claude's observed project directory naming convention
+    # Derive project dir from $PWD: replace / with -
+    # Claude's project dirs keep the leading dash (e.g. -home-tg-code-project)
     local project_dir_flag=""
     local derived_dir
-    derived_dir=$(echo "$PWD" | sed 's|/|-|g; s|^-||')
+    derived_dir=$(echo "$PWD" | sed 's|/|-|g')
     local claude_projects_dir="$HOME/.claude/projects"
     if [[ -d "$claude_projects_dir/$derived_dir" ]]; then
-        project_dir_flag="--project-dir $derived_dir"
+        project_dir_flag="--project-dir=$derived_dir"
     elif [[ -n "$derived_dir" ]]; then
         echo "warn: derived project dir '$derived_dir' not found under $claude_projects_dir, falling back to unfiltered" >&2
     fi
