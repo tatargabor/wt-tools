@@ -130,13 +130,22 @@ prune_worktree_context() {
         for pattern in orchestrate sentinel manual; do
             for f in "$cmd_dir"/${pattern}*.md; do
                 [[ -f "$f" ]] || continue
-                rm -f "$f"
+                # Use git rm for tracked files to avoid "uncommitted changes" on merge
+                if git -C "$wt_path" ls-files --error-unmatch "$f" &>/dev/null; then
+                    git -C "$wt_path" rm -q "$f" 2>/dev/null || rm -f "$f"
+                else
+                    rm -f "$f"
+                fi
                 pruned=$((pruned + 1))
             done
         done
     fi
 
-    [[ "$pruned" -gt 0 ]] && log_info "Pruned $pruned orchestrator command(s) from worktree"
+    if [[ "$pruned" -gt 0 ]]; then
+        log_info "Pruned $pruned orchestrator command(s) from worktree"
+        # Commit the pruning so worktree stays clean for merge
+        git -C "$wt_path" commit -m "chore: prune orchestrator commands from worktree" --no-verify 2>/dev/null || true
+    fi
     return 0
 }
 
