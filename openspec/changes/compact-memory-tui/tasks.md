@@ -26,8 +26,24 @@
 - [x] 4.2 Implement worktree name abbreviation: strip base project prefix, show `(main)` for exact match, truncate to 22 chars
 - [x] 4.3 Format each session line: `MM-DD HH:MM  <wt-name>  <inj>  <tok>  <cites>`
 
-## 5. Testing
+## 5. Testing (phase 1)
 
 - [x] 5.1 Verify `query_report(project="wt-tools")` returns only wt-tools sessions (manual test from wt-tools dir)
 - [x] 5.2 Verify `wt-memory tui --once` from a project dir shows project-scoped data
 - [x] 5.3 Verify narrow terminal (< 120) still renders single-column layout
+
+## 6. Backend: Daily activity + importance data
+
+- [x] 6.1 Add `daily_sessions` to `query_report()` return: per-day session count + token total
+- [x] 6.2 Change default `since_days` to 30 when project filter is active
+
+## 7. TUI: Right column enrichment
+
+- [x] 7.1 Replace session list with daily activity table (date, session count, tokens) — top section
+- [x] 7.2 Add importance histogram from `wt-memory stats` to left column below relevance
+- [x] 7.3 Show top tags (filtered to non-source tags) in right column below daily activity
+
+## 8. Testing (phase 2)
+
+- [x] 8.1 Verify daily activity table shows correct per-day data
+- [x] 8.2 Verify 30d default when project-scoped, 7d when global

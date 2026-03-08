@@ -75,7 +75,7 @@ else:
 }
 
 cmd_tui() {
-    local since_days=7
+    local since_days=""
     local json_output=false
     local live_mode=true
     local poll_interval=10
@@ -120,6 +120,15 @@ cmd_tui() {
     fi
     if [[ -z "$tui_project" ]]; then
         tui_project=$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null | xargs basename 2>/dev/null || true)
+    fi
+
+    # Default since_days: 30d when project-scoped, 7d when global
+    if [[ -z "$since_days" ]]; then
+        if [[ -n "$tui_project" ]]; then
+            since_days=30
+        else
+            since_days=7
+        fi
     fi
 
     local py
@@ -370,6 +379,24 @@ if report:
             filled = '█' * bar_len
             dots = '·' * (bar_max - bar_len)
             left.append(f'{label:<8} {bar_color}{filled}{RST}{dots} {pct:>4.0f}%')
+    left.append('')
+
+    # Importance histogram (from memory stats)
+    if mem_stats:
+        imp = mem_stats.get('importance_histogram', {})
+        imp_total = sum(imp.values())
+        if imp_total > 0:
+            left.append(f'{BOLD}{BLU}IMPORTANCE{RST}')
+            bar_max = col_l - 22
+            for label, key, clr in [('low', '0.0-0.2', RED), ('mid-lo', '0.2-0.4', YEL), ('mid-hi', '0.4-0.6', GRN), ('high', '0.6-0.8', CYN), ('top', '0.8-1.0', MAG)]:
+                val = imp.get(key, 0)
+                if val == 0:
+                    continue
+                pct = val / imp_total * 100
+                bar_len = int(pct / 100 * bar_max)
+                filled = '█' * bar_len
+                dots = '·' * (bar_max - bar_len)
+                left.append(f'{label:<7} {clr}{filled}{RST}{dots} {pct:>4.0f}% {DIM}({val}){RST}')
 else:
     if not is_enabled():
         left.append(f'{YEL}No data. Enable with:{RST}')
@@ -421,28 +448,44 @@ if report:
             center.append(f'rel {rel_spark}')
             center.append(f'    {DIM}({min(rel_values):.3f} — {max(rel_values):.3f}){RST}')
 
-# --- Build RIGHT column (session list) ---
+# --- Build RIGHT column (daily activity + tags) ---
 right = []
 if report:
-    sess_list = report.get('sessions', [])[:15]
-    right.append(f'{BOLD}{BLU}RECENT SESSIONS{RST} ({report[\"session_count\"]})')
-    right.append(f'{DIM}Date        Worktree              Inj   Tokens  C{RST}')
-    wt_max = max(12, col_r - 38)
-    for s in sess_list:
-        ended = s.get('ended_at', '')
+    # Daily activity table
+    daily_sess = report.get('daily_sessions', [])[:15]
+    right.append(f'{BOLD}{BLU}DAILY ACTIVITY{RST} ({report[\"session_count\"]} total)')
+    right.append(f'{DIM}Date        Sessions    Tokens{RST}')
+    for d in daily_sess:
+        day = d.get('day', '?')
+        # Format as MM-DD
         try:
-            dt = datetime.fromisoformat(ended.replace('Z', '+00:00'))
-            date_str = dt.strftime('%m-%d %H:%M')
+            day_short = day[5:]  # "2026-03-08" -> "03-08"
         except Exception:
-            date_str = ended[:10] if ended else '?'
-        wt_name = shorten_project(s.get('project', ''), project_filter)
-        if len(wt_name) > wt_max:
-            wt_name = wt_name[:wt_max - 2] + '..'
-        inj = s.get('total_injections', 0)
-        tok = s.get('total_tokens', 0)
-        cit = s.get('citation_count', 0)
-        cit_str = f'{CYN}{cit}{RST}' if cit > 0 else f'{DIM}{cit}{RST}'
-        right.append(f'{date_str}  {wt_name:<{wt_max}}  {inj:>3}  {fmt_count(tok):>7}  {cit_str}')
+            day_short = day
+        cnt = d.get('sessions', 0)
+        tok = d.get('tokens', 0)
+        # Color-code busy days
+        if cnt >= 50:
+            cnt_str = f'{RED}{BOLD}{cnt:>4}{RST}'
+        elif cnt >= 20:
+            cnt_str = f'{YEL}{cnt:>4}{RST}'
+        else:
+            cnt_str = f'{cnt:>4}'
+        right.append(f'{day_short}        {cnt_str} sess   {fmt_count(tok):>8} tok')
+    right.append('')
+
+    # Top tags (filter out boring source:* and branch:* tags)
+    if mem_stats:
+        tags = mem_stats.get('tag_distribution', mem_stats.get('top_tags', {}))
+        if tags:
+            # Filter to interesting tags
+            skip_prefixes = ('source:', 'branch:', 'phase:')
+            interesting = [(k, v) for k, v in tags.items() if not any(k.startswith(p) for p in skip_prefixes)]
+            if interesting:
+                right.append(f'{BOLD}{BLU}HOT TAGS{RST}')
+                for k, v in interesting[:8]:
+                    short_k = k if len(k) <= col_r - 8 else k[:col_r - 11] + '..'
+                    right.append(f'{DIM}{v:>4}{RST}  {short_k}')
 
 # --- Merge columns into output ---
 # Ensure all columns have the same number of rows

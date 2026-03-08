@@ -399,6 +399,14 @@ def query_report(since_days=7, project=None):
         total_injected_ids = usage_row["inj"]
         total_matched_ids = usage_row["mat"]
 
+        # Daily session activity (count + tokens per day)
+        daily_sessions = conn.execute(
+            f"""SELECT DATE(ended_at) as day, COUNT(*) as cnt, COALESCE(SUM(total_tokens),0) as tok
+               FROM sessions s WHERE ended_at >= ?{proj_clause}
+               GROUP BY DATE(ended_at) ORDER BY day DESC""",
+            _params(cutoff),
+        ).fetchall()
+
         conn.close()
 
         non_dedup = dedup_total - dedup_hits
@@ -433,6 +441,7 @@ def query_report(since_days=7, project=None):
             "daily_tokens": [{"day": r["day"], "tokens": r["tok"]} for r in daily_tokens],
             "daily_relevance": [{"day": r["day"], "avg_relevance": round(r["avg_rel"], 3)} for r in daily_relevance],
             "sessions": [dict(r) for r in sessions],
+            "daily_sessions": [{"day": r["day"], "sessions": r["cnt"], "tokens": r["tok"]} for r in daily_sessions],
         }
     except Exception:
         conn.close()
