@@ -85,6 +85,43 @@ echo $$ > "$PID_FILE"
 rapid_crashes=0
 backoff_secs=$BACKOFF_BASE
 
+# Clean slate: if no state file or state is terminal (done/stopped), reset ephemeral files
+# This prevents stale logs/events from confusing the new run.
+clean_old_worktrees() {
+    # Remove worktrees and branches from a previous orchestration run
+    local wt_list
+    wt_list=$(git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' || true)
+    while IFS= read -r wt_path; do
+        [[ -z "$wt_path" ]] && continue
+        [[ "$wt_path" == "$(pwd)" ]] && continue  # skip main worktree
+        sentinel_log "Removing old worktree: $wt_path"
+        git worktree remove "$wt_path" --force 2>/dev/null || rm -rf "$wt_path"
+    done <<< "$wt_list"
+    git worktree prune 2>/dev/null || true
+    # Remove change/* branches
+    local branches
+    branches=$(git branch --list 'change/*' 2>/dev/null | sed 's/^[* ]*//' || true)
+    while IFS= read -r branch; do
+        [[ -z "$branch" ]] && continue
+        sentinel_log "Removing old branch: $branch"
+        git branch -D "$branch" 2>/dev/null || true
+    done <<< "$branches"
+}
+
+if [[ ! -f "$STATE_FILE" ]]; then
+    sentinel_log "No state file — starting fresh (cleaning old logs/events/worktrees)"
+    rm -f "$EVENTS_FILE"
+    clean_old_worktrees
+    : > "$LOG_FILE"  # truncate but keep the file (our log lines above are already there)
+elif [[ -f "$STATE_FILE" ]]; then
+    _prev_status=$(jq -r '.status // ""' "$STATE_FILE" 2>/dev/null || true)
+    if [[ "$_prev_status" == "done" || "$_prev_status" == "stopped" ]]; then
+        sentinel_log "Previous run finished (status=$_prev_status) — cleaning old state for fresh start"
+        rm -f "$STATE_FILE" "$EVENTS_FILE"
+        clean_old_worktrees
+    fi
+fi
+
 # Check orchestrator liveness via events.jsonl mtime
 check_orchestrator_liveness() {
     [[ ! -f "$EVENTS_FILE" ]] && return 0  # No events file yet — still starting
