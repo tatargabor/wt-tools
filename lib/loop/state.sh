@@ -175,9 +175,9 @@ get_current_tokens() {
         usage_json=$("$SCRIPT_DIR/wt-usage" $project_dir_flag --format json 2>/dev/null || echo '{"total_tokens": 0}')
     fi
 
-    # Extract total_tokens, default to 0 if not a valid number
+    # Extract input + output tokens (excludes cache_read/cache_creation which inflate counts)
     local tokens
-    tokens=$(echo "$usage_json" | jq -r '.total_tokens // 0' 2>/dev/null)
+    tokens=$(echo "$usage_json" | jq -r '(.input_tokens // 0) + (.output_tokens // 0)' 2>/dev/null)
     if [[ "$tokens" =~ ^[0-9]+$ ]]; then
         echo "$tokens"
     else
