@@ -238,16 +238,30 @@ proj_label = project_filter if project_filter else 'all projects'
 now = datetime.now().strftime('%H:%M:%S')
 
 if not wide_mode:
-    # === NARROW LAYOUT (< 120 cols) — original single-column ===
+    # === COMPACT LAYOUT (< 120 cols) — fits 80x24+ ===
+    w = min(78, term_width - 2)
     lines = []
-    title = f'  Memory Dashboard — {proj_label}'
-    lines.append(f'{BOLD}{CYN}{title}{RST}  {DIM}(last {since_days}d, updated {now}){RST}')
-    sep = '━' * min(66, term_width - 2)
-    lines.append(f'{CYN}{sep}{RST}')
-    lines.append('')
 
-    # Memory Database
-    lines.append(f'  {BOLD}{BLU}MEMORY DATABASE{RST}')
+    # Header
+    title = f' {proj_label}'
+    lines.append(f'{CYN}┌{\"─\" * w}┐{RST}')
+    hdr_right = f'{since_days}d  {now} '
+    hdr_pad = w - len(title) - len(hdr_right)
+    lines.append(f'{CYN}│{RST}{BOLD}{CYN}{title}{RST}{\" \" * max(1, hdr_pad)}{DIM}{hdr_right}{RST}{CYN}│{RST}')
+    lines.append(f'{CYN}├{\"─\" * w}┤{RST}')
+
+    def row(left_str, right_str=''):
+        \"\"\"Build a bordered row with left and optional right-aligned text.\"\"\"
+        if right_str:
+            gap = w - visible_len(left_str) - visible_len(right_str)
+            return f'{CYN}│{RST} {left_str}{\" \" * max(1, gap - 1)}{right_str}{CYN}│{RST}'
+        padded = pad(f' {left_str}', w)
+        return f'{CYN}│{RST}{padded}{CYN}│{RST}'
+
+    def section_sep():
+        return f'{CYN}├{\"─\" * w}┤{RST}'
+
+    # --- DB + Overhead in one block ---
     if mem_stats:
         total = mem_stats.get('total', mem_stats.get('total_memories', 0))
         noise_raw = mem_stats.get('noise_ratio', 0)
@@ -257,50 +271,141 @@ if not wide_mode:
             noise_val = 0
         noise_color = GRN if noise_val < 15 else (YEL if noise_val < 30 else RED)
         types = mem_stats.get('type_distribution', {})
-        type_parts = []
-        for t, clr in [('Learning', GRN), ('Context', BLU), ('Decision', MAG)]:
-            c = types.get(t, 0)
-            if c > 0:
-                type_parts.append(f'{clr}{t}: {c}{RST}')
-        lines.append(f'  {BOLD}{total}{RST} memories    Noise: {noise_color}{noise_val:.0f}%{RST}    {\"  \".join(type_parts)}')
+        t_l = types.get('Learning', 0)
+        t_c = types.get('Context', 0)
+        t_d = types.get('Decision', 0)
+        lines.append(row(
+            f'{BOLD}{total}{RST} mem  {noise_color}{noise_val:.0f}%{RST} noise',
+            f'{GRN}L:{t_l}{RST} {BLU}C:{t_c}{RST} {MAG}D:{t_d}{RST} '
+        ))
     else:
-        lines.append(f'  {DIM}Memory DB: unavailable{RST}')
-    lines.append('')
+        lines.append(row(f'{DIM}Memory DB: unavailable{RST}'))
 
     if not report:
         if not is_enabled():
-            lines.append(f'  {YEL}No metrics data. Enable with: wt-memory metrics --enable{RST}')
+            lines.append(row(f'{YEL}No metrics. Enable: wt-memory metrics --enable{RST}'))
         else:
-            lines.append(f'  {DIM}No metrics data yet.{RST}')
+            lines.append(row(f'{DIM}No metrics data yet.{RST}'))
+        lines.append(f'{CYN}└{\"─\" * w}┘{RST}')
         if live_mode:
-            lines.append(f'{DIM}  Refreshing every $poll_interval seconds... (Ctrl+C to exit){RST}')
+            lines.append(f'{DIM} Refreshing every $poll_interval s... (Ctrl+C){RST}')
         print('\n'.join(lines))
         sys.exit(0)
 
-    # Hook Overhead
-    lines.append(f'  {BOLD}{BLU}HOOK OVERHEAD{RST}')
     sessions_cnt = report['session_count']
     tokens = report['total_tokens']
-    lines.append(f'  Sessions: {BOLD}{sessions_cnt}{RST}    Tokens: {BOLD}{tokens:,}{RST}')
     avg_tok = tokens / sessions_cnt if sessions_cnt > 0 else 0
     budget_pct = avg_tok / 200000 * 100
     budget_color = GRN if budget_pct < 3 else (YEL if budget_pct < 5 else RED)
-    lines.append(f'  Avg/session: {avg_tok:,.0f} tok    Budget: {budget_color}{budget_pct:.2f}%{RST}')
-    lines.append('')
+    lines.append(row(
+        f'{BOLD}{sessions_cnt}{RST} sess  {BOLD}{fmt_count(tokens)}{RST} tok  {avg_tok:,.0f}/s',
+        f'budget {budget_color}{budget_pct:.1f}%{RST} '
+    ))
 
-    # Usage Signals
-    lines.append(f'  {BOLD}{BLU}USAGE SIGNALS{RST}')
+    lines.append(section_sep())
+
+    # --- Layers (compact) ---
+    for layer in report.get('layers', []):
+        avg_rel = layer.get('avg_rel', 0)
+        rel_color = GRN if avg_rel >= 0.5 else (YEL if avg_rel >= 0.3 else (RED if avg_rel > 0 else DIM))
+        lines.append(row(
+            f'{CYN}{layer[\"layer\"]:<4}{RST} {fmt_count(layer[\"cnt\"]):>5}x  {layer[\"avg_tok\"]:>5.0f}t',
+            f'{rel_color}{avg_rel:.2f}{RST} rel '
+        ))
+
+    lines.append(section_sep())
+
+    # --- Usage signals (one-line each) ---
     usage_rate = report.get('usage_rate')
     if usage_rate is not None:
         u_color = GRN if usage_rate >= 30 else (YEL if usage_rate >= 10 else RED)
-        lines.append(f'  Usage rate:    {u_color}{BOLD}{usage_rate:>5.1f}%{RST}')
+        lines.append(row(f'Usage {u_color}{BOLD}{usage_rate:.1f}%{RST}', f'Cites {report[\"citation_rate\"]:.1f}%  Dedup {report[\"dedup_rate\"]:.1f}%  Empty {report[\"empty_rate\"]:.1f}% '))
     else:
-        lines.append(f'  Usage rate:    {DIM}N/A{RST}')
-    lines.append(f'  Cites:  {report[\"citation_rate\"]:>5.1f}%    Dedup: {report[\"dedup_rate\"]:>5.1f}%    Empty: {report[\"empty_rate\"]:>5.1f}%')
-    lines.append('')
+        lines.append(row(f'Usage {DIM}N/A{RST}', f'Cites {report[\"citation_rate\"]:.1f}%  Dedup {report[\"dedup_rate\"]:.1f}%  Empty {report[\"empty_rate\"]:.1f}% '))
 
+    # --- Relevance bar (single line) ---
+    rel = report.get('relevance', {})
+    total_rel = rel.get('strong', 0) + rel.get('partial', 0) + rel.get('weak', 0)
+    if total_rel > 0:
+        bar_w = w - 30
+        parts = []
+        for key, clr in [('strong', GRN), ('partial', YEL), ('weak', RED)]:
+            val = rel.get(key, 0)
+            n = max(0, int(val / total_rel * bar_w))
+            if n > 0:
+                parts.append(f'{clr}{\"█\" * n}{RST}')
+        pct_s = rel['strong'] / total_rel * 100
+        pct_p = rel['partial'] / total_rel * 100
+        pct_w = rel['weak'] / total_rel * 100
+        bar = ''.join(parts)
+        lines.append(row(f'Rel {bar}', f'{GRN}{pct_s:.0f}{RST}/{YEL}{pct_p:.0f}{RST}/{RED}{pct_w:.0f}{RST}% '))
+
+    # --- Importance (single line) ---
+    if mem_stats:
+        imp = mem_stats.get('importance_histogram', {})
+        imp_total = sum(imp.values())
+        if imp_total > 0:
+            bar_w = w - 30
+            parts = []
+            for key, clr in [('0.0-0.2', RED), ('0.2-0.4', YEL), ('0.4-0.6', GRN), ('0.6-0.8', CYN), ('0.8-1.0', MAG)]:
+                val = imp.get(key, 0)
+                n = max(0, int(val / imp_total * bar_w))
+                if n > 0:
+                    parts.append(f'{clr}{\"█\" * n}{RST}')
+            bar = ''.join(parts)
+            lo = imp.get('0.0-0.2', 0) + imp.get('0.2-0.4', 0)
+            hi = imp.get('0.4-0.6', 0) + imp.get('0.6-0.8', 0) + imp.get('0.8-1.0', 0)
+            lines.append(row(f'Imp {bar}', f'lo:{lo} hi:{hi} '))
+
+    lines.append(section_sep())
+
+    # --- Daily activity (compact, last 10) ---
+    daily_sess = report.get('daily_sessions', [])[:10]
+    if daily_sess:
+        lines.append(row(f'{BOLD}{BLU}DAILY{RST}'))
+        for d in daily_sess:
+            day = d.get('day', '?')
+            try:
+                day_short = day[5:]
+            except Exception:
+                day_short = day
+            cnt = d.get('sessions', 0)
+            tok = d.get('tokens', 0)
+            if cnt >= 50:
+                cnt_str = f'{RED}{BOLD}{cnt:>3}{RST}'
+            elif cnt >= 20:
+                cnt_str = f'{YEL}{cnt:>3}{RST}'
+            else:
+                cnt_str = f'{cnt:>3}'
+            lines.append(row(f'{DIM}{day_short}{RST}  {cnt_str} sess  {fmt_count(tok):>7} tok'))
+
+    # --- Sparklines ---
+    daily_tokens = report.get('daily_tokens', [])
+    daily_relevance = report.get('daily_relevance', [])
+    if len(daily_tokens) >= 3:
+        tok_values = [d['tokens'] for d in daily_tokens]
+        tok_spark = sparkline(tok_values, CYN)
+        lines.append(row(f'tok {tok_spark}  {DIM}{fmt_count(min(tok_values))}—{fmt_count(max(tok_values))}{RST}'))
+        if daily_relevance:
+            rel_values = [d['avg_relevance'] for d in daily_relevance]
+            rel_spark = sparkline(rel_values, GRN)
+            lines.append(row(f'rel {rel_spark}  {DIM}{min(rel_values):.3f}—{max(rel_values):.3f}{RST}'))
+
+    # --- Hot tags ---
+    if mem_stats:
+        tags = mem_stats.get('tag_distribution', mem_stats.get('top_tags', {}))
+        if tags:
+            skip_prefixes = ('source:', 'branch:', 'phase:')
+            interesting = [(k, v) for k, v in tags.items() if not any(k.startswith(p) for p in skip_prefixes)]
+            if interesting:
+                lines.append(section_sep())
+                tag_parts = [f'{k}:{v}' for k, v in interesting[:5]]
+                lines.append(row(f'{DIM}{\"  \".join(tag_parts)}{RST}'))
+
+    # Footer
+    lines.append(f'{CYN}└{\"─\" * w}┘{RST}')
     if live_mode:
-        lines.append(f'{DIM}  Refreshing every $poll_interval seconds... (Ctrl+C to exit){RST}')
+        lines.append(f'{DIM} Refreshing every $poll_interval s... (Ctrl+C){RST}')
     print('\n'.join(lines))
     sys.exit(0)
 
