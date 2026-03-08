@@ -1,0 +1,76 @@
+# MiniShop E2E Test
+
+End-to-end test for wt-tools orchestration. A single spec file (`scaffold/docs/v1-minishop.md`) is the only input — agents build an entire Next.js webshop from it.
+
+## Prerequisites
+
+```bash
+# These must be installed and in PATH:
+command -v pnpm          # pnpm package manager
+command -v wt-project    # wt-tools project manager
+command -v wt-sentinel   # wt-tools orchestration sentinel
+
+# wt-project-web plugin must be registered:
+wt-project list-types    # should show "web"
+
+# If not installed:
+cd /home/tg/code2/wt-project-web && pip install -e .
+```
+
+## Run
+
+```bash
+# Step 1: Initialize test project (creates dir, copies spec, runs wt-project init)
+./tests/e2e/run.sh                    # default: /tmp/minishop-e2e
+./tests/e2e/run.sh ~/e2e-test         # or custom dir
+
+# Step 2: Start orchestration
+cd /tmp/minishop-e2e                  # or your custom dir
+wt-sentinel --spec docs/v1-minishop.md
+```
+
+The sentinel will:
+- Plan 6 changes from the spec (products-page, cart-feature, orders-checkout, admin-auth, admin-products, playwright-e2e)
+- Dispatch agents in parallel (max 2)
+- Manage merges, smoke tests, and checkpoints
+
+## After Completion
+
+```bash
+# Generate E2E report with screenshots
+cd /tmp/minishop-e2e
+wt-e2e-report --project-dir .
+
+# Report output:
+# - e2e-report.md        (summary, per-change stats, timeline)
+# - e2e-screenshots/     (Playwright screenshots of each page)
+```
+
+## Verification
+
+Check `e2e-report.md` and the verification checklist at the end of `docs/v1-minishop.md`. Key items:
+
+- 6 changes all completed
+- `pnpm test` passes
+- `pnpm build` succeeds
+- Products page shows 6 products with EUR prices
+- Cart + checkout flow works
+- Admin auth protects only `/admin/*` routes
+- Screenshots captured for all main pages
+
+## Cleanup
+
+```bash
+rm -rf /tmp/minishop-e2e
+wt-project remove minishop-e2e
+```
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `wt-project-web plugin not installed` | `cd /home/tg/code2/wt-project-web && pip install -e .` |
+| `run.sh` says existing project detected | Delete the test dir or use a different path |
+| Agent can't find spec | Check `docs/v1-minishop.md` exists in the test project |
+| Port 3000 in use | Kill existing process: `lsof -ti:3000 \| xargs kill` |
+| Sentinel stuck | Check `wt-sentinel` logs, use `wt-status` to see agent states |
