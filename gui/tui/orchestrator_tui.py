@@ -333,7 +333,11 @@ class OrchestratorTUI(App):
                 time_text += f" / {format_duration(time_limit)} limit [red](exceeded)[/]"
 
         # Compose header
-        line1 = f"  {status_text}  {plan_text}  {done}/{total} done  Tokens: {format_tokens(total_tokens)}"
+        if prev_tokens > 0 and current_tokens > 0:
+            token_text = f"Tokens: {format_tokens(current_tokens)} (plan) / {format_tokens(total_tokens)} all"
+        else:
+            token_text = f"Tokens: {format_tokens(total_tokens)}"
+        line1 = f"  {status_text}  {plan_text}  {done}/{total} done  {token_text}"
         line2 = f"  {time_text}"
 
         # Extra note for time_limit status
