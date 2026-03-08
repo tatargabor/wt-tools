@@ -37,7 +37,7 @@ preflight() {
 
     command -v wt-project &>/dev/null || die "wt-project not found in PATH"
     command -v node &>/dev/null || die "node not found in PATH"
-    command -v npm &>/dev/null || die "npm not found in PATH"
+    command -v pnpm &>/dev/null || die "pnpm not found in PATH"
 
     if ! wt-project list-types 2>/dev/null | grep -q "web"; then
         die "wt-project-web plugin not installed (wt-project list-types does not show 'web')"
@@ -148,9 +148,9 @@ init_project() {
     fi
     cat > wt/orchestration/config.yaml <<YAML
 # Orchestration config for MiniShop E2E test
-smoke_command: npm test
+smoke_command: pnpm test
 smoke_blocking: true
-test_command: npm test
+test_command: pnpm test
 max_parallel: 2
 merge_policy: checkpoint
 checkpoint_auto_approve: true
@@ -164,14 +164,23 @@ YAML
     git tag v1-initialized
     success "Tagged v1-initialized"
 
-    step "npm install"
-    npm install || die "npm install failed"
+    step "pnpm install"
+    pnpm install || die "pnpm install failed"
 
-    step "npm test (smoke check)"
-    npm test || die "npm test failed — scaffold tests broken"
+    step "Prisma setup"
+    pnpm prisma generate || die "prisma generate failed"
+    pnpm prisma migrate dev --name init || die "prisma migrate failed"
+    pnpm prisma db seed || die "prisma seed failed"
+    success "Prisma: generated, migrated, seeded"
+
+    step "Playwright install"
+    pnpm exec playwright install chromium --with-deps || warn "Playwright install failed (non-fatal)"
+
+    step "pnpm test (smoke check)"
+    pnpm test || die "pnpm test failed — scaffold tests broken"
 
     git add -A
-    git commit -m "chore: npm install"
+    git commit -m "chore: pnpm install + prisma init"
     git tag v2-ready
     success "Tagged v2-ready"
 }
@@ -187,6 +196,10 @@ show_completion() {
     info "To start the E2E test:"
     echo "  cd $TEST_DIR"
     echo "  wt-sentinel --spec docs/v1-minishop.md"
+    echo ""
+    info "After sentinel completes, generate the E2E report:"
+    echo "  cd $TEST_DIR"
+    echo "  wt-e2e-report --project-dir $TEST_DIR"
     echo ""
     info "When done, cleanup:"
     echo "  rm -rf $TEST_DIR"

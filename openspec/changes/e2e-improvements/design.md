@@ -1,0 +1,127 @@
+## Context
+
+The E2E minishop scaffold tests wt-tools orchestration end-to-end. Currently it's a simple Express+SQLite API with 4 changes. We're upgrading to Next.js + Prisma + shadcn/ui to test a realistic modern web stack — the same stack `wt-project-web` targets. This will expose bugs in how agents handle complex frameworks, cross-cutting changes, and merge conflicts.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Fix token counting to be per-worktree accurate
+- Rewrite E2E scaffold as Next.js App Router + Prisma (SQLite) + shadcn/ui + Tailwind
+- Design a challenging feature roadmap (6 changes with dependencies, cross-cutting auth, shared components)
+- Add Playwright E2E browser tests to the scaffold
+- Generate a post-run report with screenshots, timeline, and stats
+- Everything runs locally (localhost:3000), no deploy needed
+
+**Non-Goals:**
+- Deployment (Docker, Vercel) — local only
+- Payment processing — orders are the end of the flow
+- Real-time features (WebSocket, SSE)
+- External services (email, SMS, S3)
+
+## Decisions
+
+### D1: Token Scoping — project-dir filter
+
+`UsageCalculator.iter_jsonl_files()` currently walks ALL subdirs under `~/.claude/projects/`. Add an optional `project_dir` parameter that filters to a single project directory.
+
+In `get_current_tokens()`, derive the project dir name from `$PWD` using Claude's observed encoding: replace `/` with `-`, strip leading `-`. Pass it to `wt-usage --project-dir <name>`. Note: this encoding is reverse-engineered from observed behavior and may not cover all edge cases (spaces, Unicode). The fallback to unfiltered scanning is the primary safety net.
+
+Backward compatible — without the flag, behavior is unchanged. Also change `iter_jsonl_files()` to use recursive glob (`rglob('*.jsonl')`) to include subagent session subdirectories.
+
+### D2: Scaffold Stack — Next.js App Router
+
+**Stack:**
+- **Framework:** Next.js 14+ App Router (`app/` directory)
+- **Database:** Prisma ORM + SQLite (file-based, zero config)
+- **UI:** shadcn/ui components (Radix primitives + Tailwind)
+- **CSS:** Tailwind CSS
+- **Auth:** NextAuth.js v5 (Auth.js) — App Router native, `auth()` for session access, Credentials provider, JWT session strategy, bcryptjs passwords
+- **Package manager:** pnpm
+- **Testing:** Jest + React Testing Library (unit), Playwright (E2E)
+
+**Why this stack:** Matches `wt-project-web` conventions exactly. More complex than Express — agents must handle:
+- App Router file conventions (`page.tsx`, `layout.tsx`, `loading.tsx`)
+- Server Components vs Client Components (`"use client"`)
+- Server Actions for mutations
+- Prisma schema + migrations
+- shadcn/ui component library integration
+- Tailwind utility classes
+- TypeScript throughout
+
+### D3: Feature Roadmap — 6 Changes
+
+The v1-minishop spec defines these changes in dependency order:
+
+1. **`products-page`** — Server-rendered product catalog page with shadcn Card grid. Prisma query in Server Component. Seed data in Prisma seed script. Tests: product listing renders, individual product shows correct data.
+
+2. **`cart-feature`** *(depends: products-page)* — Server-side cart persisted in Prisma `CartItem` table. Anonymous sessions via UUID cookie. "Add to Cart" via Server Action on product cards, cart page with quantity controls, running total. shadcn Sheet/Dialog for cart preview. Tests: add to cart, remove, quantity update.
+
+3. **`orders-checkout`** *(depends: cart-feature, products-page)* — Checkout flow: cart → order creation via Server Action (transactional: create order, order items, decrement stock, clear cart). Orders page showing history. Tests: place order, stock decremented, order in history.
+
+4. **`admin-auth`** *(depends: products-page)* — NextAuth.js Credentials provider. Login/register pages. Protected admin routes via middleware. Admin layout with sidebar nav. Tests: register, login, access control.
+
+5. **`admin-products`** *(depends: admin-auth, products-page)* — CRUD admin panel for products using shadcn DataTable. Server Actions for create/update/delete. Form validation with zod + react-hook-form. Image URL field (no upload). Tests: add product appears in catalog, edit updates, delete removes.
+
+6. **`playwright-e2e`** *(depends: all above)* — Playwright test suite covering full user journey: browse → cart → order → admin login → manage products. Screenshot capture for E2E report. Responsive viewport tests (mobile + desktop).
+
+**Why 6 changes:** Tests `max_parallel: 2` with deeper dependency chains. Changes 1-2 and 1-4 can parallelize (products + admin-auth). The cross-cutting nature of auth (change 4 modifies middleware that affects all routes) tests merge conflict handling. The Playwright change depends on everything, testing final integration.
+
+### D4: Scaffold Structure
+
+```
+tests/e2e/scaffold/
+├── docs/v1-minishop.md          # Feature roadmap spec
+├── CLAUDE.md                     # Conventions (wt-project-web style)
+├── package.json                  # Next.js + deps
+├── # pnpm-lock.yaml generated by run.sh during init
+├── next.config.js
+├── tailwind.config.ts
+├── tsconfig.json
+├── postcss.config.mjs
+├── prisma/
+│   ├── schema.prisma             # Models: Product, CartItem, Order, OrderItem, User
+│   └── seed.ts                   # Seed products (Laptop, Egér, Billentyűzet)
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx            # Root layout with nav, Tailwind
+│   │   ├── page.tsx              # Home → redirect to /products
+│   │   └── api/health/route.ts   # Health check API
+│   ├── lib/
+│   │   ├── prisma.ts             # Singleton Prisma client
+│   │   └── utils.ts              # cn() helper for shadcn
+│   └── components/ui/            # shadcn base components (button, card, etc.)
+├── .env.example                  # DATABASE_URL, NEXTAUTH_SECRET
+├── jest.config.ts
+└── playwright.config.ts          # (created by change 6)
+```
+
+### D5: Post-Run E2E Report
+
+`bin/wt-e2e-report` reads `orchestration-state.json` and generates:
+- Markdown report at `e2e-report.md`
+- Per-change table: name, status, tokens, duration, test count
+- Timeline with state transitions
+- Playwright screenshots embedded/linked from `e2e-screenshots/`
+
+After orchestration completes:
+1. Start the app (`pnpm dev &`, wait for server)
+2. Run Playwright screenshot script (headless Chromium)
+3. Kill server
+4. Generate report
+
+### D6: CLAUDE.md Conventions
+
+The scaffold CLAUDE.md follows `wt-project-web` conventions:
+- Server Actions: `await auth()` guard, return `{ success, error? }`, `revalidatePath()`
+- Components: use shadcn (never raw Radix), proper variant usage
+- i18n: NOT included (simplicity — English/Hungarian hardcoded acceptable for E2E)
+- Database: Prisma singleton, SQLite file
+- Testing: `pnpm test` for Jest, `pnpm test:e2e` for Playwright
+
+## Risks / Trade-offs
+
+- **Scaffold size increase** — Next.js + deps is heavier than Express. `pnpm install` takes longer. Acceptable for E2E.
+- **Playwright download** — ~130MB for Chromium. Only needed for change 6 and report.
+- **More complex = more failure modes** — that's the point. We want to find wt-tools bugs with a realistic workload.
+- **shadcn/ui requires `npx shadcn init`** — we pre-initialize this in the scaffold so agents don't need to run setup commands.
+- **Prisma migrations** — must run `pnpm prisma migrate dev` during scaffold init. Simpler than Postgres (SQLite = just a file).

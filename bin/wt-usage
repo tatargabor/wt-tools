@@ -214,6 +214,7 @@ def main():
     time_group.add_argument("--week", action="store_true", help="Last 7 days")
     time_group.add_argument("--month", action="store_true", help="Last 30 days")
 
+    parser.add_argument("--project-dir", help="Only count tokens from this project directory name")
     parser.add_argument("--cost", action="store_true", help="Include estimated USD cost")
     parser.add_argument("--login", action="store_true", help="Set session key for exact API data")
 
@@ -223,7 +224,7 @@ def main():
         do_login()
         return
 
-    calc = UsageCalculator()
+    calc = UsageCalculator(project_dir=getattr(args, 'project_dir', None))
     usage, period = get_usage(calc, args)
 
     if args.format == "json":

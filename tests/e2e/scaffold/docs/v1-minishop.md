@@ -1,110 +1,215 @@
-# MiniShop API v1 — Feature Roadmap
+# MiniShop v1 — Webshop Feature Spec
 
-> Updated: 2026-03-08
+> Next.js 14+ App Router webshop with Prisma (SQLite), shadcn/ui, Tailwind CSS, NextAuth.js v5
 
-## 1. v0 Status
+## v0 Status (scaffold)
 
-| Feature | Status |
+| What | Status |
 |---|---|
-| Health endpoint (`GET /api/health`) | ✅ Done |
-| Database schema (all tables) | ✅ Done |
-| Error handler middleware | ✅ Done |
+| `package.json` with all dependencies | Done |
+| Prisma schema (Product, User, Order, OrderItem, CartItem) | Done |
+| Prisma seed (6 products, Hungarian names, HUF prices) | Done |
+| Tailwind + PostCSS + TypeScript config | Done |
+| `.env` with DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL | Done |
+| Root layout (`src/app/layout.tsx`) | **Not started** — agents create |
+| Pages, components, actions | **Not started** — agents create |
 
-## 2. Feature Roadmap
+**Important:** There is NO app code in the scaffold. The agents must create everything under `src/` from scratch: root layout, all pages, all components, all Server Actions, all tests.
 
-### Priority 1 — Core CRUD
+## Tech Conventions
 
-#### 2.1 Products CRUD (`products-crud`)
+- **Package manager:** pnpm (`pnpm dev`, `pnpm test`, `pnpm build`)
+- **Components:** Use shadcn/ui — install with `pnpm dlx shadcn@latest add <component>`. Never use raw Radix primitives directly.
+- **Styling:** Tailwind CSS utility classes. Use shadcn's `cn()` helper from `src/lib/utils.ts` (create it: `import { clsx } from "clsx"; import { twMerge } from "tailwind-merge"; export function cn(...inputs) { return twMerge(clsx(inputs)); }`)
+- **Database:** `import { PrismaClient } from "@prisma/client"` with globalThis singleton pattern at `src/lib/prisma.ts`
+- **Server Actions:** `"use server"` directive, return `{ success: true }` or `{ success: false, error: "message" }`, call `revalidatePath()` after mutations
+- **Auth:** NextAuth.js v5 — use `auth()` for session, NOT `getServerSession()`. Credentials provider, JWT strategy, bcryptjs passwords.
+- **Components by default are Server Components.** Add `"use client"` only when needed (event handlers, hooks, browser APIs).
+- **Tests:** Jest + `@testing-library/react` for unit tests. Files: `tests/*.test.tsx` or `__tests__/*.test.tsx`. Run: `pnpm test`.
 
-Full CRUD for the products catalog.
+## Feature Roadmap
 
-- `GET /api/products` — list all products
-- `GET /api/products/:id` — get single product
-- `POST /api/products` — create product (name, price, stock)
-- `PUT /api/products/:id` — update product
-- `DELETE /api/products/:id` — delete product
+### Change 1: `products-page`
 
-**Data model:** Uses existing `products` table (id, name, price, stock, created_at).
+Build the product catalog — the storefront landing page.
 
-**Acceptance criteria:**
-- All 5 endpoints work and return correct status codes (200, 201, 404)
-- `npm test` passes with tests covering each endpoint
-- Validation: name required, price > 0, stock >= 0
+**Create these files:**
 
-**Files:** `src/routes/products.js`, `tests/products.test.js`
+- `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge)
+- `src/lib/prisma.ts` — Prisma singleton client (globalThis pattern for dev hot reload)
+- `src/app/globals.css` — Tailwind directives (`@tailwind base/components/utilities`) + shadcn CSS variables (`:root` with `--background`, `--foreground`, `--primary`, etc.)
+- `src/app/layout.tsx` — Root layout: `<html>`, `<body>` with Inter font, globals.css import. Navigation header with links: Products, Cart, Orders, Admin. Use shadcn Button for nav links.
+- `src/app/page.tsx` — Redirect to `/products`
+- `src/app/products/page.tsx` — Product grid. Server Component that queries `prisma.product.findMany()`. Renders products in a responsive grid (1 col mobile, 2 col tablet, 3 col desktop) using shadcn Card. Each card: product image (use `<img>` with imageUrl), name, description, price formatted as `XX XXX Ft` (Hungarian format, space as thousands separator), stock badge (green if >0, red if 0).
+- `src/app/products/[id]/page.tsx` — Product detail page. Shows full product info with larger image, full description, price, stock status, "Add to Cart" button (disabled for now, wired in cart-feature change).
+- `src/components/product-card.tsx` — Reusable product card component used in the grid.
+- `tests/products.test.tsx` — Tests: product list renders, product detail page renders, price formatting correct.
 
-### Priority 2 — Shopping
-
-#### 2.2 Cart (`cart`)
-
-> depends_on: products-crud
-
-Session-based shopping cart.
-
-- `GET /api/cart` — list cart items for current session (with product details)
-- `POST /api/cart` — add item to cart (product_id, quantity)
-- `DELETE /api/cart/:id` — remove item from cart
-
-**Data model:** Uses existing `cart_items` table (id, session_id, product_id, quantity). Session ID from `session_id` cookie (generate UUID if missing).
-
-**Acceptance criteria:**
-- Cart operations work with session cookies
-- Adding a product that doesn't exist returns 404
-- Adding a product already in cart updates quantity
-- `npm test` passes
-
-**Files:** `src/routes/cart.js`, `tests/cart.test.js`
-
-#### 2.3 Orders (`orders`)
-
-> depends_on: cart, products-crud
-
-Convert cart to order with stock management.
-
-- `POST /api/orders` — create order from current cart (cart items → order, clear cart, decrement stock)
-- `GET /api/orders` — list orders for current session
-- `GET /api/orders/:id` — get order details with items
-
-**Data model:** Uses existing `orders` and `order_items` tables. Order creation runs in a transaction: insert order → copy cart items to order_items with current prices → decrement product stock → clear cart.
+**Install shadcn components:** button, card, badge
 
 **Acceptance criteria:**
-- Empty cart returns 400
-- Insufficient stock returns 400
-- Successful order decrements stock and clears cart
-- Order total is calculated from product prices × quantities
-- `npm test` passes
+- `/products` shows all 6 seeded products in a Card grid
+- `/products/[id]` shows single product detail
+- Price displayed as `XX XXX Ft` (e.g., `349 990 Ft`)
+- Responsive: 1 col on mobile, 2 on tablet, 3 on desktop
+- Navigation header visible on all pages
+- `pnpm test` passes
 
-**Files:** `src/routes/orders.js`, `tests/orders.test.js`
+---
 
-### Priority 3 — Security
+### Change 2: `cart-feature`
 
-#### 2.4 Auth / JWT (`auth`)
+> depends_on: products-page
 
-> depends_on: products-crud, cart, orders
+Server-side shopping cart with anonymous sessions (no auth required).
 
-Cross-cutting authentication. Runs last because it modifies existing routes by adding auth middleware. NOTE: scope overlap warnings with products-crud, cart, orders are expected and intentional.
+**Create these files:**
 
-- `POST /api/register` — create user (email, password), return JWT
-- `POST /api/login` — authenticate user, return JWT
+- `src/lib/session.ts` — Helper to get/set session ID from cookies. Use `cookies()` from `next/headers`. If no `session_id` cookie, generate UUID with `crypto.randomUUID()` and set it as httpOnly cookie.
+- `src/actions/cart.ts` — Server Actions:
+  - `addToCart(productId: number, quantity: number)` — upsert CartItem (if exists, increment quantity). Validate product exists and has stock.
+  - `removeFromCart(cartItemId: number)` — delete CartItem
+  - `updateCartQuantity(cartItemId: number, quantity: number)` — update quantity, delete if quantity <= 0
+  - All actions call `revalidatePath("/cart")`
+- `src/app/cart/page.tsx` — Cart page. Server Component that queries cart items with product details for current session. Shows: product name, quantity with +/- buttons, line total, cart total. Empty state message when no items.
+- `src/app/products/[id]/page.tsx` — **Update:** Wire "Add to Cart" button to `addToCart` Server Action. Show toast on success.
+- `src/app/layout.tsx` — **Update:** Add cart item count badge next to Cart nav link.
+- `tests/cart.test.tsx` — Tests: add to cart, remove from cart, quantity update, empty cart state.
 
-**Auth middleware:** `src/middleware/auth.js` verifies JWT from `Authorization: Bearer <token>` header. Applied to write operations (POST/PUT/DELETE) on products, cart, orders. GET endpoints remain public.
-
-**Data model:** Uses existing `users` table (id, email, password_hash, created_at). Passwords hashed with bcryptjs.
+**Install shadcn components:** toast, separator, input (for quantity)
 
 **Acceptance criteria:**
-- Registration validates email uniqueness, returns JWT
-- Login with wrong password returns 401
-- Protected endpoints return 401 without valid token
-- GET endpoints work without auth
-- `npm test` passes
+- "Add to Cart" button on product detail page works
+- Cart page shows all cart items with quantities and totals
+- +/- buttons update quantity
+- Remove button removes item
+- Adding same product twice updates quantity
+- Cart total calculated correctly (sum of price * quantity)
+- Session persists across navigations
+- `pnpm test` passes
 
-**Files:** `src/routes/auth.js`, `src/middleware/auth.js`, `tests/auth.test.js`
+---
+
+### Change 3: `orders-checkout`
+
+> depends_on: cart-feature, products-page
+
+Checkout: convert cart to order, manage stock, show order history.
+
+**Create these files:**
+
+- `src/actions/orders.ts` — Server Actions:
+  - `placeOrder()` — Transactional: get session cart items → create Order + OrderItems (snapshot current prices) → decrement product stock → clear cart. Return error if cart empty or insufficient stock.
+  - Calls `revalidatePath("/orders")` and `revalidatePath("/products")`
+- `src/app/orders/page.tsx` — Order history page. Shows orders for current session: order ID, date, status badge, total. Link to detail.
+- `src/app/orders/[id]/page.tsx` — Order detail: line items with product name, quantity, price, subtotal. Order total and status.
+- `src/app/cart/page.tsx` — **Update:** Add "Place Order" button that calls `placeOrder`. Redirect to order detail on success. Show error toast on failure.
+- `tests/orders.test.tsx` — Tests: place order, stock decremented, order in history, empty cart error, insufficient stock error.
+
+**Install shadcn components:** table (for order items)
+
+**Acceptance criteria:**
+- "Place Order" on cart page creates order and clears cart
+- Order creation is transactional (all or nothing)
+- Stock decremented after order
+- Empty cart → error message
+- Insufficient stock → error message
+- Orders page shows history with totals
+- Order detail shows line items
+- `pnpm test` passes
+
+---
+
+### Change 4: `admin-auth`
+
+> depends_on: products-page
+
+Admin authentication with NextAuth.js v5. **Only admin routes are protected** — the storefront (products, cart, orders) remains fully public.
+
+**Create these files:**
+
+- `src/lib/auth.ts` — NextAuth config: Credentials provider (email + password), JWT session strategy, bcryptjs for password hashing. Callbacks: include user.id and user.role in session/JWT.
+- `src/app/api/auth/[...nextauth]/route.ts` — NextAuth route handler (`export { GET, POST } from "@/lib/auth"`)
+- `src/app/admin/login/page.tsx` — Login form: email + password inputs, submit button, error display. Uses shadcn Input, Button, Label, Card.
+- `src/app/admin/register/page.tsx` — Registration form: name, email, password. Creates user with hashed password, auto-login after register.
+- `src/app/admin/page.tsx` — Admin dashboard. Shows: welcome message with user name, quick stats (product count, order count), nav links to admin sections.
+- `src/app/admin/layout.tsx` — Admin layout: sidebar navigation (Dashboard, Products), user info in header, logout button. Distinct from storefront layout.
+- `middleware.ts` — **CRITICAL:** Only match `/admin/:path*` EXCEPT `/admin/login` and `/admin/register`. Redirect unauthenticated users to `/admin/login`. Do NOT protect `/products`, `/cart`, `/orders`, or any storefront route.
+- `tests/auth.test.tsx` — Tests: register creates user, login with correct password succeeds, login with wrong password fails, admin routes require auth, storefront routes remain public.
+
+**Install shadcn components:** label, input (if not already installed), dialog
+
+**Acceptance criteria:**
+- Register: creates user, redirects to admin dashboard
+- Login: correct credentials → admin, wrong credentials → error
+- `/admin/*` routes require authentication (redirect to login)
+- `/admin/login` and `/admin/register` are publicly accessible
+- `/products`, `/cart`, `/orders` remain fully public — NO auth required
+- Middleware ONLY protects admin routes
+- `pnpm test` passes
+
+---
+
+### Change 5: `admin-products`
+
+> depends_on: admin-auth, products-page
+
+Admin CRUD panel for products with DataTable.
+
+**Create these files:**
+
+- `src/app/admin/products/page.tsx` — Product list with shadcn DataTable: columns for name, price, stock, actions (edit/delete). Server Component with Prisma query.
+- `src/app/admin/products/columns.tsx` — Column definitions for DataTable (`"use client"`)
+- `src/app/admin/products/data-table.tsx` — DataTable wrapper component (`"use client"`, uses `@tanstack/react-table`)
+- `src/app/admin/products/new/page.tsx` — Create product form. Fields: name (required), description, price (required, > 0), stock (required, >= 0), imageUrl. Validation with zod schema + react-hook-form.
+- `src/app/admin/products/[id]/edit/page.tsx` — Edit product form, pre-filled with existing data. Same validation.
+- `src/actions/admin-products.ts` — Server Actions: `createProduct(formData)`, `updateProduct(id, formData)`, `deleteProduct(id)`. All require auth check (`const session = await auth()`). Validate with zod. `revalidatePath("/admin/products")` and `revalidatePath("/products")`.
+- `tests/admin-products.test.tsx` — Tests: create product appears in catalog, edit updates data, delete removes product, validation errors shown.
+
+**Install shadcn components:** dropdown-menu, table (if not already)
+
+**Acceptance criteria:**
+- Admin product list shows DataTable with all products
+- Create form: validated, creates product visible in storefront
+- Edit form: pre-filled, updates product
+- Delete: removes product (with confirmation)
+- All admin actions require authentication
+- Form validation (zod + react-hook-form): name required, price > 0, stock >= 0
+- `pnpm test` passes
+
+---
+
+### Change 6: `playwright-e2e`
+
+> depends_on: products-page, cart-feature, orders-checkout, admin-auth, admin-products
+
+Playwright E2E tests covering the full user journey.
+
+**Create these files:**
+
+- `playwright.config.ts` — Config: headless Chromium, baseURL `http://localhost:3000`, webServer `pnpm dev`, retries 0.
+- `tests/e2e/storefront.spec.ts` — Products render with images, prices, stock badges. Navigation works.
+- `tests/e2e/cart.spec.ts` — Add product to cart from detail page, quantity update, remove, total calculation.
+- `tests/e2e/checkout.spec.ts` — Full checkout: add items → place order → verify stock decremented → order in history.
+- `tests/e2e/admin.spec.ts` — Register admin → login → add product (visible in catalog) → edit → delete.
+- `tests/e2e/responsive.spec.ts` — Mobile viewport (375px): layout adapts, nav works, cards stack vertically.
+- `tests/e2e/capture-screenshots.ts` — Screenshot script: visit each main page (products, product detail, cart with items, orders, admin login, admin dashboard, admin products), save PNG to `e2e-screenshots/`.
+
+**Acceptance criteria:**
+- All E2E tests pass: `pnpm test:e2e`
+- Full user journey covered: browse → cart → checkout → admin
+- Mobile responsive layout verified
+- Screenshots captured for all main pages
+- Tests use fresh database state (Prisma reset in fixtures or beforeAll)
 
 ## Orchestrator Directives
 
-- max_parallel: 2
-- smoke_command: npm test
-- smoke_blocking: true
-- test_command: npm test
-- merge_policy: checkpoint
-- auto_replan: true
+```
+max_parallel: 2
+smoke_command: pnpm test
+smoke_blocking: true
+test_command: pnpm test
+merge_policy: checkpoint
+checkpoint_auto_approve: true
+auto_replan: true
+```

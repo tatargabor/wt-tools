@@ -1,5 +1,9 @@
 node_modules/
-*.sqlite
-minishop.db
+.next/
+*.db
+*.db-journal
 .env
 .claude/orchestration.log
+e2e-screenshots/
+e2e-report.md
+e2e-report-prev.md

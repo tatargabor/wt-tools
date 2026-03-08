@@ -157,10 +157,22 @@ get_current_tokens() {
     local since="${1:-}"
     local usage_json
 
+    # Derive project dir from $PWD: replace / with -, strip leading -
+    # This matches Claude's observed project directory naming convention
+    local project_dir_flag=""
+    local derived_dir
+    derived_dir=$(echo "$PWD" | sed 's|/|-|g; s|^-||')
+    local claude_projects_dir="$HOME/.claude/projects"
+    if [[ -d "$claude_projects_dir/$derived_dir" ]]; then
+        project_dir_flag="--project-dir $derived_dir"
+    elif [[ -n "$derived_dir" ]]; then
+        echo "warn: derived project dir '$derived_dir' not found under $claude_projects_dir, falling back to unfiltered" >&2
+    fi
+
     if [[ -n "$since" ]]; then
-        usage_json=$("$SCRIPT_DIR/wt-usage" --since "$since" --format json 2>/dev/null || echo '{"total_tokens": 0}')
+        usage_json=$("$SCRIPT_DIR/wt-usage" --since "$since" $project_dir_flag --format json 2>/dev/null || echo '{"total_tokens": 0}')
     else
-        usage_json=$("$SCRIPT_DIR/wt-usage" --format json 2>/dev/null || echo '{"total_tokens": 0}')
+        usage_json=$("$SCRIPT_DIR/wt-usage" $project_dir_flag --format json 2>/dev/null || echo '{"total_tokens": 0}')
     fi
 
     # Extract total_tokens, default to 0 if not a valid number
