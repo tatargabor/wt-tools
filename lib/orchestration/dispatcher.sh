@@ -658,19 +658,38 @@ cmd_start() {
         local cli_input=""
         [[ -n "$SPEC_OVERRIDE" ]] && cli_input="$SPEC_OVERRIDE"
         [[ -n "$BRIEF_OVERRIDE" ]] && cli_input="$BRIEF_OVERRIDE"
-        # Normalize paths for comparison (resolve ./ prefix, etc.)
+        # Resolve cli_input to absolute path using the same logic as find_input():
+        # short names like "v12" → wt/orchestration/specs/v12.md, relative paths → absolute
+        local resolved_cli="$cli_input"
+        if [[ -n "$SPEC_OVERRIDE" ]]; then
+            if [[ -f "$cli_input" ]]; then
+                resolved_cli="$(cd "$(dirname "$cli_input")" && pwd)/$(basename "$cli_input")"
+            else
+                # Try short-name resolution: wt/orchestration/specs/<name>.md
+                local wt_spec="wt/orchestration/specs/${cli_input}.md"
+                local wt_spec_sub="wt/orchestration/specs/${cli_input}"
+                if [[ -f "$wt_spec" ]]; then
+                    resolved_cli="$(cd "$(dirname "$wt_spec")" && pwd)/$(basename "$wt_spec")"
+                elif [[ -f "$wt_spec_sub" ]]; then
+                    resolved_cli="$(cd "$(dirname "$wt_spec_sub")" && pwd)/$(basename "$wt_spec_sub")"
+                fi
+            fi
+        elif [[ -n "$BRIEF_OVERRIDE" && -f "$cli_input" ]]; then
+            resolved_cli="$(cd "$(dirname "$cli_input")" && pwd)/$(basename "$cli_input")"
+        fi
+        # Normalize paths for comparison (resolve ./ prefix, symlinks, etc.)
         local norm_plan norm_cli
         norm_plan=$(realpath -m "$plan_input_path" 2>/dev/null || echo "$plan_input_path")
-        norm_cli=$(realpath -m "$cli_input" 2>/dev/null || echo "$cli_input")
+        norm_cli=$(realpath -m "$resolved_cli" 2>/dev/null || echo "$resolved_cli")
         if [[ "$norm_plan" != "$norm_cli" ]]; then
             info "CLI input ($cli_input) differs from plan ($plan_input_path) — replanning"
-            log_info "Input mismatch detected: CLI=$cli_input plan=$plan_input_path — auto-replanning"
+            log_info "Input mismatch detected: CLI=$cli_input (resolved=$resolved_cli) plan=$plan_input_path — auto-replanning"
             need_plan=true
         else
             # Same path — check if content changed since last plan
             local plan_hash current_hash
             plan_hash=$(jq -r '.input_hash // ""' "$PLAN_FILENAME" 2>/dev/null)
-            current_hash=$(sha256sum "$cli_input" 2>/dev/null | cut -d' ' -f1)
+            current_hash=$(sha256sum "$resolved_cli" 2>/dev/null | cut -d' ' -f1)
             if [[ -n "$plan_hash" && -n "$current_hash" && "$plan_hash" != "$current_hash" ]]; then
                 info "Spec content changed since last plan — replanning"
                 log_info "Content hash mismatch: plan=$plan_hash current=$current_hash"
