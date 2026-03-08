@@ -254,8 +254,13 @@ def _since_clause(since_days):
     return cutoff.isoformat() + "Z"
 
 
-def query_report(since_days=7):
+def query_report(since_days=7, project=None):
     """Query aggregated metrics for reporting.
+
+    Args:
+        since_days: Number of days to look back
+        project: Optional project name for prefix filtering (e.g. "sales-raketa"
+                 matches "sales-raketa", "sales-raketa-wt-smoke-tests", etc.)
 
     Returns dict with all data needed for TUI and HTML reports.
     """
@@ -270,12 +275,29 @@ def query_report(since_days=7):
     try:
         cutoff = _since_clause(since_days)
 
+        # Build project filter clause and params
+        if project:
+            proj_clause = " AND s.project LIKE ?"
+            proj_param = project + "%"
+            # For queries on sessions table directly (no alias)
+            sess_clause = " AND project LIKE ?"
+        else:
+            proj_clause = ""
+            proj_param = None
+            sess_clause = ""
+
+        def _params(*base):
+            """Append project param to base params if filtering."""
+            if proj_param:
+                return base + (proj_param,)
+            return base
+
         # Session summary
         row = conn.execute(
-            """SELECT COUNT(*) as cnt, COALESCE(SUM(total_injections),0) as inj,
+            f"""SELECT COUNT(*) as cnt, COALESCE(SUM(total_injections),0) as inj,
                       COALESCE(SUM(total_tokens),0) as tok, COALESCE(SUM(citation_count),0) as cit
-               FROM sessions WHERE ended_at >= ?""",
-            (cutoff,),
+               FROM sessions s WHERE ended_at >= ?{proj_clause}""",
+            _params(cutoff),
         ).fetchone()
         session_count = row["cnt"]
         total_injections = row["inj"]
@@ -288,91 +310,91 @@ def query_report(since_days=7):
 
         # Per-layer breakdown
         layers = conn.execute(
-            """SELECT layer, COUNT(*) as cnt,
+            f"""SELECT layer, COUNT(*) as cnt,
                       COALESCE(AVG(token_estimate),0) as avg_tok,
                       COALESCE(AVG(avg_relevance),0) as avg_rel
                FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ?
+               WHERE s.ended_at >= ?{proj_clause}
                GROUP BY layer ORDER BY layer""",
-            (cutoff,),
+            _params(cutoff),
         ).fetchall()
 
         # Relevance distribution
         rel_strong = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND avg_relevance >= 0.7 AND dedup_hit = 0""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ? AND avg_relevance >= 0.7 AND dedup_hit = 0{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
         rel_partial = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND avg_relevance >= 0.3 AND avg_relevance < 0.7 AND dedup_hit = 0""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ? AND avg_relevance >= 0.3 AND avg_relevance < 0.7 AND dedup_hit = 0{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
         rel_weak = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND avg_relevance < 0.3 AND avg_relevance IS NOT NULL AND dedup_hit = 0""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ? AND avg_relevance < 0.3 AND avg_relevance IS NOT NULL AND dedup_hit = 0{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
 
         # Dedup stats
         dedup_total = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ?""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ?{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
         dedup_hits = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND dedup_hit = 1""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ? AND dedup_hit = 1{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
 
         # Empty injections (no results, not dedup)
         empty_count = conn.execute(
-            """SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND filtered_count = 0 AND dedup_hit = 0""",
-            (cutoff,),
+            f"""SELECT COUNT(*) FROM injections i JOIN sessions s ON i.session_id = s.id
+               WHERE s.ended_at >= ? AND filtered_count = 0 AND dedup_hit = 0{proj_clause}""",
+            _params(cutoff),
         ).fetchone()[0]
 
         # Top cited texts
         top_citations = conn.execute(
-            """SELECT citation_text, COUNT(*) as cnt
+            f"""SELECT citation_text, COUNT(*) as cnt
                FROM citations c JOIN sessions s ON c.session_id = s.id
-               WHERE s.ended_at >= ?
+               WHERE s.ended_at >= ?{proj_clause}
                GROUP BY citation_text ORDER BY cnt DESC LIMIT 5""",
-            (cutoff,),
+            _params(cutoff),
         ).fetchall()
 
         # Daily token burn
         daily_tokens = conn.execute(
-            """SELECT DATE(s.ended_at) as day, SUM(i.token_estimate) as tok
+            f"""SELECT DATE(s.ended_at) as day, SUM(i.token_estimate) as tok
                FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ?
+               WHERE s.ended_at >= ?{proj_clause}
                GROUP BY DATE(s.ended_at) ORDER BY day""",
-            (cutoff,),
+            _params(cutoff),
         ).fetchall()
 
         # Per-session detail
         sessions = conn.execute(
-            """SELECT id, project, started_at, ended_at, total_injections, total_tokens, citation_count
-               FROM sessions WHERE ended_at >= ? ORDER BY ended_at DESC""",
-            (cutoff,),
+            f"""SELECT id, project, started_at, ended_at, total_injections, total_tokens, citation_count
+               FROM sessions s WHERE ended_at >= ?{proj_clause} ORDER BY ended_at DESC""",
+            _params(cutoff),
         ).fetchall()
 
         # Daily relevance trend
         daily_relevance = conn.execute(
-            """SELECT DATE(s.ended_at) as day, AVG(i.avg_relevance) as avg_rel
+            f"""SELECT DATE(s.ended_at) as day, AVG(i.avg_relevance) as avg_rel
                FROM injections i JOIN sessions s ON i.session_id = s.id
-               WHERE s.ended_at >= ? AND i.avg_relevance IS NOT NULL AND i.dedup_hit = 0
+               WHERE s.ended_at >= ? AND i.avg_relevance IS NOT NULL AND i.dedup_hit = 0{proj_clause}
                GROUP BY DATE(s.ended_at) ORDER BY day""",
-            (cutoff,),
+            _params(cutoff),
         ).fetchall()
 
         # Usage rate from context_id tracking
         usage_row = conn.execute(
-            """SELECT COALESCE(SUM(injected_id_count),0) as inj,
+            f"""SELECT COALESCE(SUM(injected_id_count),0) as inj,
                       COALESCE(SUM(matched_id_count),0) as mat
-               FROM sessions WHERE ended_at >= ?""",
-            (cutoff,),
+               FROM sessions s WHERE ended_at >= ?{proj_clause}""",
+            _params(cutoff),
         ).fetchone()
         total_injected_ids = usage_row["inj"]
         total_matched_ids = usage_row["mat"]
@@ -387,6 +409,7 @@ def query_report(since_days=7):
 
         return {
             "since_days": since_days,
+            "project": project,
             "session_count": session_count,
             "total_injections": total_injections,
             "total_tokens": total_tokens,
