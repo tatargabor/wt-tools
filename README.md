@@ -158,17 +158,13 @@ overstory          TUI       Y       Y       Y        Y      -       -
 
 ---
 
-## Acknowledgements
-
-Built and used in production by [ITLine Kft.](https://itline.hu) and [Zengo Kft.](https://zengo.eu)
-
-Thanks to our collaboration partners: [BlackBelt](https://blackbelt.hu) · [AIOrigo](https://aiorigo.com) · [MKIK (Hungarian Chamber of Commerce)](https://mkik.hu)
-
----
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and pull request guidelines.
+
+## Acknowledgements
+
+Built and used in production by [ITLine Kft.](https://itline.hu) and [Zengo Kft.](https://zengo.eu). Thanks to our collaboration partners: [BlackBelt](https://blackbelt.hu) · [AIOrigo](https://aiorigo.com) · [MKIK (Hungarian Chamber of Commerce)](https://mkik.hu).
 
 ## License
 

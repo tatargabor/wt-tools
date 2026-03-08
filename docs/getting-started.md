@@ -23,14 +23,17 @@ The installer:
 - Symlinks all `wt-*` commands to `~/.local/bin`
 - Sets up shell completions (bash/zsh)
 - Configures the MCP server for Claude Code
-- Deploys Claude Code hooks
+- Installs GUI dependencies (PySide6, psutil, PyNaCl)
+- Installs Shodh-Memory (optional, interactive prompt)
+- Deploys wt-tools to all registered projects (`wt-project init`)
+- Sets up editor choice, permission mode, and model prefix
 
 ## GUI Dependencies (Optional)
 
-The Control Center GUI requires PySide6:
+The installer handles GUI dependencies automatically. If you need to install manually:
 
 ```bash
-pip install PySide6 cloudscraper browser_cookie3
+pip install PySide6 psutil PyNaCl
 ```
 
 ### Linux: Qt Plugin Path
@@ -43,10 +46,10 @@ QT_PLUGIN_PATH="$(python -c 'import PySide6; print(PySide6.__path__[0])')/Qt/plu
 
 ## Developer Memory (Optional)
 
-For persistent cross-session memory:
+The installer offers to install Shodh-Memory. To install manually:
 
 ```bash
-pip install 'shodh-memory>=0.1.75,!=0.1.80'
+pip install 'shodh-memory>=0.1.81'
 wt-memory health   # verify installation
 ```
 

@@ -6,7 +6,7 @@ This document defines the structure, content rules, and style for `README.md`. I
 
 ## Mandatory Sections (in order)
 
-The README MUST contain these 10 sections in this exact order:
+The README MUST contain these 11 sections in this exact order:
 
 ### 1. Header
 - Project name: `# wt-tools`
@@ -76,7 +76,11 @@ The README MUST contain these 10 sections in this exact order:
 ### 9. Contributing
 - One line + link to `CONTRIBUTING.md`
 
-### 10. License
+### 10. Acknowledgements
+- Built/used by whom, collaboration partners
+- Keep to 1-2 lines
+
+### 11. License
 - One line + link to LICENSE file
 
 ---
@@ -127,7 +131,7 @@ The README links to these doc pages. Each page is self-contained with navigation
 | `docs/cli-reference.md` | Complete CLI reference |
 | `docs/configuration.md` | All config files and options |
 | `docs/architecture.md` | Technical architecture and vision |
-| `docs/project-management.md` | Consumer project maintenance (legacy — see project-setup.md) |
+| `docs/project-management.md` | Consumer project maintenance |
 
 ---
 
@@ -147,7 +151,7 @@ The README links to these doc pages. Each page is self-contained with navigation
 
 When modifying the README:
 
-- [ ] All 10 sections present and in order
+- [ ] All 11 sections present and in order
 - [ ] "Latest update" date is current
 - [ ] Line count is between 150-200
 - [ ] Every feature links to its doc page
