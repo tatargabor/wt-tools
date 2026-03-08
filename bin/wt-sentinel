@@ -88,17 +88,33 @@ backoff_secs=$BACKOFF_BASE
 # Clean slate: if no state file or state is terminal (done/stopped), reset ephemeral files
 # This prevents stale logs/events from confusing the new run.
 clean_old_worktrees() {
-    # Remove worktrees and branches from a previous orchestration run
+    local project_dir
+    project_dir=$(pwd)
+
+    # 1. Remove git-registered worktrees
     local wt_list
     wt_list=$(git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' || true)
     while IFS= read -r wt_path; do
         [[ -z "$wt_path" ]] && continue
-        [[ "$wt_path" == "$(pwd)" ]] && continue  # skip main worktree
+        [[ "$wt_path" == "$project_dir" ]] && continue  # skip main worktree
         sentinel_log "Removing old worktree: $wt_path"
-        git worktree remove "$wt_path" --force 2>/dev/null || rm -rf "$wt_path"
+        git worktree remove "$wt_path" --force 2>/dev/null || true
+        # Force-remove directory if git worktree remove didn't clean it
+        [[ -d "$wt_path" ]] && rm -rf "$wt_path"
     done <<< "$wt_list"
     git worktree prune 2>/dev/null || true
-    # Remove change/* branches
+
+    # 2. Remove orphaned worktree directories (not in git worktree list but on disk)
+    local project_base
+    project_base=$(basename "$project_dir")
+    for orphan_dir in "${project_dir}-wt-"* "${project_dir}-"*; do
+        [[ -d "$orphan_dir" ]] || continue
+        [[ "$orphan_dir" == "$project_dir" ]] && continue
+        sentinel_log "Removing orphaned worktree dir: $orphan_dir"
+        rm -rf "$orphan_dir"
+    done
+
+    # 3. Remove change/* branches
     local branches
     branches=$(git branch --list 'change/*' 2>/dev/null | sed 's/^[* ]*//' || true)
     while IFS= read -r branch; do

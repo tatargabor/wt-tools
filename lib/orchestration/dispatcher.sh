@@ -245,6 +245,11 @@ dispatch_change() {
     if [[ -d "$wt_path" ]]; then
         info "Worktree already exists: $wt_path"
     else
+        # Clean up stale branch from previous failed run (worktree gone but branch remains)
+        if git rev-parse --verify "change/$change_name" &>/dev/null; then
+            log_info "Removing stale branch change/$change_name before worktree creation"
+            git branch -D "change/$change_name" 2>/dev/null || true
+        fi
         wt-new "$change_name" --skip-open 2>/dev/null || {
             error "Failed to create worktree for $change_name"
             update_change_field "$change_name" "status" '"failed"'
