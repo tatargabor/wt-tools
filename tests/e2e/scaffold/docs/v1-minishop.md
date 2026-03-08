@@ -22,16 +22,18 @@
 
 **Important:** There is NO app code in the scaffold. The agents must create everything under `src/` from scratch: root layout, all pages, all components, all Server Actions, all tests.
 
-## Tech Conventions
+## Tech Conventions (project-specific)
+
+> General Next.js conventions (shadcn/ui, Server Components, Server Actions pattern, Prisma singleton, form validation) are provided by `.claude/rules/` — deployed by `wt-project init`. Below are only this project's specifics.
 
 - **Package manager:** pnpm (`pnpm dev`, `pnpm test`, `pnpm build`)
-- **Components:** Use shadcn/ui — install with `pnpm dlx shadcn@latest add <component>`. Never use raw Radix primitives directly.
-- **Styling:** Tailwind CSS utility classes. Use shadcn's `cn()` helper from `src/lib/utils.ts` (create it: `import { clsx } from "clsx"; import { twMerge } from "tailwind-merge"; export function cn(...inputs) { return twMerge(clsx(inputs)); }`)
-- **Database:** `import { PrismaClient } from "@prisma/client"` with globalThis singleton pattern at `src/lib/prisma.ts`
-- **Server Actions:** `"use server"` directive, return `{ success: true }` or `{ success: false, error: "message" }`, call `revalidatePath()` after mutations
-- **Auth:** NextAuth.js v5 — use `auth()` for session, NOT `getServerSession()`. Credentials provider, JWT strategy, bcryptjs passwords.
-- **Components by default are Server Components.** Add `"use client"` only when needed (event handlers, hooks, browser APIs).
-- **Tests:** Jest + `@testing-library/react` for unit tests. Files: `tests/*.test.tsx` or `__tests__/*.test.tsx`. Run: `pnpm test`.
+- **Install shadcn components:** `pnpm dlx shadcn@latest add <component>`
+- **cn() helper:** Create at `src/lib/utils.ts`: `import { clsx } from "clsx"; import { twMerge } from "tailwind-merge"; export function cn(...inputs) { return twMerge(clsx(inputs)); }`
+- **Auth:** NextAuth.js v5 — Credentials provider, JWT strategy, bcryptjs passwords. Use `auth()` for session.
+- **Database:** SQLite (`file:./dev.db`). Prisma schema at `prisma/schema.prisma`.
+- **Currency:** Hungarian Forint (HUF). Format prices as `XX XXX Ft` with space as thousands separator (e.g., `349 990 Ft`). Prices stored as integers (fillér nélkül).
+- **Language:** Product names and descriptions in Hungarian.
+- **Tests:** Jest + `@testing-library/react`. Files: `tests/*.test.tsx`. Run: `pnpm test`.
 
 ## Feature Roadmap
 
