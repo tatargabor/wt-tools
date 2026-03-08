@@ -223,6 +223,46 @@ verify_merge_scope() {
     fi
 }
 
+# ─── Pre-Merge Implementation Scope Check ────────────────────────────
+
+# Verify that a change branch has implementation files, not just openspec artifacts.
+# Diffs worktree branch vs merge-base to catch empty merges BEFORE they happen.
+# Returns 0 if implementation files exist, 1 if only artifacts.
+verify_implementation_scope() {
+    local change_name="$1"
+    local wt_path="$2"
+
+    local merge_base diff_files
+    merge_base=$(cd "$wt_path" && { git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "HEAD~5"; })
+    diff_files=$(cd "$wt_path" && git diff --name-only "$merge_base..HEAD" 2>/dev/null || true)
+
+    if [[ -z "$diff_files" ]]; then
+        log_warn "Scope check: no diff files found for $change_name (skip)"
+        return 0
+    fi
+
+    # Check if ANY file is outside artifact/config paths
+    local has_impl=false
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        # Skip openspec artifacts, .claude config, orchestration config, .wt-tools
+        if [[ "$f" == openspec/changes/* ]] || [[ "$f" == .claude/* ]] || \
+           [[ "$f" == orchestration* ]] || [[ "$f" == .wt-tools/* ]]; then
+            continue
+        fi
+        has_impl=true
+        break
+    done <<< "$diff_files"
+
+    if $has_impl; then
+        log_info "Scope check: implementation files found for $change_name"
+        return 0
+    else
+        log_error "Scope check: FAILED — only artifact files found for $change_name, no implementation code"
+        return 1
+    fi
+}
+
 # ─── Health Check ────────────────────────────────────────────────────
 
 # Extract health check URL from smoke command
@@ -811,13 +851,67 @@ handle_change_done() {
         update_change_field "$change_name" "build_result" '"pass"'
     fi
 
-    # ── Step 2b: Check for test file existence (warning only) ──
+    # ── Step 2a: Pre-merge implementation scope check (BLOCKING) ──
+    if ! verify_implementation_scope "$change_name" "$wt_path"; then
+        update_change_field "$change_name" "scope_check" '"fail"'
+        log_error "Verify gate: scope check FAILED for $change_name — no implementation files"
+
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            info "No implementation code in $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+            update_change_field "$change_name" "status" '"verify-failed"'
+            local scope
+            scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+            local retry_prompt="The change has NO implementation code — only OpenSpec artifacts (design.md, spec.md, tasks.md) and config files. Run /opsx:apply to implement the tasks, then mark the change as done.\n\nOriginal scope: $scope"
+            update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+            local _snap_tokens
+            _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+            update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+            resume_change "$change_name"
+            return
+        fi
+        update_change_field "$change_name" "status" '"failed"'
+        send_notification "wt-orchestrate" "Change '$change_name' failed scope check — no implementation code after $max_verify_retries retries" "critical"
+        return
+    fi
+    update_change_field "$change_name" "scope_check" '"pass"'
+
+    # ── Step 2b: Check for test file existence (BLOCKING for feature types) ──
     local test_files_count=0
     test_files_count=$(cd "$wt_path" && git diff --name-only "$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo HEAD~5)..HEAD" 2>/dev/null | grep -cE '\.(test|spec)\.' || true)
     if [[ "$test_files_count" -eq 0 ]]; then
-        log_warn "Verify gate: $change_name has NO test files in the diff — consider adding tests"
         update_change_field "$change_name" "has_tests" "false"
-        send_notification "wt-orchestrate" "Change '$change_name' has no test files" "normal"
+
+        # Blocking for feature/infrastructure/foundational types; non-blocking for schema/cleanup
+        local change_type
+        change_type=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .change_type // "feature"' "$STATE_FILENAME")
+
+        if [[ "$skip_test" != "true" ]] && [[ "$change_type" == "feature" || "$change_type" == "infrastructure" || "$change_type" == "foundational" ]]; then
+            log_error "Verify gate: $change_name (type=$change_type) has NO test files — blocking"
+
+            if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+                verify_retry_count=$((verify_retry_count + 1))
+                info "No test files in $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+                update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+                update_change_field "$change_name" "status" '"verify-failed"'
+                local scope
+                scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+                local retry_prompt="The change has NO test files. Add tests for the implemented functionality. Test files must match *.test.* or *.spec.* patterns.\n\nOriginal scope: $scope"
+                update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+                local _snap_tokens
+                _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+                update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+                resume_change "$change_name"
+                return
+            fi
+            update_change_field "$change_name" "status" '"failed"'
+            send_notification "wt-orchestrate" "Change '$change_name' failed test file check after $max_verify_retries retries" "critical"
+            return
+        else
+            log_warn "Verify gate: $change_name (type=$change_type) has no test files — non-blocking"
+            send_notification "wt-orchestrate" "Change '$change_name' has no test files" "normal"
+        fi
     else
         log_info "Verify gate: $change_name has $test_files_count test file(s)"
         update_change_field "$change_name" "has_tests" "true"

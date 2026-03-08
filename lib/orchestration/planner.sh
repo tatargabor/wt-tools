@@ -678,9 +678,12 @@ Shared resource awareness:
 - Prefer serialization over parallel execution when shared files are involved
 - Common shared resources: design/convention docs, shared type definitions, package.json, layout components
 
-Smoke test awareness:
-- If the project has smoke tests configured (smoke_command directive), changes that modify user-facing flows (login, navigation, forms, API endpoints) should include updates to relevant smoke test files as part of the change scope
-- Organize smoke tests by functional group (auth, CRUD, navigation), not per-change
+Test-per-change requirement:
+- Each change that adds a user-facing route, feature, or API endpoint MUST include its own functional tests. Do NOT defer all testing to a final "e2e" change.
+- The quality gate BLOCKS changes without test files for feature/infrastructure types.
+- If smoke_command is configured, user-facing changes should also update smoke/E2E test files.
+- The last change may run ALL E2E tests for cross-feature integration, but each preceding change must have its own tests.
+- Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts with order creation, validation, checkout tests").
 
 Model selection — suggest a model per change based on task nature:
 - "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)
@@ -771,9 +774,12 @@ Shared resource awareness:
 - Prefer serialization over parallel execution when shared files are involved
 - Common shared resources: design/convention docs, shared type definitions, package.json, layout components
 
-Smoke test awareness:
-- If the project has smoke tests configured (smoke_command directive), changes that modify user-facing flows (login, navigation, forms, API endpoints) should include updates to relevant smoke test files as part of the change scope
-- Organize smoke tests by functional group (auth, CRUD, navigation), not per-change
+Test-per-change requirement:
+- Each change that adds a user-facing route, feature, or API endpoint MUST include its own functional tests. Do NOT defer all testing to a final "e2e" change.
+- The quality gate BLOCKS changes without test files for feature/infrastructure types.
+- If smoke_command is configured, user-facing changes should also update smoke/E2E test files.
+- The last change may run ALL E2E tests for cross-feature integration, but each preceding change must have its own tests.
+- Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts with order creation, validation, checkout tests").
 
 Model selection — suggest a model per change based on task nature:
 - "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)
