@@ -2,9 +2,9 @@
 
 # Plugins
 
-wt-tools is designed to be extensible. Plugins add new capabilities — custom skills, agents, hooks, or CLI commands — without modifying the core. Plugins live in separate repositories and are installed into projects independently.
+> **Status: Experimental.** Plugin infrastructure is available but the ecosystem is just starting. The `wt-plugin install` CLI is not yet implemented.
 
-> **Status:** Plugin infrastructure is available. The plugin ecosystem is just starting.
+wt-tools is designed to be extensible. Plugins add new capabilities — custom skills, agents, hooks, or CLI commands — without modifying the core. Plugins live in separate repositories and are installed into projects independently.
 
 ## Concept
 
