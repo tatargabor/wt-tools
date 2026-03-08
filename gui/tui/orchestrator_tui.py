@@ -134,7 +134,7 @@ class StateReader:
         try:
             with open(loop_file) as f:
                 ls = json.load(f)
-            iteration = ls.get("iteration", 0)
+            iteration = ls.get("current_iteration", 0)
             max_iter = ls.get("max_iterations", 0)
             if max_iter > 0:
                 return f"{iteration}/{max_iter}"
@@ -363,10 +363,10 @@ class OrchestratorTUI(App):
             if deps and status in ("pending", "dispatched"):
                 dep_text = ", ".join(d[:12] for d in deps[:2])
                 name_display = f"{name[:22]} [dim](→{dep_text})[/]"
+            elif len(name) > 25:
+                name_display = name[:24] + "…"
             else:
                 name_display = name
-            if len(name) > 25:
-                name = name[:24] + "…"
             color, icon = STATUS_DISPLAY.get(status, ("white", "?"))
             status_cell = f"[{color}]{icon} {status}[/]"
 
