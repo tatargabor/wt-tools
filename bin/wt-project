@@ -198,6 +198,7 @@ _resolve_project_type() {
     py=$(_wt_python)
     "$py" -c "
 import json, sys
+type_name = sys.argv[1]
 try:
     from importlib.metadata import entry_points
 except ImportError:
@@ -209,7 +210,7 @@ except TypeError:
     eps = entry_points().get('wt_tools.project_types', [])
 
 for ep in eps:
-    if ep.name == '$type_name':
+    if ep.name == type_name:
         cls = ep.load()
         pt = cls()
         info = pt.info
@@ -220,7 +221,7 @@ for ep in eps:
 
 print(json.dumps({'error': 'not_found'}), file=sys.stderr)
 sys.exit(1)
-" 2>/dev/null
+" "$type_name" 2>/dev/null
 }
 
 # List available project types via Python entry points.
@@ -275,46 +276,74 @@ _save_project_type() {
     directives_count=$(echo "$pt_info" | python3 -c "import json,sys; print(json.load(sys.stdin).get('directives_count',0))")
 
     mkdir -p "$(dirname "$pt_file")"
-    cat > "$pt_file" << YAML
-# Project type configuration — managed by wt-project init
-# Change with: wt-project init --project-type <type>
-type: $type_name
-version: $version
-description: "$description"
-$([ -n "$parent" ] && echo "parent: $parent" || true)
-$([ -n "$init_template" ] && echo "template: $init_template" || true)
-$(if [ -n "$init_modules" ]; then echo "modules:"; IFS=',' read -ra _mods <<< "$init_modules"; for _m in "${_mods[@]}"; do [ -n "$_m" ] && echo "  - $_m"; done; fi)
 
-# Stats: ${rules_count} verification rules, ${directives_count} orchestration directives
-# Rules and directives are loaded dynamically from the installed package.
-# Use 'wt-project-base resolve --project-dir .' to see the merged final set.
+    local py
+    py=$(_wt_python)
+
+    # Merge managed fields into existing YAML (preserves user customizations)
+    "$py" -c "
+import yaml, sys, os
+
+pt_file = sys.argv[1]
+managed = {
+    'type': sys.argv[2],
+    'version': sys.argv[3],
+    'description': sys.argv[4],
+}
+parent_val = sys.argv[5]
+template_val = sys.argv[6]
+modules_val = sys.argv[7]
+
+if parent_val:
+    managed['parent'] = parent_val
+if template_val:
+    managed['template'] = template_val
+if modules_val:
+    managed['modules'] = [m.strip() for m in modules_val.split(',') if m.strip()]
+
+if os.path.exists(pt_file):
+    with open(pt_file) as f:
+        data = yaml.safe_load(f) or {}
+    # Update only managed fields, preserve everything else
+    for k, v in managed.items():
+        data[k] = v
+    # Remove parent key if empty (base type)
+    if not parent_val and 'parent' in data:
+        del data['parent']
+else:
+    data = managed
+
+with open(pt_file, 'w') as f:
+    f.write('# Project type configuration — managed by wt-project init\n')
+    f.write('# Change with: wt-project init --project-type <type>\n')
+    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+" "$pt_file" "$type_name" "$version" "$description" "$parent" "$init_template" "$init_modules"
+
+    # If new file, append customization docs as comments
+    if ! grep -q 'Project Customizations' "$pt_file" 2>/dev/null; then
+        cat >> "$pt_file" << 'CUSTOMIZATION'
 
 # ── Project Customizations ──────────────────────────────────────────
 # Add, disable, or override rules and directives below.
 # These sections are yours — wt-project init will not overwrite them.
 
-# Add custom verification rules (same format as package rules):
 # custom_rules:
 #   - id: my-custom-rule
 #     description: "Description of what this rule checks"
-#     check: pattern-absence    # check type
-#     severity: warning         # error, warning, info
+#     check: pattern-absence
+#     severity: warning
 #     config:
 #       pattern: "src/**/*.ts"
 #       forbidden: "some-pattern"
 
-# Disable package rules that don't apply to this project:
 # disabled_rules:
 #   - ghost-button-text
-#   - todo-tracking
 
-# Override config of existing rules:
 # rule_overrides:
 #   file-size-limit:
 #     config:
 #       max_lines: 600
 
-# Add custom orchestration directives:
 # custom_directives:
 #   - id: run-custom-lint
 #     description: "Run custom linter after changes"
@@ -322,13 +351,10 @@ $(if [ -n "$init_modules" ]; then echo "modules:"; IFS=',' read -ra _mods <<< "$
 #     action: post-merge
 #     config: { command: "pnpm lint:custom" }
 
-# Disable package directives:
 # disabled_directives:
 #   - install-deps-python
-
-# For personal (non-shared) overrides, create .local-overrides.yaml
-# in this directory — it uses the same format and is gitignored.
-YAML
+CUSTOMIZATION
+    fi
 
     success "  Project type set to '$type_name' ($rules_count rules, $directives_count directives)"
 
@@ -523,18 +549,18 @@ _save_template_modules() {
     py=$(_wt_python)
     "$py" -c "
 import yaml, sys
-with open('$pt_file') as f:
+pt_file, template_name, modules_csv = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(pt_file) as f:
     data = yaml.safe_load(f) or {}
-if '$template_name':
-    data['template'] = '$template_name'
-mods = '$modules_csv'
-if mods:
-    data['modules'] = [m.strip() for m in mods.split(',') if m.strip()]
+if template_name:
+    data['template'] = template_name
+if modules_csv:
+    data['modules'] = [m.strip() for m in modules_csv.split(',') if m.strip()]
 elif 'modules' in data:
     del data['modules']
-with open('$pt_file', 'w') as f:
+with open(pt_file, 'w') as f:
     yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-" 2>/dev/null
+" "$pt_file" "$template_name" "$modules_csv" 2>/dev/null
 }
 
 # List available optional modules for a project type template.
@@ -547,6 +573,8 @@ _list_available_modules() {
     py=$(_wt_python)
     "$py" -c "
 import sys
+type_name = sys.argv[1]
+template_name = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 try:
     from importlib.metadata import entry_points
 except ImportError:
@@ -556,13 +584,12 @@ try:
 except TypeError:
     eps = entry_points().get('wt_tools.project_types', [])
 for ep in eps:
-    if ep.name == '$type_name':
+    if ep.name == type_name:
         cls = ep.load()
         pt = cls()
         from wt_project_base.deploy import resolve_template, get_available_modules
         try:
-            tname = '${template_name}' if '${template_name}' else None
-            tid, tdir = resolve_template(pt, tname)
+            tid, tdir = resolve_template(pt, template_name)
         except ValueError:
             sys.exit(1)
         mods = get_available_modules(tdir)
@@ -570,7 +597,7 @@ for ep in eps:
             print(f'  {mid} — {desc}')
         sys.exit(0)
 sys.exit(1)
-" 2>/dev/null
+" "$type_name" "$template_name" 2>/dev/null
 }
 
 # Prompt user to select optional modules interactively.
@@ -718,18 +745,23 @@ cmd_init() {
                 deploy_template=$(grep '^template:' "$pt_file" 2>/dev/null | sed 's/^template: *//' || true)
             fi
         fi
-        _save_project_type "$git_root" "$project_type" "$deploy_template" "$deploy_modules"
+        if ! _save_project_type "$git_root" "$project_type" "$deploy_template" "$deploy_modules"; then
+            error "Failed to set project type '$project_type'. Skipping template deploy."
+        else
         # If still no modules, prompt interactively
         if [[ -z "$deploy_modules" ]]; then
             _prompt_modules "$project_type" "$deploy_template"
             deploy_modules="$SELECTED_MODULES"
+            # Save interactively selected modules back to project-type.yaml
+            if [[ -n "$deploy_modules" ]]; then
+                _save_template_modules "$git_root" "$deploy_template" "$deploy_modules"
+            fi
         fi
         # Deploy templates from the project type
-        _deploy_project_templates "$git_root" "$project_type" "$deploy_template" "$deploy_modules" || true
-        # Save template and module selection for re-init
-        if [[ -n "$deploy_template" || -n "$deploy_modules" ]]; then
-            _save_template_modules "$git_root" "$deploy_template" "$deploy_modules"
-        fi
+        _deploy_project_templates "$git_root" "$project_type" "$deploy_template" "$deploy_modules" || {
+            warn "Template deployment had issues (check output above)"
+        }
+        fi  # end _save_project_type success
     fi
 
     # If called from a worktree, also deploy to the worktree's own .claude/ dir
