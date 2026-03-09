@@ -88,6 +88,28 @@ def format_duration(seconds):
     return f"{h}h{m:02d}m"
 
 
+def format_change_duration(change):
+    """Calculate per-change duration from started_at/completed_at ISO timestamps."""
+    started_at = change.get("started_at")
+    if not started_at:
+        return "-"
+    try:
+        start = datetime.fromisoformat(started_at)
+    except (ValueError, TypeError):
+        return "-"
+    completed_at = change.get("completed_at")
+    if completed_at:
+        try:
+            end = datetime.fromisoformat(completed_at)
+        except (ValueError, TypeError):
+            end = datetime.now().astimezone()
+    else:
+        # Still running — use current time
+        end = datetime.now().astimezone()
+    delta = (end - start).total_seconds()
+    return format_duration(delta)
+
+
 def gate_str(result):
     """Convert a gate result to a display string."""
     if result == "pass":
@@ -118,7 +140,11 @@ def format_gates(change):
     parts.append(f"V{gate_str(verify)}")
     # Smoke runs post-merge — only show for merged/done changes
     if smoke is not None:
-        parts.append(f"S{gate_str(smoke)}")
+        smoke_fixed = change.get("smoke_fixed") or change.get("smoke_status") == "fixed"
+        if smoke == "pass" and smoke_fixed:
+            parts.append(f"S{GATE_PASS}(fix)")
+        else:
+            parts.append(f"S{gate_str(smoke)}")
     return " ".join(parts)
 
 
@@ -269,7 +295,7 @@ class OrchestratorTUI(App):
     def on_mount(self) -> None:
         # Set up table columns
         table = self.query_one("#change-table", DataTable)
-        table.add_columns("Name", "Status", "Iter", "In/Out (Cache)", "Gates")
+        table.add_columns("Name", "Status", "Iter", "Dur", "In/Out (Cache)", "Gates")
         table.cursor_type = "row"
 
         # Initial data load
@@ -333,6 +359,21 @@ class OrchestratorTUI(App):
         active_secs = state.get("active_seconds", 0) or 0
         time_limit = state.get("time_limit_secs", 0) or 0
 
+        # Wall clock (elapsed) time — from started_epoch to now (or end of run)
+        started_epoch = state.get("started_epoch")
+        if started_epoch:
+            if orch_status in ("done", "time_limit", "stopped"):
+                # Finished run — use state file mtime as end time
+                try:
+                    end_epoch = self.reader.state_path.stat().st_mtime
+                except OSError:
+                    end_epoch = datetime.now().timestamp()
+            else:
+                end_epoch = datetime.now().timestamp()
+            elapsed_secs = max(0, end_epoch - started_epoch)
+        else:
+            elapsed_secs = 0
+
         # Build status line
         status_text = f"[{color}]{icon} {orch_status.upper()}[/]"
 
@@ -347,12 +388,14 @@ class OrchestratorTUI(App):
 
         # Time info
         time_text = f"Active: {format_duration(active_secs)}"
+        if elapsed_secs > 0:
+            time_text += f"  Elapsed: {format_duration(elapsed_secs)}"
         if time_limit > 0:
             remaining = time_limit - active_secs
             if remaining > 0:
-                time_text += f" / {format_duration(time_limit)} limit ({format_duration(remaining)} rem)"
+                time_text += f"  / {format_duration(time_limit)} limit ({format_duration(remaining)} rem)"
             else:
-                time_text += f" / {format_duration(time_limit)} limit [red](exceeded)[/]"
+                time_text += f"  / {format_duration(time_limit)} limit [red](exceeded)[/]"
 
         # Compose header
         if prev_tokens > 0 and current_tokens > 0:
@@ -407,6 +450,12 @@ class OrchestratorTUI(App):
             wt_path = change.get("worktree_path")
             iteration = self.reader.read_loop_state(wt_path) if status == "running" else "-"
 
+            # Per-change duration
+            if status in ("pending", "dispatched"):
+                dur = "-"
+            else:
+                dur = format_change_duration(change)
+
             tokens = format_token_breakdown(change)
 
             # Gates (only show for non-pending)
@@ -415,7 +464,39 @@ class OrchestratorTUI(App):
             else:
                 gates = format_gates(change)
 
-            table.add_row(name_display, status_cell, iteration, tokens, gates)
+            table.add_row(name_display, status_cell, iteration, dur, tokens, gates)
+
+        # Summary row
+        changes = state.get("changes", [])
+        if changes:
+            merged = sum(1 for c in changes if c.get("status") in ("done", "merged"))
+            total_count = len(changes)
+
+            # Average duration of completed changes
+            durations = []
+            for c in changes:
+                sa = c.get("started_at")
+                ca = c.get("completed_at")
+                if sa and ca:
+                    try:
+                        delta = (datetime.fromisoformat(ca) - datetime.fromisoformat(sa)).total_seconds()
+                        if delta > 0:
+                            durations.append(delta)
+                    except (ValueError, TypeError):
+                        pass
+            avg_dur = format_duration(sum(durations) / len(durations)) if durations else "-"
+
+            # Total billed tokens (input + output)
+            total_billed = sum((c.get("input_tokens") or 0) + (c.get("output_tokens") or 0) for c in changes)
+
+            table.add_row(
+                f"[bold dim]{merged}/{total_count} merged[/]",
+                "[dim]---[/]",
+                "[dim]-[/]",
+                f"[dim]avg {avg_dur}[/]",
+                f"[bold]{format_tokens(total_billed)}[/] [dim]billed[/]",
+                "[dim]-[/]",
+            )
 
         # Restore cursor position (clamp to valid range)
         if table.row_count > 0:
