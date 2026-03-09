@@ -13,7 +13,7 @@ Design pivot: the scaffold is a single file (`docs/v1-minishop.md`). Agents buil
 - [x] 2.1 Delete all scaffold files except `docs/v1-minishop.md`: remove `package.json`, `prisma/`, `.env.example`, `.gitignore`, and any remaining config/source files.
 - [x] 2.2 Update `v1-minishop.md` to be fully self-contained: add Prisma schema description (models with field names, types, relations), seed data specification, dependency list, and remove redundant convention sections that duplicate `wt-project-web` rules.
 - [x] 2.3 In `v1-minishop.md`: specify no `.env` file needed — SQLite uses hardcoded `file:./dev.db` in Prisma schema, NextAuth secret uses dev default in code (`process.env.NEXTAUTH_SECRET ?? "dev-secret"`).
-- [ ] 2.4 Verify `wt-project-web` nextjs template is installed and `wt-project init --project-type web --template nextjs` works on an empty dir.
+- [x] 2.4 Verify `wt-project-web` nextjs template is installed and `wt-project init --project-type web --template nextjs` works on an empty dir.
 
 ## 3. Feature Roadmap Spec
 
@@ -33,6 +33,6 @@ Design pivot: the scaffold is a single file (`docs/v1-minishop.md`). Agents buil
 
 ## 6. Validation
 
-- [ ] 6.1 Verify `wt-project init --project-type web --template nextjs` on empty dir: configs deployed, rules in `.claude/rules/`, CLAUDE.md created.
-- [ ] 6.2 Run `tests/e2e/run.sh` on a fresh dir. Confirm: project init works, orchestration starts, agents can read spec and create project files.
-- [ ] 6.3 Run full E2E with sentinel. Confirm: 6 changes orchestrated, per-change tokens are realistic (no cross-project inflation), screenshots captured, report generated.
+- [x] 6.1 Verify `wt-project init --project-type web --template nextjs` on empty dir: configs deployed, rules in `.claude/rules/`, CLAUDE.md created.
+- [x] 6.2 Run `tests/e2e/run.sh` on a fresh dir. Confirm: project init works, orchestration starts, agents can read spec and create project files.
+- [x] 6.3 Run full E2E with sentinel. Confirm: 6 changes orchestrated, per-change tokens are realistic (no cross-project inflation), screenshots captured, report generated.

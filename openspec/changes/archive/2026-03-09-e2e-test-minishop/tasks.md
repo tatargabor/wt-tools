@@ -28,6 +28,6 @@
 
 ## 5. Validálás
 
-- [ ] 5.1 Scaffold teszt: másolás friss tmp dir-be, `npm install && npm test` — PASS kell legyen
+- [x] 5.1 Scaffold teszt: N/A — scaffold is spec-only (no package.json), validated via run.sh
 - [x] 5.2 Runner teszt: `./tests/e2e/run.sh` futtatás, ellenőrzés hogy v0/v1/v2 tag-ek létrejöttek, .claude/ deployed, config.yaml létezik, npm test PASS
 - [x] 5.3 Spec validálás: a `docs/v1-minishop.md` dependency gráf ellenőrzés — products-crud (no deps), cart (depends: products-crud), orders (depends: cart, products-crud), auth (depends: products-crud, cart, orders). Formátum megfelel a sample-spec.md konvenciónak, `## Orchestrator Directives` H2 heading
