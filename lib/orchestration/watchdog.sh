@@ -112,10 +112,19 @@ watchdog_check() {
 
     local should_escalate=false
 
-    # Loop detection triggers escalation
+    # Loop detection triggers escalation (but only if Ralph PID is dead)
     if [[ "$consecutive_same" -ge "$WATCHDOG_LOOP_THRESHOLD" ]]; then
-        log_warn "Watchdog: $change_name stuck in loop ($consecutive_same identical hashes)"
-        should_escalate=true
+        local ralph_pid_loop
+        ralph_pid_loop=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
+        if [[ "$ralph_pid_loop" -gt 0 ]] && kill -0 "$ralph_pid_loop" 2>/dev/null; then
+            # PID alive = long operation, not stuck — warn but don't escalate
+            log_warn "Watchdog: $change_name hash loop ($consecutive_same identical hashes) but PID $ralph_pid_loop alive — skipping escalation"
+            emit_event "WATCHDOG_WARN" "$change_name" \
+                "{\"reason\":\"hash_loop_pid_alive\",\"consecutive\":$consecutive_same,\"pid\":$ralph_pid_loop}"
+        else
+            log_warn "Watchdog: $change_name stuck in loop ($consecutive_same identical hashes, PID $ralph_pid_loop dead)"
+            should_escalate=true
+        fi
     fi
 
     # Timeout triggers escalation (but only if Ralph PID is dead)

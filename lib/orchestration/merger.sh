@@ -89,6 +89,9 @@ merge_change() {
         log_info "Merged $change_name"
         success "Merged: $change_name"
 
+        # Sync running worktrees with updated main to prevent stale-main gate failures
+        _sync_running_worktrees "$change_name"
+
         # Invalidate base build cache — merge changes main, old result is stale
         BASE_BUILD_STATUS=""
         BASE_BUILD_OUTPUT=""
@@ -363,6 +366,31 @@ SMOKE_FIX_EOF
             return 1
         fi
     fi
+}
+
+# ─── Post-Merge Sync ─────────────────────────────────────────────────
+
+# Sync all running worktrees with main after a merge to prevent stale-main gate failures.
+# Non-blocking: sync failures are logged but do not affect the merge result.
+_sync_running_worktrees() {
+    local merged_change="$1"
+
+    local running_changes
+    running_changes=$(jq -r '.changes[] | select(.status == "running") | .name' "$STATE_FILENAME" 2>/dev/null || true)
+    [[ -z "$running_changes" ]] && return 0
+
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        local wt_path
+        wt_path=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME" 2>/dev/null)
+        [[ -z "$wt_path" || ! -d "$wt_path" ]] && continue
+
+        if sync_worktree_with_main "$wt_path" "$name" 2>/dev/null; then
+            log_info "Post-merge sync: $name synced with main (after $merged_change merge)"
+        else
+            log_warn "Post-merge sync: $name sync failed (non-blocking)"
+        fi
+    done <<< "$running_changes"
 }
 
 # ─── Worktree Cleanup ────────────────────────────────────────────────

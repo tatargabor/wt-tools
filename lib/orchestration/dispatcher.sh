@@ -495,19 +495,41 @@ dispatch_ready_changes() {
     local order
     order=$(topological_sort "$PLAN_FILENAME" 2>/dev/null || true)
 
+    # Collect ready-to-dispatch changes, then sort by complexity (L first)
+    local ready_names=()
     while IFS= read -r name; do
         [[ -z "$name" ]] && continue
-        [[ "$running" -ge "$max_parallel" ]] && break
 
         local status
         status=$(get_change_status "$name")
         [[ "$status" != "pending" ]] && continue
 
         if deps_satisfied "$name"; then
-            dispatch_change "$name"
-            running=$((running + 1))
+            ready_names+=("$name")
         fi
     done <<< "$order"
+
+    # Sort ready changes: L > M > S (larger first to reduce tail latency)
+    if [[ ${#ready_names[@]} -gt 1 ]]; then
+        local sorted_names=()
+        for priority in L M S; do
+            for name in "${ready_names[@]}"; do
+                local complexity
+                complexity=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .complexity // "M"' "$STATE_FILENAME" 2>/dev/null)
+                if [[ "$complexity" == "$priority" ]]; then
+                    sorted_names+=("$name")
+                fi
+            done
+        done
+        ready_names=("${sorted_names[@]}")
+    fi
+
+    # Dispatch in priority order
+    for name in "${ready_names[@]}"; do
+        [[ "$running" -ge "$max_parallel" ]] && break
+        dispatch_change "$name"
+        running=$((running + 1))
+    done
 }
 
 pause_change() {
