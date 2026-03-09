@@ -683,21 +683,27 @@ Test-per-change requirement:
 - The quality gate BLOCKS changes without test files for feature/infrastructure types.
 - Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts").
 
-Functional test planning (when smoke_command is configured):
-- For each user-facing feature change, include a "Functional tests:" section in the scope with CONCRETE test scenarios:
+Playwright E2E test planning (when e2e_command is configured):
+- The infrastructure/foundation change (first in dependency order) MUST set up Playwright alongside Jest:
+  * Create playwright.config.ts with PW_PORT env var support and webServer auto-start
+  * Add testPathIgnorePatterns: ["/node_modules/", "/tests/e2e/"] to jest.config (Jest crashes on Playwright .spec.ts imports in jsdom)
+  * Add @playwright/test to devDependencies + run npx playwright install chromium
+  * Create tests/e2e/global-setup.ts: prisma generate → prisma db push --force-reset → prisma db seed
+- Each subsequent feature change creating a user-facing route MUST create tests/e2e/<feature>.spec.ts as an explicit file deliverable in scope (e.g., "Create tests/e2e/cart.spec.ts")
+- Include CONCRETE test scenarios per feature:
   * Page URL to visit
   * User interactions: what to click, what data to type, what to select
-  * Expected outcomes: visible text, redirects, error messages, DB state changes
-  * Auth scenarios: verify protected routes redirect unauthenticated users to login
+  * Expected outcomes: visible text, redirects, error messages
+  * Auth scenarios: verify protected routes redirect unauthenticated users
   * Error scenarios: invalid form input, missing required fields
-- Example:
-  Functional tests (tests/e2e/orders.spec.ts):
+- Example scope:
+  Create tests/e2e/orders.spec.ts:
   - Visit /products → click "Add to Cart" on first product → cart badge shows "1"
-  - Visit /cart → verify product name and price → click "Checkout" → fill name="Test User", email="test@test.com" → click "Place Order" → verify redirect to /orders/[id] with "Order confirmed"
+  - Visit /cart → verify product name and price → click "Checkout" → fill form → verify redirect to /orders/[id]
   - Visit /admin/orders without login → verify redirect to /admin/login
-  - Visit /admin/login → fill email="admin@test.com", password="admin123" → click "Sign in" → verify redirect to /admin
-- These tests run post-merge via smoke_command against a live dev server — they catch runtime bugs that mocked unit tests miss (cookies(), headers(), middleware, DB queries).
-- The last change may consolidate all E2E tests for cross-feature integration, but each preceding feature change must specify its own functional test scenarios.
+- Do NOT defer all E2E tests to a consolidation change — this overloads a single agent. Each feature change owns its tests.
+- Do NOT just list "Functional test scenarios:" as descriptions — create actual test files.
+- E2E tests run pre-merge in the worktree via e2e_command against an auto-started dev server with isolated port and DB.
 
 Model selection — suggest a model per change based on task nature:
 - "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)
@@ -793,21 +799,27 @@ Test-per-change requirement:
 - The quality gate BLOCKS changes without test files for feature/infrastructure types.
 - Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts").
 
-Functional test planning (when smoke_command is configured):
-- For each user-facing feature change, include a "Functional tests:" section in the scope with CONCRETE test scenarios:
+Playwright E2E test planning (when e2e_command is configured):
+- The infrastructure/foundation change (first in dependency order) MUST set up Playwright alongside Jest:
+  * Create playwright.config.ts with PW_PORT env var support and webServer auto-start
+  * Add testPathIgnorePatterns: ["/node_modules/", "/tests/e2e/"] to jest.config (Jest crashes on Playwright .spec.ts imports in jsdom)
+  * Add @playwright/test to devDependencies + run npx playwright install chromium
+  * Create tests/e2e/global-setup.ts: prisma generate → prisma db push --force-reset → prisma db seed
+- Each subsequent feature change creating a user-facing route MUST create tests/e2e/<feature>.spec.ts as an explicit file deliverable in scope (e.g., "Create tests/e2e/cart.spec.ts")
+- Include CONCRETE test scenarios per feature:
   * Page URL to visit
   * User interactions: what to click, what data to type, what to select
-  * Expected outcomes: visible text, redirects, error messages, DB state changes
-  * Auth scenarios: verify protected routes redirect unauthenticated users to login
+  * Expected outcomes: visible text, redirects, error messages
+  * Auth scenarios: verify protected routes redirect unauthenticated users
   * Error scenarios: invalid form input, missing required fields
-- Example:
-  Functional tests (tests/e2e/orders.spec.ts):
+- Example scope:
+  Create tests/e2e/orders.spec.ts:
   - Visit /products → click "Add to Cart" on first product → cart badge shows "1"
-  - Visit /cart → verify product name and price → click "Checkout" → fill name="Test User", email="test@test.com" → click "Place Order" → verify redirect to /orders/[id] with "Order confirmed"
+  - Visit /cart → verify product name and price → click "Checkout" → fill form → verify redirect to /orders/[id]
   - Visit /admin/orders without login → verify redirect to /admin/login
-  - Visit /admin/login → fill email="admin@test.com", password="admin123" → click "Sign in" → verify redirect to /admin
-- These tests run post-merge via smoke_command against a live dev server — they catch runtime bugs that mocked unit tests miss (cookies(), headers(), middleware, DB queries).
-- The last change may consolidate all E2E tests for cross-feature integration, but each preceding feature change must specify its own functional test scenarios.
+- Do NOT defer all E2E tests to a consolidation change — this overloads a single agent. Each feature change owns its tests.
+- Do NOT just list "Functional test scenarios:" as descriptions — create actual test files.
+- E2E tests run pre-merge in the worktree via e2e_command against an auto-started dev server with isolated port and DB.
 
 Model selection — suggest a model per change based on task nature:
 - "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)

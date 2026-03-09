@@ -42,6 +42,11 @@ monitor_loop() {
     local smoke_health_check_timeout
     smoke_health_check_timeout=$(echo "$directives" | jq -r ".smoke_health_check_timeout // $DEFAULT_SMOKE_HEALTH_CHECK_TIMEOUT")
 
+    local e2e_command
+    e2e_command=$(echo "$directives" | jq -r '.e2e_command // ""')
+    local e2e_timeout
+    e2e_timeout=$(echo "$directives" | jq -r '.e2e_timeout // 120')
+
     local token_hard_limit
     token_hard_limit=$(echo "$directives" | jq -r ".token_hard_limit // $DEFAULT_TOKEN_HARD_LIMIT")
 
@@ -154,7 +159,8 @@ monitor_loop() {
                 "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model" \
                 "$smoke_command" "$smoke_timeout" "$smoke_blocking" \
                 "$smoke_fix_max_retries" "$smoke_fix_max_turns" \
-                "$smoke_health_check_url" "$smoke_health_check_timeout"
+                "$smoke_health_check_url" "$smoke_health_check_timeout" \
+                "$e2e_command" "$e2e_timeout"
             watchdog_check "$name"
         done <<< "$active_changes"
 
@@ -178,7 +184,8 @@ monitor_loop() {
                         "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model" \
                         "$smoke_command" "$smoke_timeout" "$smoke_blocking" \
                         "$smoke_fix_max_retries" "$smoke_fix_max_turns" \
-                        "$smoke_health_check_url" "$smoke_health_check_timeout"
+                        "$smoke_health_check_url" "$smoke_health_check_timeout" \
+                        "$e2e_command" "$e2e_timeout"
                 fi
             fi
         done <<< "$suspended_changes"

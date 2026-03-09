@@ -9,19 +9,21 @@
 
 # Run tests in a worktree with timeout. Captures exit code + truncated output.
 # Returns 0 on pass, 1 on fail. Sets TEST_OUTPUT variable.
+# Args: wt_path, test_command, test_timeout, max_output_chars (default 2000)
 run_tests_in_worktree() {
     local wt_path="$1"
     local test_command="$2"
     local test_timeout="${3:-$DEFAULT_TEST_TIMEOUT}"
+    local max_chars="${4:-2000}"
 
     TEST_OUTPUT=""
     local raw_output rc=0
     raw_output=$(cd "$wt_path" && timeout "$test_timeout" bash -c "$test_command" 2>&1) || rc=$?
 
-    # Truncate output to 2000 chars
-    if [[ ${#raw_output} -gt 2000 ]]; then
+    # Truncate output to max_chars
+    if [[ ${#raw_output} -gt $max_chars ]]; then
         TEST_OUTPUT="...truncated...
-${raw_output: -2000}"
+${raw_output: -$max_chars}"
     else
         TEST_OUTPUT="$raw_output"
     fi
@@ -412,6 +414,8 @@ poll_change() {
     local smoke_fix_max_turns="${12:-$DEFAULT_SMOKE_FIX_MAX_TURNS}"
     local smoke_health_check_url="${13:-}"
     local smoke_health_check_timeout="${14:-$DEFAULT_SMOKE_HEALTH_CHECK_TIMEOUT}"
+    local e2e_command="${15:-}"
+    local e2e_timeout="${16:-120}"
 
     local wt_path
     wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
@@ -490,7 +494,8 @@ poll_change() {
                 "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model" \
                 "$smoke_command" "$smoke_timeout" "$smoke_blocking" \
                 "$smoke_fix_max_retries" "$smoke_fix_max_turns" \
-                "$smoke_health_check_url" "$smoke_health_check_timeout"
+                "$smoke_health_check_url" "$smoke_health_check_timeout" \
+                "$e2e_command" "$e2e_timeout"
             ;;
         running)
             # Watchdog handles timeout/stall detection via watchdog_check() after poll_change().
@@ -564,7 +569,8 @@ poll_change() {
                     "$test_timeout" "$max_verify_retries" "$review_before_merge" "$review_model" \
                     "$smoke_command" "$smoke_timeout" "$smoke_blocking" \
                     "$smoke_fix_max_retries" "$smoke_fix_max_turns" \
-                    "$smoke_health_check_url" "$smoke_health_check_timeout"
+                    "$smoke_health_check_url" "$smoke_health_check_timeout" \
+                    "$e2e_command" "$e2e_timeout"
                 return
             fi
             # Mark stalled — watchdog handles escalation (resume, kill, fail)
@@ -593,6 +599,8 @@ handle_change_done() {
     local smoke_fix_max_turns="${13:-$DEFAULT_SMOKE_FIX_MAX_TURNS}"
     local smoke_health_check_url="${14:-}"
     local smoke_health_check_timeout="${15:-$DEFAULT_SMOKE_HEALTH_CHECK_TIMEOUT}"
+    local e2e_command="${16:-}"
+    local e2e_timeout="${17:-120}"
 
     log_info "Change $change_name completed, running checks... (review_before_merge=$review_before_merge, test_command=$test_command, test_timeout=$test_timeout)"
 
@@ -851,6 +859,76 @@ handle_change_done() {
         update_change_field "$change_name" "build_result" '"pass"'
     fi
 
+    # ── Step 1b: E2E tests — Playwright functional tests in worktree (VG-E2E) ──
+    local gate_e2e_ms=0
+    local e2e_result="skip"
+    local e2e_output=""
+    if [[ -n "$e2e_command" ]]; then
+        if [[ -f "$wt_path/playwright.config.ts" || -f "$wt_path/playwright.config.js" ]]; then
+            update_change_field "$change_name" "status" '"verifying"'
+            local e2e_port=$((3100 + RANDOM % 900))
+            info "Running E2E tests for $change_name (port=$e2e_port)..."
+            log_info "Verify gate: e2e start for $change_name (PW_PORT=$e2e_port)"
+
+            local _e_start=$(($(date +%s%N) / 1000000))
+            if PW_PORT=$e2e_port run_tests_in_worktree "$wt_path" "$e2e_command" "$e2e_timeout" 4000; then
+                e2e_result="pass"
+                e2e_output="$TEST_OUTPUT"
+                log_info "Verify gate: e2e passed for $change_name"
+            else
+                e2e_result="fail"
+                e2e_output="$TEST_OUTPUT"
+                log_error "Verify gate: e2e failed for $change_name"
+                # Cleanup orphaned dev server on the assigned port
+                pkill -f "pnpm dev.*--port $e2e_port" 2>/dev/null || true
+                pkill -f "next dev.*--port $e2e_port" 2>/dev/null || true
+            fi
+            gate_e2e_ms=$(( $(date +%s%N) / 1000000 - _e_start ))
+            update_change_field "$change_name" "gate_e2e_ms" "$gate_e2e_ms"
+            log_info "Verify gate: e2e took ${gate_e2e_ms}ms for $change_name"
+        else
+            e2e_result="skipped"
+            log_warn "Verify gate: e2e skipped for $change_name (no playwright.config.ts)"
+        fi
+    fi
+
+    # Store e2e results in state
+    update_change_field "$change_name" "e2e_result" "\"$e2e_result\""
+    local escaped_e2e_output
+    escaped_e2e_output=$(printf '%s' "$e2e_output" | head -c 4000 | jq -Rs .)
+    update_change_field "$change_name" "e2e_output" "$escaped_e2e_output"
+
+    if [[ "$e2e_result" == "fail" ]]; then
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            info "E2E tests failed for $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+            log_info "Verify gate: e2e fail retry $verify_retry_count/$max_verify_retries for $change_name"
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+            update_change_field "$change_name" "status" '"verify-failed"'
+
+            local scope
+            scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+            local retry_prompt="E2E tests (Playwright) failed after implementation. Fix the failing E2E tests or the code they test.\n\nE2E command: $e2e_command\nE2E output:\n$e2e_output\n\nOriginal scope: $scope"
+            local _mem_ctx
+            _mem_ctx=$(orch_recall "$scope" 3 "phase:verification")
+            if [[ -n "$_mem_ctx" ]]; then
+                retry_prompt="$retry_prompt\n\n## Context from Memory\n${_mem_ctx:0:1000}"
+            fi
+            update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+            local _snap_tokens
+            _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+            update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+            update_change_field "$change_name" "gate_e2e_ms" "$gate_e2e_ms"
+            resume_change "$change_name"
+            return
+        fi
+        update_change_field "$change_name" "status" '"failed"'
+        send_notification "wt-orchestrate" "Change '$change_name' failed E2E tests after $max_verify_retries retries" "critical"
+        log_error "Verify gate: $change_name failed E2E permanently"
+        trigger_checkpoint "failure"
+        return
+    fi
+
     # ── Step 2a: Pre-merge implementation scope check (BLOCKING) ──
     if ! verify_implementation_scope "$change_name" "$wt_path"; then
         update_change_field "$change_name" "scope_check" '"fail"'
@@ -1020,7 +1098,7 @@ handle_change_done() {
     fi
 
     # ── Store gate total ──
-    local gate_total_ms=$((gate_test_ms + gate_review_ms + gate_verify_ms + gate_build_ms))
+    local gate_total_ms=$((gate_test_ms + gate_e2e_ms + gate_review_ms + gate_verify_ms + gate_build_ms))
     update_change_field "$change_name" "gate_total_ms" "$gate_total_ms"
     local gate_retry_tokens
     gate_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
