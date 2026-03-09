@@ -190,6 +190,14 @@ install_scripts() {
         fi
     done
 
+    # Link lib/ directory (scripts resolve ../lib relative to INSTALL_DIR)
+    local lib_src="$SCRIPT_DIR/lib"
+    local lib_dst="${INSTALL_DIR%/bin}/lib"
+    if [[ -d "$lib_src" ]]; then
+        ln -sf "$lib_src" "$lib_dst"
+        success "  Linked: lib/ -> $lib_dst"
+    fi
+
     # Ensure INSTALL_DIR is in PATH
     ensure_path "$INSTALL_DIR"
 }
