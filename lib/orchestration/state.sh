@@ -529,9 +529,11 @@ cmd_approve() {
         local cs
         cs=$(get_change_status "$change_name" 2>/dev/null || true)
         if [[ "$cs" == "merge-blocked" ]]; then
-            update_change_field "$change_name" "status" '"done"'
-            log_info "Change $change_name unblocked — ready for merge retry"
-            success "Change '$change_name' unblocked"
+            update_change_field "$change_name" "status" '"merge-blocked"'
+            update_change_field "$change_name" "merge_retry_count" "0"
+            update_change_field "$change_name" "last_conflict_fingerprint" '""'
+            log_info "Change $change_name unblocked — merge retry count reset"
+            success "Change '$change_name' unblocked — will retry merge on next poll cycle"
             return 0
         elif [[ -z "$cs" ]]; then
             error "Change '$change_name' not found"

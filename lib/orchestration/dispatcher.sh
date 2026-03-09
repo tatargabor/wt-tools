@@ -830,7 +830,7 @@ cmd_start() {
                 fi
                 if [[ "$current_status" == "done" ]]; then
                     log_info "Orchestrator exiting normally (status=done)"
-                    return
+                    exit 0
                 fi
                 echo ""
                 warn "Orchestrator interrupted, saving state..."

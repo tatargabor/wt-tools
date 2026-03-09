@@ -882,10 +882,10 @@ handle_change_done() {
                 e2e_result="fail"
                 e2e_output="$TEST_OUTPUT"
                 log_error "Verify gate: e2e failed for $change_name"
-                # Cleanup orphaned dev server on the assigned port
-                pkill -f "pnpm dev.*--port $e2e_port" 2>/dev/null || true
-                pkill -f "next dev.*--port $e2e_port" 2>/dev/null || true
             fi
+            # Always cleanup dev server — prevents zombie processes holding ports
+            pkill -f "pnpm dev.*--port $e2e_port" 2>/dev/null || true
+            pkill -f "next dev.*--port $e2e_port" 2>/dev/null || true
             gate_e2e_ms=$(( $(date +%s%N) / 1000000 - _e_start ))
             update_change_field "$change_name" "gate_e2e_ms" "$gate_e2e_ms"
             log_info "Verify gate: e2e took ${gate_e2e_ms}ms for $change_name"
