@@ -32,7 +32,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 STATE_FILE="orchestration-state.json"
-EVENTS_FILE="orchestration-events.jsonl"
+EVENTS_FILE="${STATE_FILE%.json}-events.jsonl"
 LOG_FILE="orchestration.log"
 PID_FILE="sentinel.pid"
 MAX_RAPID_CRASHES=5

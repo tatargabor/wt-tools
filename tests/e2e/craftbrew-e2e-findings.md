@@ -13,13 +13,13 @@
 - **Fix**: `RUN_CLAUDE_TIMEOUT=600` → `900` a `call_digest_api()`-ban
 - **Státusz**: Fixelve, 2. próbálkozásnál sikeres (~10 perc)
 
-### 2. Events fájlnév mismatch (sentinel vs orchestrator)
+### 2. Events fájlnév mismatch (sentinel vs orchestrator) — BLOKKOLÓ BUG
 - **Tünet**: sentinel `orchestration-events.jsonl`-t figyel, orchestrator `orchestration-state-events.jsonl`-ba ír
 - **Ok**: `events.sh` lazy init deriválja a fájlnevet `STATE_FILENAME`-ból (`orchestration-state.json` → `orchestration-state-events.jsonl`), de sentinel hardcoded `EVENTS_FILE="orchestration-events.jsonl"`
-- **Hatás**: sentinel stuck detection effektíve kikapcsolt (nem létező fájl → always alive)
-- **Nem blokkoló**: ha fájl nem létezik, `check_orchestrator_liveness` → return 0 (safe)
-- **Fix szükséges**: sentinel-ben szinkronizálni a fájlnevet az orchestratorral
-- **Státusz**: TODO
+- **Hatás**: sentinel stuck detection effektíve kikapcsolt (nem létező fájl → always alive) AMÍG nincs events fájl. DE ha sentinel ír bele (`sentinel_emit_event`), létrejön a rossz nevű fájl, ami soha nem frissül az orchestrator által → sentinel 180s után "stuck"-nak látja → KILLT küld a healthy orchestratornak
+- **Reprodukálva**: PID 131270 — sentinel restart után 183s-nél stuck detect → kill → permanent exit
+- **Fix**: `EVENTS_FILE="${STATE_FILE%.json}-events.jsonl"` — derive, ne hardcode
+- **Státusz**: Fixelve
 
 ### 3. Digest event-ek nem voltak — már fixelve
 - `cc4fe813a` commitban fixelve: DIGEST_STARTED/RESPONSE_RECEIVED/COMPLETE/FAILED emit
@@ -67,10 +67,30 @@
 - Dispatch first change: <5s
 - Total time to first agent working: ~20 perc (digest + planner + dispatch)
 
+### 8. Stall recovery működik
+- `test-infrastructure-setup` stalled (Ralph PID dead, worktree dir deleted by sentinel restart)
+- 300s cooldown → auto-resume → running újra
+- Ez normális sentinel viselkedés: fresh start törli a worktree-ket, de a monitor újradispatch-olja
+
+### 9. Sentinel vs manuális restart konfliktus
+- **Tünet**: Manuális `wt-orchestrate start` → "Orchestrator is already running" → azonnali exit
+- **Ok**: Az eredeti sentinel process (wt-sentinel) saját crash recovery-vel rendelkezik — kill -9 után 33s-en belül újraindít. Manuális restart felesleges és ütközik.
+- **Tanulság**: Ha sentinel fut, NE indítsunk manuálisan orchestrator-t. A sentinel a sole process manager.
+- **Hatás**: 3 "rapid crash" a sentinel megfigyelésben, de valójában nem crash volt — hanem "already running" error
+- **Státusz**: Nem bug, hanem operational lesson
+
+### 10. Sentinel stale state reset működik
+- **Tünet**: kill -9 után state.json "running" maradt process nélkül
+- **Ok**: Sentinel `check_stale_state()` detektálja: status=running + nincs process → reset to stopped → újraindítás
+- **Log**: `[sentinel] Stale state detected (status=running but no process) — resetting to stopped`
+- **Státusz**: Működik correctly
+
 ## Observations
 - Sentinel auto-restart működik: digest crash → restart → digest fresh (skip) → planner újra
-- Sentinel events fájlnév mismatch nem blokkoló de a stuck detection teljesen inaktív
+- Sentinel events fájlnév mismatch BLOKKOLÓ volt — stuck detection killed healthy orchestrator after 183s
 - `wt-project init` → `.claude/` deploy teljesen automatikus és gyors
 - Digest mode plan: 7 change 1. fázisban, 120/178 req uncovered → auto-replan fog kelleni
 - max_parallel: 2 de az első change-nek nincs dependency → azonnal indul
 - A digest "fresh" check működik sentinel restart-oknál — nem generálja újra
+- Sentinel stale state recovery működik: kill -9 → stale detect → reset → restart (~33s)
+- Ha sentinel fut, manuális orchestrator start ütközik ("already running")
