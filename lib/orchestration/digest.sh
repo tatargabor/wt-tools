@@ -134,6 +134,7 @@ USAGE
     success "Digest complete: $req_count requirements across $domain_count domain(s)"
     log_info "Digest complete: files=$file_count, reqs=$req_count, domains=$domain_count, hash=$source_hash"
     emit_event "DIGEST_COMPLETE" "" "{\"file_count\":$file_count,\"req_count\":$req_count,\"domain_count\":$domain_count}"
+    generate_report 2>/dev/null || true
 }
 
 # ─── Spec Scanning ───────────────────────────────────────────────────
@@ -735,6 +736,26 @@ populate_coverage() {
         done <<< "$also_affects"
     done <<< "$changes"
 
+    # Track cross-cutting REQs that are in also_affects but have no primary owner
+    local also_affects_only='{}'
+    while IFS= read -r change_json; do
+        [[ -z "$change_json" ]] && continue
+        local _aa_change_name
+        _aa_change_name=$(echo "$change_json" | jq -r '.name')
+        local _aa_reqs
+        _aa_reqs=$(echo "$change_json" | jq -r '.also_affects_reqs[]? // empty' 2>/dev/null || true)
+        while IFS= read -r _aa_id; do
+            [[ -z "$_aa_id" ]] && continue
+            # If not in primary coverage, track which changes reference it
+            local _has_primary
+            _has_primary=$(echo "$coverage" | jq --arg id "$_aa_id" 'has($id)')
+            if [[ "$_has_primary" == "false" ]]; then
+                also_affects_only=$(echo "$also_affects_only" | jq --arg id "$_aa_id" --arg change "$_aa_change_name" \
+                    '.[$id] = ((.[$id] // []) + [$change] | unique)')
+            fi
+        done <<< "$_aa_reqs"
+    done <<< "$changes"
+
     # Write coverage.json
     local uncovered
     uncovered=$(check_coverage_gaps_internal "$coverage")
@@ -746,13 +767,35 @@ populate_coverage() {
     covered_count=$(echo "$coverage" | jq 'length')
     log_info "Coverage populated: $covered_count requirements mapped"
 
-    # Warn about uncovered
+    # Warn or error about uncovered
     local unc_count
     unc_count=$(echo "$uncovered" | jq 'length')
+
+    # Add notes about also_affects-only REQs
+    local aa_only_count
+    aa_only_count=$(echo "$also_affects_only" | jq 'length')
+    if [[ "$aa_only_count" -gt 0 ]]; then
+        local aa_ids
+        aa_ids=$(echo "$also_affects_only" | jq -r 'keys[]')
+        while IFS= read -r aa_id; do
+            [[ -z "$aa_id" ]] && continue
+            local aa_changes
+            aa_changes=$(echo "$also_affects_only" | jq -r --arg id "$aa_id" '.[$id] | join(", ")')
+            warn "Cross-cutting $aa_id has no primary owner (referenced by also_affects in: $aa_changes)"
+        done <<< "$aa_ids"
+    fi
+
     if [[ "$unc_count" -gt 0 ]]; then
         local unc_list
         unc_list=$(echo "$uncovered" | jq -r '.[]' | tr '\n' ', ')
-        warn "Warning: $unc_count uncovered requirement(s): $unc_list"
+
+        if [[ "${REQUIRE_FULL_COVERAGE:-false}" == "true" ]]; then
+            error "Coverage incomplete: $unc_count requirement(s) not assigned: $unc_list"
+            error "Re-run plan or set require_full_coverage: false to proceed"
+            return 1
+        else
+            warn "Warning: $unc_count uncovered requirement(s): $unc_list"
+        fi
     fi
 }
 
@@ -799,7 +842,11 @@ check_coverage_gaps_internal() {
         fi
     done <<< "$all_ids"
 
-    printf '%s\n' "${uncovered[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]'
+    if [[ ${#uncovered[@]} -eq 0 ]]; then
+        echo '[]'
+    else
+        printf '%s\n' "${uncovered[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]'
+    fi
 }
 
 # ─── Coverage Status Updates ────────────────────────────────────────
@@ -820,6 +867,89 @@ update_coverage_status() {
         ) | from_entries)' "$DIGEST_DIR/coverage.json" > "$tmp" && mv "$tmp" "$DIGEST_DIR/coverage.json"
 
     log_info "Coverage status updated: $change_name → $new_status"
+}
+
+# ─── Final Coverage Check ────────────────────────────────────────────
+
+# Cross-reference coverage.json with orchestration-state.json to categorize
+# each requirement as merged/running/planned/uncovered/failed/blocked.
+# Emits COVERAGE_GAP event if gaps exist. Returns formatted summary string.
+# Returns empty if no digest data.
+final_coverage_check() {
+    if [[ ! -f "$DIGEST_DIR/coverage.json" || ! -f "$DIGEST_DIR/requirements.json" ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$STATE_FILENAME" ]]; then
+        return 0
+    fi
+
+    local merged=0 running=0 planned=0 uncovered_count=0 failed=0 blocked=0
+
+    local all_req_ids
+    all_req_ids=$(jq -r '.requirements[] | select(.status != "removed") | .id' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
+
+    local total=0
+    while IFS= read -r req_id; do
+        [[ -z "$req_id" ]] && continue
+        total=$((total + 1))
+
+        # Get coverage entry for this req
+        local cov_change cov_status
+        cov_change=$(jq -r --arg id "$req_id" '.coverage[$id].change // empty' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
+        cov_status=$(jq -r --arg id "$req_id" '.coverage[$id].status // empty' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
+
+        if [[ -z "$cov_change" ]]; then
+            uncovered_count=$((uncovered_count + 1))
+            continue
+        fi
+
+        # Cross-reference with state to get effective status
+        local change_status
+        change_status=$(jq -r --arg n "$cov_change" '.changes[] | select(.name == $n) | .status // empty' "$STATE_FILENAME" 2>/dev/null || true)
+
+        case "$change_status" in
+            merged|done)
+                merged=$((merged + 1))
+                ;;
+            failed)
+                failed=$((failed + 1))
+                ;;
+            merge-blocked)
+                blocked=$((blocked + 1))
+                ;;
+            running|verifying|stalled)
+                running=$((running + 1))
+                ;;
+            *)
+                planned=$((planned + 1))
+                ;;
+        esac
+    done <<< "$all_req_ids"
+
+    # Emit COVERAGE_GAP event if any gaps
+    local gap_count=$((uncovered_count + failed + blocked))
+    if [[ "$gap_count" -gt 0 ]]; then
+        emit_event "COVERAGE_GAP" "" \
+            "{\"uncovered\":$uncovered_count,\"failed\":$failed,\"blocked\":$blocked,\"merged\":$merged,\"total\":$total}"
+    fi
+
+    # Build and output summary
+    local summary
+    summary="Coverage: $merged merged, $running running, $planned planned, $uncovered_count uncovered, $failed failed, $blocked blocked (total: $total)"
+
+    if [[ "$gap_count" -gt 0 ]]; then
+        log_warn "Final coverage: $summary"
+    else
+        log_info "Final coverage: $summary"
+    fi
+
+    echo "$summary"
+}
+
+# One-line coverage summary for email/notifications.
+build_coverage_summary() {
+    final_coverage_check
 }
 
 # ─── Coverage Report ────────────────────────────────────────────────

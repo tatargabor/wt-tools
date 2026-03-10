@@ -472,6 +472,10 @@ cmd_plan() {
     fi
     info "Directives: $(echo "$directives" | jq -c .)"
 
+    # Export require_full_coverage for populate_coverage() to read
+    export REQUIRE_FULL_COVERAGE
+    REQUIRE_FULL_COVERAGE=$(echo "$directives" | jq -r '.require_full_coverage // false')
+
     # Check if agent-based planning is requested
     local plan_method
     plan_method=$(echo "$directives" | jq -r '.plan_method // "api"')
@@ -1161,8 +1165,13 @@ PYEOF
 
     # Populate coverage mapping for digest-mode plans
     if [[ "$INPUT_MODE" == "digest" && -f "$DIGEST_DIR/requirements.json" ]]; then
-        populate_coverage "$PLAN_FILENAME"
+        if ! populate_coverage "$PLAN_FILENAME"; then
+            error "Plan validation failed: incomplete requirement coverage"
+            return 1
+        fi
     fi
+
+    generate_report 2>/dev/null || true
 
     local change_count
     change_count=$(jq '.changes | length' "$PLAN_FILENAME")

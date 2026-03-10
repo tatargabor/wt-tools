@@ -31,6 +31,102 @@ ${raw_output: -$max_chars}"
     return $rc
 }
 
+# ─── Requirement-Aware Review ────────────────────────────────────────
+
+# Build a prompt section listing assigned and cross-cutting requirements for a change.
+# Reads requirements[] and also_affects_reqs[] from state, looks up titles from digest.
+# Returns empty string if no requirements found, digest missing, or empty requirements[].
+# Args: change_name
+build_req_review_section() {
+    local change_name="$1"
+
+    # Check digest mode proxy
+    if [[ ! -f "$DIGEST_DIR/requirements.json" ]]; then
+        return 0
+    fi
+
+    # Read requirements from state
+    local reqs_json
+    reqs_json=$(jq -r --arg n "$change_name" \
+        '.changes[] | select(.name == $n) | .requirements // empty' "$STATE_FILENAME" 2>/dev/null || true)
+
+    # Empty or missing requirements → skip
+    if [[ -z "$reqs_json" || "$reqs_json" == "null" ]]; then
+        return 0
+    fi
+
+    local req_count
+    req_count=$(echo "$reqs_json" | jq 'length' 2>/dev/null || echo 0)
+    if [[ "$req_count" -eq 0 ]]; then
+        return 0
+    fi
+
+    # Build assigned requirements section
+    local section=""
+    section+="
+## Assigned Requirements (this change owns these)"
+
+    local req_ids
+    req_ids=$(echo "$reqs_json" | jq -r '.[]' 2>/dev/null || true)
+    while IFS= read -r req_id; do
+        [[ -z "$req_id" ]] && continue
+        local title brief
+        title=$(jq -r --arg id "$req_id" \
+            '.requirements[] | select(.id == $id) | .title // empty' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
+        brief=$(jq -r --arg id "$req_id" \
+            '.requirements[] | select(.id == $id) | .brief // empty' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
+        if [[ -z "$title" ]]; then
+            section+="
+- $req_id: (not found in digest)"
+            log_warn "build_req_review_section: $req_id not found in digest requirements.json"
+        else
+            section+="
+- $req_id: $title — $brief"
+        fi
+    done <<< "$req_ids"
+
+    # Build cross-cutting requirements section
+    local also_json
+    also_json=$(jq -r --arg n "$change_name" \
+        '.changes[] | select(.name == $n) | .also_affects_reqs // empty' "$STATE_FILENAME" 2>/dev/null || true)
+
+    if [[ -n "$also_json" && "$also_json" != "null" ]]; then
+        local also_count
+        also_count=$(echo "$also_json" | jq 'length' 2>/dev/null || echo 0)
+        if [[ "$also_count" -gt 0 ]]; then
+            section+="
+
+## Cross-Cutting Requirements (awareness only)"
+            local also_ids
+            also_ids=$(echo "$also_json" | jq -r '.[]' 2>/dev/null || true)
+            while IFS= read -r also_id; do
+                [[ -z "$also_id" ]] && continue
+                local also_title
+                also_title=$(jq -r --arg id "$also_id" \
+                    '.requirements[] | select(.id == $id) | .title // empty' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
+                if [[ -z "$also_title" ]]; then
+                    section+="
+- $also_id: (not found in digest)"
+                else
+                    section+="
+- $also_id: $also_title"
+                fi
+            done <<< "$also_ids"
+        fi
+    fi
+
+    # Add coverage check instruction
+    section+="
+
+## Requirement Coverage Check
+For each ASSIGNED requirement above, verify the diff contains implementation evidence.
+If a requirement has NO corresponding code in the diff, report:
+  ISSUE: [CRITICAL] REQ-ID has no implementation in the diff
+Cross-cutting requirements are for awareness — do not flag them as missing."
+
+    echo "$section"
+}
+
 # ─── Code Review ─────────────────────────────────────────────────────
 
 # LLM code review of a change branch. Returns 0 if no CRITICAL issues, 1 if CRITICAL found.
@@ -57,6 +153,10 @@ review_change() {
 ...diff truncated at 30000 chars..."
     fi
 
+    # Build requirement-aware section (empty if not in digest mode)
+    local req_section
+    req_section=$(build_req_review_section "$change_name")
+
     local review_prompt
     review_prompt=$(cat <<REVIEW_EOF
 You are a senior code reviewer. Review this diff for critical issues.
@@ -68,6 +168,7 @@ $scope
 \`\`\`diff
 $diff_output
 \`\`\`
+$req_section
 
 ## Review Criteria
 Check for:
@@ -1032,7 +1133,15 @@ handle_change_done() {
                 update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
                 update_change_field "$change_name" "status" '"verify-failed"'
                 # Build retry context with review feedback
-                local retry_prompt="Code review found CRITICAL issues. Fix these issues.\n\nReview feedback:\n${REVIEW_OUTPUT:0:500}\n\nOriginal scope: $scope"
+                # Extract specific REQ-IDs flagged as CRITICAL for structured retry
+                local flagged_reqs
+                flagged_reqs=$(echo "$REVIEW_OUTPUT" | grep -oE 'REQ-[A-Z0-9]+-[0-9]+' | sort -u | tr '\n' ', ' || true)
+                local retry_prompt
+                if [[ -n "$flagged_reqs" ]]; then
+                    retry_prompt="Code review found CRITICAL issues — requirements with no implementation evidence: $flagged_reqs\n\nImplement them or explain why they are already covered.\n\nReview feedback:\n${REVIEW_OUTPUT:0:500}\n\nOriginal scope: $scope"
+                else
+                    retry_prompt="Code review found CRITICAL issues. Fix these issues.\n\nReview feedback:\n${REVIEW_OUTPUT:0:500}\n\nOriginal scope: $scope"
+                fi
                 # Recall relevant memories for retry context
                 local _mem_ctx
                 _mem_ctx=$(orch_recall "$scope" 3 "phase:verification")

@@ -81,6 +81,7 @@ send_summary_email() {
     local reason="${1:-completion}"  # completion, checkpoint, manual
     local project_name="${2:-$(basename "$(pwd)")}"
     local state_file="${3:-orchestration-state.json}"
+    local coverage_summary="${4:-}"  # optional coverage summary string
 
     _email_load_env
 
@@ -125,6 +126,12 @@ send_summary_email() {
         done < <(jq -r '.changes[] | "\(.name)\t\(.status)\t\(.test_result // "-")\t\(.tokens_used // 0)"' "$state_file")
 
         html+="</table>"
+    fi
+
+    # Coverage summary (if provided by caller)
+    if [[ -n "$coverage_summary" ]]; then
+        html+="<h3>Requirement Coverage</h3>"
+        html+="<p style='font-family:monospace;background:#f5f5f5;padding:8px;'>$coverage_summary</p>"
     fi
 
     # Orchestration summary.md if exists

@@ -135,7 +135,10 @@ monitor_loop() {
             send_notification "wt-orchestrate" "Time limit reached ($(format_duration "$active_seconds") active). Run 'wt-orchestrate start' to continue." "normal"
             orch_memory_stats
             orch_gate_stats
-            send_summary_email "time-limit" "$(basename "$(pwd)")" "$STATE_FILENAME" 2>/dev/null || true
+            local _cov_summary
+            _cov_summary=$(final_coverage_check 2>/dev/null || true)
+            send_summary_email "time-limit" "$(basename "$(pwd)")" "$STATE_FILENAME" "$_cov_summary" 2>/dev/null || true
+            generate_report 2>/dev/null || true
             break
         fi
 
@@ -143,6 +146,8 @@ monitor_loop() {
         local orch_status
         orch_status=$(jq -r '.status' "$STATE_FILENAME" 2>/dev/null || echo "unknown")
         if [[ "$orch_status" == "stopped" || "$orch_status" == "done" ]]; then
+            final_coverage_check 2>/dev/null || true
+            generate_report 2>/dev/null || true
             break
         fi
         # Skip monitoring if paused or at checkpoint
@@ -285,6 +290,9 @@ monitor_loop() {
             fi
         fi
 
+        # Update HTML report
+        generate_report 2>/dev/null || true
+
         # Watchdog heartbeat (sentinel monitors events.jsonl mtime)
         watchdog_heartbeat
 
@@ -359,7 +367,10 @@ monitor_loop() {
                     cleanup_all_worktrees
                     orch_memory_stats
                     orch_gate_stats
-                    send_summary_email "complete" "$(basename "$(pwd)")" "$STATE_FILENAME" 2>/dev/null || true
+                    local _cov_summary
+                    _cov_summary=$(final_coverage_check 2>/dev/null || true)
+                    send_summary_email "complete" "$(basename "$(pwd)")" "$STATE_FILENAME" "$_cov_summary" 2>/dev/null || true
+                    generate_report 2>/dev/null || true
                     success "All work complete! No more phases to implement."
                     log_info "Auto-replan found no new work — orchestration complete"
                     break
@@ -379,7 +390,10 @@ monitor_loop() {
                         update_state_field "status" '"done"'
                         update_state_field "replan_exhausted" 'true'
                         update_state_field "replan_attempt" "0"
-                        send_summary_email "replan-exhausted" "$(basename "$(pwd)")" "$STATE_FILENAME" 2>/dev/null || true
+                        local _cov_summary
+                        _cov_summary=$(final_coverage_check 2>/dev/null || true)
+                        send_summary_email "replan-exhausted" "$(basename "$(pwd)")" "$STATE_FILENAME" "$_cov_summary" 2>/dev/null || true
+                        generate_report 2>/dev/null || true
                         break
                     fi
                     warn "Replan failed (cycle $cycle, attempt $replan_retry_count/$MAX_REPLAN_RETRIES) — will retry"
@@ -394,7 +408,10 @@ monitor_loop() {
                 success "All changes complete!"
                 orch_memory_stats
                 orch_gate_stats
-                send_summary_email "complete" "$(basename "$(pwd)")" "$STATE_FILENAME" 2>/dev/null || true
+                local _cov_summary
+                _cov_summary=$(final_coverage_check 2>/dev/null || true)
+                send_summary_email "complete" "$(basename "$(pwd)")" "$STATE_FILENAME" "$_cov_summary" 2>/dev/null || true
+                generate_report 2>/dev/null || true
                 log_info "Orchestration complete"
                 break
             fi

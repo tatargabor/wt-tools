@@ -252,6 +252,7 @@ Settings are resolved in order (highest wins):
 | `max_tokens_per_change` | int | `0` | Per-change token budget (0 = complexity defaults: S=500K, M=2M, L=5M, XL=10M) |
 | `watchdog_timeout` | int | `""` | Seconds before watchdog considers a change stuck |
 | `watchdog_loop_threshold` | int | `""` | Consecutive identical hashes before loop detection |
+| `require_full_coverage` | bool | `false` | Block plan if any digest requirements are unassigned (digest mode only) |
 | `events_log` | string | `""` | Custom path for events JSONL log |
 | `events_max_size` | int | `1048576` | Events log rotation threshold in bytes (1MB default) |
 

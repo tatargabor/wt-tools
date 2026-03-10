@@ -562,6 +562,141 @@ fi
 echo ""
 
 # ============================================================
+# Section: Coverage Enforcement (require_full_coverage)
+# ============================================================
+
+echo "── coverage enforcement ──"
+
+# Setup: create a working digest dir with requirements
+COV_WORK=$(mktemp -d)
+CLEANUP_DIRS+=("$COV_WORK")
+_ORIG_DIR=$(pwd)
+cd "$COV_WORK"
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+# Create requirements.json with 4 REQs
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-CART-001", "title": "Add to cart", "domain": "cart"},
+    {"id": "REQ-CART-002", "title": "Remove from cart", "domain": "cart"},
+    {"id": "REQ-AUTH-001", "title": "Login", "domain": "auth"},
+    {"id": "REQ-I18N-001", "title": "i18n routing", "domain": "i18n"}
+  ]
+}
+REQ_EOF
+
+# Plan that covers only 2 of 4 REQs
+cat > "$COV_WORK/plan-partial.json" <<'PLAN_EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "test",
+  "changes": [
+    {
+      "name": "add-cart",
+      "scope": "Cart",
+      "complexity": "medium",
+      "depends_on": [],
+      "requirements": ["REQ-CART-001", "REQ-CART-002"]
+    }
+  ]
+}
+PLAN_EOF
+
+# Plan that covers all 4 REQs
+cat > "$COV_WORK/plan-full.json" <<'PLAN_EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "test",
+  "changes": [
+    {
+      "name": "add-cart",
+      "scope": "Cart",
+      "complexity": "medium",
+      "depends_on": [],
+      "requirements": ["REQ-CART-001", "REQ-CART-002"]
+    },
+    {
+      "name": "add-auth",
+      "scope": "Auth",
+      "complexity": "medium",
+      "depends_on": [],
+      "requirements": ["REQ-AUTH-001", "REQ-I18N-001"]
+    }
+  ]
+}
+PLAN_EOF
+
+# Plan with REQ in also_affects but not in requirements
+cat > "$COV_WORK/plan-also-only.json" <<'PLAN_EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "test",
+  "changes": [
+    {
+      "name": "add-cart",
+      "scope": "Cart",
+      "complexity": "medium",
+      "depends_on": [],
+      "requirements": ["REQ-CART-001", "REQ-CART-002"],
+      "also_affects_reqs": ["REQ-I18N-001"]
+    },
+    {
+      "name": "add-auth",
+      "scope": "Auth",
+      "complexity": "medium",
+      "depends_on": [],
+      "requirements": ["REQ-AUTH-001"]
+    }
+  ]
+}
+PLAN_EOF
+
+test_start "REQUIRE_FULL_COVERAGE=true + uncovered → returns 1"
+REQUIRE_FULL_COVERAGE=true
+populate_coverage "$COV_WORK/plan-partial.json" 2>/dev/null && cov_rc=0 || cov_rc=$?
+if [[ "$cov_rc" -eq 1 ]]; then
+    test_pass
+else
+    test_fail "rc=1" "rc=$cov_rc"
+fi
+
+test_start "REQUIRE_FULL_COVERAGE=false + uncovered → returns 0, warns"
+REQUIRE_FULL_COVERAGE=false
+cov_output=$(populate_coverage "$COV_WORK/plan-partial.json" 2>&1) && cov_rc=0 || cov_rc=$?
+if [[ "$cov_rc" -eq 0 ]]; then
+    test_pass
+else
+    test_fail "rc=0" "rc=$cov_rc"
+fi
+
+test_start "all REQs covered → returns 0 regardless of directive"
+REQUIRE_FULL_COVERAGE=true
+populate_coverage "$COV_WORK/plan-full.json" 2>/dev/null && cov_rc=0 || cov_rc=$?
+if [[ "$cov_rc" -eq 0 ]]; then
+    test_pass
+else
+    test_fail "rc=0" "rc=$cov_rc"
+fi
+
+test_start "REQ in also_affects but not in requirements → counted as uncovered"
+REQUIRE_FULL_COVERAGE=true
+populate_coverage "$COV_WORK/plan-also-only.json" 2>/dev/null && cov_rc=0 || cov_rc=$?
+# REQ-I18N-001 is only in also_affects, so it's uncovered → should return 1
+if [[ "$cov_rc" -eq 1 ]]; then
+    test_pass
+else
+    test_fail "rc=1 (REQ-I18N-001 uncovered)" "rc=$cov_rc"
+fi
+
+# Reset
+REQUIRE_FULL_COVERAGE=false
+cd "$_ORIG_DIR"
+
+echo ""
+
+# ============================================================
 # Summary
 # ============================================================
 

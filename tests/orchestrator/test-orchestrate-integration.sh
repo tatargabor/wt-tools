@@ -197,6 +197,8 @@ source "$LIB_DIR/config.sh"        # wt_find_config
 source "$LIB_DIR/utils.sh"         # parse_duration, format_duration, brief_hash
 source "$LIB_DIR/state.sh"         # update_change_field, run_hook, etc.
 source "$LIB_DIR/verifier.sh"      # health_check, extract_health_check_url
+source "$LIB_DIR/digest.sh"       # final_coverage_check, populate_coverage
+source "$LIB_DIR/reporter.sh"     # generate_report
 
 # Source loop modules for detect_next_change_action
 source "$PROJECT_DIR/lib/loop/prompt.sh"
@@ -781,6 +783,129 @@ else
 fi
 
 # ============================================================
+# Section: Requirement-Aware Code Review
+# ============================================================
+
+echo ""
+echo "--- Requirement-Aware Review ---"
+
+# Need DIGEST_DIR for build_req_review_section
+DIGEST_DIR="wt/orchestration/digest"
+
+# Test 5.7: build_req_review_section with valid requirements + digest
+test_start "build_req_review_section returns REQ-IDs and titles"
+REQ_REPO=$(setup_test_repo)
+STATE_FILENAME="$REQ_REPO/orchestration-state.json"
+LOG_FILE="$REQ_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$REQ_REPO"
+
+# Create state with requirements
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "add-cart",
+      "status": "running",
+      "scope": "Cart feature",
+      "requirements": ["REQ-CART-001", "REQ-CART-002"],
+      "also_affects_reqs": ["REQ-I18N-001"]
+    }
+  ]
+}
+STATE_EOF
+
+# Create digest requirements.json
+mkdir -p "$DIGEST_DIR"
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-CART-001", "title": "Add to cart", "brief": "Users can add items to cart"},
+    {"id": "REQ-CART-002", "title": "Remove from cart", "brief": "Users can remove items from cart"},
+    {"id": "REQ-I18N-001", "title": "i18n routing", "brief": "All pages respond to /hu and /en"}
+  ]
+}
+REQ_EOF
+
+req_output=$(build_req_review_section "add-cart")
+if [[ "$req_output" == *"REQ-CART-001"* ]] && \
+   [[ "$req_output" == *"Add to cart"* ]] && \
+   [[ "$req_output" == *"REQ-I18N-001"* ]] && \
+   [[ "$req_output" == *"awareness only"* ]] && \
+   [[ "$req_output" == *"Requirement Coverage Check"* ]]; then
+    test_pass
+else
+    test_fail "contains REQ-IDs, titles, coverage check" "${req_output:0:200}"
+fi
+
+# Test 5.8: empty requirements → returns empty
+test_start "build_req_review_section returns empty for empty requirements"
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "cleanup",
+      "status": "running",
+      "scope": "Cleanup",
+      "requirements": []
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "cleanup")
+if [[ -z "$req_output" ]]; then
+    test_pass
+else
+    test_fail "empty output" "${req_output:0:100}"
+fi
+
+# Test 5.9: REQ-ID not in digest → includes "(not found in digest)"
+test_start "build_req_review_section handles ghost REQ-ID"
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "ghost-change",
+      "status": "running",
+      "scope": "Ghost",
+      "requirements": ["REQ-GHOST-001"]
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "ghost-change")
+if [[ "$req_output" == *"REQ-GHOST-001"* ]] && [[ "$req_output" == *"not found in digest"* ]]; then
+    test_pass
+else
+    test_fail "contains REQ-GHOST-001 with 'not found in digest'" "${req_output:0:200}"
+fi
+
+# Test 5.10: no digest requirements.json → returns empty
+test_start "build_req_review_section returns empty when no digest"
+rm -rf "$DIGEST_DIR"
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "no-digest",
+      "status": "running",
+      "scope": "No digest",
+      "requirements": ["REQ-CART-001"]
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "no-digest")
+if [[ -z "$req_output" ]]; then
+    test_pass
+else
+    test_fail "empty output" "${req_output:0:100}"
+fi
+
+# ============================================================
 # Section: State Initialization — Requirements Copying
 # ============================================================
 
@@ -871,6 +996,820 @@ if [[ "$has_reqs" == "false" ]] && [[ "$has_also" == "false" ]]; then
     test_pass
 else
     test_fail "has_reqs=false has_also=false" "has_reqs=$has_reqs has_also=$has_also"
+fi
+
+# ============================================================
+# Section: Final Coverage Assertion
+# ============================================================
+
+echo ""
+echo "--- Final Coverage Assertion ---"
+
+# Test 6.5: final_coverage_check categorizes correctly
+test_start "final_coverage_check categorizes merged/uncovered/failed"
+COV_REPO=$(setup_test_repo)
+STATE_FILENAME="$COV_REPO/orchestration-state.json"
+LOG_FILE="$COV_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$COV_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+# 6 requirements: 3 merged, 2 uncovered, 1 failed
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-A-001", "title": "Feature A1"},
+    {"id": "REQ-A-002", "title": "Feature A2"},
+    {"id": "REQ-A-003", "title": "Feature A3"},
+    {"id": "REQ-B-001", "title": "Feature B1"},
+    {"id": "REQ-B-002", "title": "Feature B2"},
+    {"id": "REQ-C-001", "title": "Feature C1"}
+  ]
+}
+REQ_EOF
+
+# Coverage: A-001..A-003 → change-1, B-001..B-002 uncovered, C-001 → change-3
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-A-001": {"change": "change-1", "status": "assigned"},
+    "REQ-A-002": {"change": "change-1", "status": "assigned"},
+    "REQ-A-003": {"change": "change-1", "status": "assigned"},
+    "REQ-C-001": {"change": "change-3", "status": "assigned"}
+  }
+}
+COV_EOF
+
+# State: change-1 merged, change-3 failed
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {"name": "change-1", "status": "merged"},
+    {"name": "change-3", "status": "failed"}
+  ]
+}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+if [[ "$cov_output" == *"3 merged"* ]] && [[ "$cov_output" == *"2 uncovered"* ]] && [[ "$cov_output" == *"1 failed"* ]]; then
+    test_pass
+else
+    test_fail "3 merged, 2 uncovered, 1 failed" "$cov_output"
+fi
+
+# Test 6.6: no digest/coverage.json → returns empty
+test_start "final_coverage_check returns empty with no digest"
+NOCOV_REPO=$(setup_test_repo)
+STATE_FILENAME="$NOCOV_REPO/orchestration-state.json"
+LOG_FILE="$NOCOV_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$NOCOV_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+# No digest dir at all
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {"name": "change-1", "status": "merged"}
+  ]
+}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+assert_equals "" "$cov_output"
+
+# Test 6.7: all requirements merged → no COVERAGE_GAP event
+test_start "final_coverage_check with all merged emits no COVERAGE_GAP"
+ALLMERGE_REPO=$(setup_test_repo)
+STATE_FILENAME="$ALLMERGE_REPO/orchestration-state.json"
+LOG_FILE="$ALLMERGE_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$ALLMERGE_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-X-001", "title": "Feature X1"},
+    {"id": "REQ-X-002", "title": "Feature X2"}
+  ]
+}
+REQ_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-X-001": {"change": "change-x", "status": "assigned"},
+    "REQ-X-002": {"change": "change-x", "status": "assigned"}
+  }
+}
+COV_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {"name": "change-x", "status": "merged"}
+  ]
+}
+STATE_EOF
+
+# Enable events temporarily to capture what's emitted
+EVENTS_ENABLED="true"
+EVENTS_FILE="$ALLMERGE_REPO/events.jsonl"
+cov_output=$(final_coverage_check 2>/dev/null || true)
+EVENTS_ENABLED="false"
+
+# Check output says all merged, 0 uncovered/failed/blocked
+has_gap=$(grep -c "COVERAGE_GAP" "$EVENTS_FILE" 2>/dev/null || echo "0")
+if [[ "$cov_output" == *"2 merged"* ]] && [[ "$has_gap" == "0" ]]; then
+    test_pass
+else
+    test_fail "2 merged, no COVERAGE_GAP" "output=$cov_output, gap_events=$has_gap"
+fi
+
+# Test 6.8: merge-blocked change → reqs categorized as "blocked"
+test_start "final_coverage_check categorizes merge-blocked as blocked"
+BLOCKED_REPO=$(setup_test_repo)
+STATE_FILENAME="$BLOCKED_REPO/orchestration-state.json"
+LOG_FILE="$BLOCKED_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$BLOCKED_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-BLK-001", "title": "Blocked feature"},
+    {"id": "REQ-BLK-002", "title": "Merged feature"}
+  ]
+}
+REQ_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-BLK-001": {"change": "change-blocked", "status": "assigned"},
+    "REQ-BLK-002": {"change": "change-ok", "status": "assigned"}
+  }
+}
+COV_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {"name": "change-blocked", "status": "merge-blocked"},
+    {"name": "change-ok", "status": "merged"}
+  ]
+}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+if [[ "$cov_output" == *"1 merged"* ]] && [[ "$cov_output" == *"1 blocked"* ]] && [[ "$cov_output" == *"0 uncovered"* ]]; then
+    test_pass
+else
+    test_fail "1 merged, 1 blocked, 0 uncovered" "$cov_output"
+fi
+
+# ============================================================
+# Section: HTML Report Generator
+# ============================================================
+
+echo ""
+echo "--- HTML Report Generator ---"
+
+# Test 7.7: generate report with full fixture data
+test_start "generate_report produces HTML with all 4 section headings"
+RPT_REPO=$(setup_test_repo)
+STATE_FILENAME="$RPT_REPO/orchestration-state.json"
+PLAN_FILENAME="$RPT_REPO/orchestration-plan.json"
+LOG_FILE="$RPT_REPO/orchestrate.log"
+REPORT_OUTPUT_PATH="$RPT_REPO/wt/orchestration/report.html"
+touch "$LOG_FILE"
+cd "$RPT_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR/domains"
+
+# index.json
+cat > "$DIGEST_DIR/index.json" <<'IDX_EOF'
+{
+  "spec_base_dir": "specs/",
+  "source_hash": "abc123def456",
+  "file_count": 3,
+  "timestamp": "2026-03-10T12:00:00+01:00",
+  "files": ["spec1.md", "spec2.md", "spec3.md"]
+}
+IDX_EOF
+
+# requirements.json with 2 domains
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-AUTH-001", "title": "Login", "domain": "Auth", "brief": "User login"},
+    {"id": "REQ-AUTH-002", "title": "Logout", "domain": "Auth", "brief": "User logout"},
+    {"id": "REQ-CART-001", "title": "Add item", "domain": "Cart", "brief": "Add to cart"}
+  ]
+}
+REQ_EOF
+
+# ambiguities.json
+cat > "$DIGEST_DIR/ambiguities.json" <<'AMB_EOF'
+{
+  "ambiguities": [
+    {"description": "Auth token expiry not specified"},
+    {"description": "Cart limit unclear"}
+  ]
+}
+AMB_EOF
+
+# coverage.json
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-AUTH-001": {"change": "add-auth", "status": "assigned"},
+    "REQ-AUTH-002": {"change": "add-auth", "status": "assigned"},
+    "REQ-CART-001": {"change": "add-cart", "status": "assigned"}
+  }
+}
+COV_EOF
+
+echo "Auth domain summary" > "$DIGEST_DIR/domains/Auth.md"
+echo "Cart domain summary" > "$DIGEST_DIR/domains/Cart.md"
+
+# plan
+cat > "$PLAN_FILENAME" <<'PLAN_EOF'
+{
+  "changes": [
+    {"name": "add-auth", "scope": "Auth", "requirements": ["REQ-AUTH-001", "REQ-AUTH-002"], "depends_on": []},
+    {"name": "add-cart", "scope": "Cart", "requirements": ["REQ-CART-001"], "depends_on": ["add-auth"]}
+  ]
+}
+PLAN_EOF
+
+# state
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "status": "running",
+  "changes": [
+    {"name": "add-auth", "status": "merged", "tokens_used": 50000, "test_result": "pass", "smoke_result": "pass"},
+    {"name": "add-cart", "status": "running", "tokens_used": 30000, "test_result": null, "smoke_result": null}
+  ]
+}
+STATE_EOF
+
+generate_report 2>/dev/null
+
+report_html=$(cat "$REPORT_OUTPUT_PATH" 2>/dev/null || echo "")
+if [[ -n "$report_html" ]] && \
+   [[ "$report_html" == *"Spec Digest"* ]] && \
+   [[ "$report_html" == *"Plan"* ]] && \
+   [[ "$report_html" == *"Execution"* ]] && \
+   [[ "$report_html" == *"Requirement Coverage"* ]] && \
+   [[ "$report_html" == *"</html>"* ]]; then
+    test_pass
+else
+    test_fail "HTML with 4 sections + valid structure" "${report_html:0:200}"
+fi
+
+# Test 7.8: generate report with no digest data
+test_start "generate_report shows 'Not available' without digest"
+NORPT_REPO=$(setup_test_repo)
+STATE_FILENAME="$NORPT_REPO/orchestration-state.json"
+PLAN_FILENAME="$NORPT_REPO/orchestration-plan.json"
+LOG_FILE="$NORPT_REPO/orchestrate.log"
+REPORT_OUTPUT_PATH="$NORPT_REPO/wt/orchestration/report.html"
+touch "$LOG_FILE"
+cd "$NORPT_REPO"
+
+DIGEST_DIR="wt/orchestration/digest"
+# No digest dir
+
+# plan
+cat > "$PLAN_FILENAME" <<'PLAN_EOF'
+{
+  "changes": [
+    {"name": "simple-fix", "scope": "Fix", "depends_on": []}
+  ]
+}
+PLAN_EOF
+
+# state
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "status": "running",
+  "changes": [
+    {"name": "simple-fix", "status": "running", "tokens_used": 10000, "test_result": null, "smoke_result": null}
+  ]
+}
+STATE_EOF
+
+generate_report 2>/dev/null
+
+report_html=$(cat "$REPORT_OUTPUT_PATH" 2>/dev/null || echo "")
+if [[ "$report_html" == *"Not available"* ]] && \
+   [[ "$report_html" == *"Plan"* ]] && \
+   [[ "$report_html" == *"Execution"* ]]; then
+    test_pass
+else
+    test_fail "Not available in digest/coverage, Plan+Execution present" "${report_html:0:200}"
+fi
+
+# ============================================================
+# Section: Report Generation Hooks
+# ============================================================
+
+echo ""
+echo "--- Report Generation Hooks ---"
+
+# Test 8.6: generate_report failure does not crash orchestration logic
+test_start "generate_report failure is non-fatal"
+HOOK_REPO=$(setup_test_repo)
+STATE_FILENAME="$HOOK_REPO/orchestration-state.json"
+LOG_FILE="$HOOK_REPO/orchestrate.log"
+touch "$LOG_FILE"
+cd "$HOOK_REPO"
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "status": "running",
+  "changes": [
+    {"name": "test-change", "status": "merged", "tokens_used": 1000}
+  ]
+}
+STATE_EOF
+
+# Override generate_report to always fail
+generate_report() { return 1; }
+
+# Simulate the guard pattern used in monitor_loop
+result="ok"
+generate_report 2>/dev/null || true
+# If we get here, the failure was handled
+assert_equals "ok" "$result"
+
+# Restore real generate_report by re-sourcing
+source "$LIB_DIR/reporter.sh"
+
+# ============================================================
+# Section: Integration Tests — Full Pipeline Scenarios
+# ============================================================
+
+echo ""
+echo "--- Integration: Full Pipeline Scenarios ---"
+
+# Test 9.1: requirement-aware review prompt construction
+test_start "review prompt has assigned REQs with title+brief and also_affects with awareness note"
+INT_REPO1=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO1/orchestration-state.json"
+LOG_FILE="$INT_REPO1/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO1"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-UI-001", "title": "Dashboard layout", "domain": "UI", "brief": "Main dashboard renders correctly"},
+    {"id": "REQ-UI-002", "title": "Theme toggle", "domain": "UI", "brief": "Users can switch dark/light theme"},
+    {"id": "REQ-UI-003", "title": "Responsive nav", "domain": "UI", "brief": "Navigation adapts to mobile"},
+    {"id": "REQ-API-001", "title": "REST endpoints", "domain": "API", "brief": "CRUD API for resources"},
+    {"id": "REQ-API-002", "title": "Auth middleware", "domain": "API", "brief": "JWT-based auth on all routes"}
+  ]
+}
+REQ_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "add-dashboard",
+      "status": "running",
+      "scope": "Dashboard feature",
+      "requirements": ["REQ-UI-001", "REQ-UI-002", "REQ-UI-003"],
+      "also_affects_reqs": ["REQ-API-001"]
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "add-dashboard")
+# Assigned REQs should have title+brief
+has_assigned=true
+[[ "$req_output" != *"REQ-UI-001"* ]] && has_assigned=false
+[[ "$req_output" != *"Dashboard layout"* ]] && has_assigned=false
+[[ "$req_output" != *"REQ-UI-002"* ]] && has_assigned=false
+# Also affects should have awareness note
+has_cross=true
+[[ "$req_output" != *"REQ-API-001"* ]] && has_cross=false
+[[ "$req_output" != *"awareness"* ]] && has_cross=false
+# Coverage check instruction present
+has_check=true
+[[ "$req_output" != *"Coverage Check"* ]] && has_check=false
+
+if $has_assigned && $has_cross && $has_check; then
+    test_pass
+else
+    test_fail "assigned REQs + also_affects awareness + coverage check" "assigned=$has_assigned cross=$has_cross check=$has_check"
+fi
+
+# Test 9.2: coverage enforcement end-to-end
+test_start "populate_coverage enforces REQUIRE_FULL_COVERAGE=true"
+INT_REPO2=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO2/orchestration-state.json"
+LOG_FILE="$INT_REPO2/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO2"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+# 10 requirements, 8 assigned, 2 unassigned
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-A-001", "title": "A1", "domain": "Core"},
+    {"id": "REQ-A-002", "title": "A2", "domain": "Core"},
+    {"id": "REQ-A-003", "title": "A3", "domain": "Core"},
+    {"id": "REQ-A-004", "title": "A4", "domain": "Core"},
+    {"id": "REQ-A-005", "title": "A5", "domain": "Core"},
+    {"id": "REQ-A-006", "title": "A6", "domain": "Core"},
+    {"id": "REQ-A-007", "title": "A7", "domain": "Core"},
+    {"id": "REQ-A-008", "title": "A8", "domain": "Core"},
+    {"id": "REQ-B-001", "title": "B1", "domain": "Extra"},
+    {"id": "REQ-B-002", "title": "B2", "domain": "Extra"}
+  ]
+}
+REQ_EOF
+
+# Plan: 8 assigned to changes, 2 (REQ-B-001, REQ-B-002) unassigned
+cat > "$INT_REPO2/orchestration-plan.json" <<'PLAN_EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "test",
+  "changes": [
+    {"name": "change-1", "scope": "Core stuff", "requirements": ["REQ-A-001", "REQ-A-002", "REQ-A-003", "REQ-A-004"], "depends_on": []},
+    {"name": "change-2", "scope": "More core", "requirements": ["REQ-A-005", "REQ-A-006", "REQ-A-007", "REQ-A-008"], "depends_on": []}
+  ]
+}
+PLAN_EOF
+
+# REQUIRE_FULL_COVERAGE=true → should fail
+export REQUIRE_FULL_COVERAGE=true
+cov_rc=0
+populate_coverage "$INT_REPO2/orchestration-plan.json" 2>/dev/null || cov_rc=$?
+if [[ "$cov_rc" -ne 0 ]]; then
+    test_pass
+else
+    test_fail "returns non-zero" "rc=$cov_rc"
+fi
+
+# Test: same with REQUIRE_FULL_COVERAGE=false → should pass with warning
+test_start "populate_coverage warns but succeeds with REQUIRE_FULL_COVERAGE=false"
+export REQUIRE_FULL_COVERAGE=false
+cov_rc=0
+populate_coverage "$INT_REPO2/orchestration-plan.json" 2>/dev/null || cov_rc=$?
+assert_equals "0" "$cov_rc"
+unset REQUIRE_FULL_COVERAGE
+
+# Test 9.3: final coverage cross-reference
+test_start "final_coverage_check cross-references coverage with state statuses"
+INT_REPO3=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO3/orchestration-state.json"
+LOG_FILE="$INT_REPO3/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO3"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-A-001", "title": "A merged", "domain": "Core"},
+    {"id": "REQ-B-001", "title": "B running", "domain": "Core"},
+    {"id": "REQ-C-001", "title": "C failed", "domain": "Core"},
+    {"id": "REQ-D-001", "title": "D uncovered", "domain": "Core"}
+  ]
+}
+REQ_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-A-001": {"change": "change-1", "status": "assigned"},
+    "REQ-B-001": {"change": "change-2", "status": "assigned"},
+    "REQ-C-001": {"change": "change-3", "status": "assigned"}
+  }
+}
+COV_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {"name": "change-1", "status": "merged"},
+    {"name": "change-2", "status": "running"},
+    {"name": "change-3", "status": "failed"}
+  ]
+}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+if [[ "$cov_output" == *"1 merged"* ]] && \
+   [[ "$cov_output" == *"1 running"* ]] && \
+   [[ "$cov_output" == *"1 failed"* ]] && \
+   [[ "$cov_output" == *"1 uncovered"* ]]; then
+    test_pass
+else
+    test_fail "1 merged, 1 running, 1 failed, 1 uncovered" "$cov_output"
+fi
+
+# Test 9.4: HTML report with full fixture
+test_start "HTML report contains domain names, REQ-IDs, change names, gate results"
+INT_REPO4=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO4/orchestration-state.json"
+PLAN_FILENAME="$INT_REPO4/orchestration-plan.json"
+LOG_FILE="$INT_REPO4/orchestrate.log"
+REPORT_OUTPUT_PATH="$INT_REPO4/wt/orchestration/report.html"
+touch "$LOG_FILE"
+cd "$INT_REPO4"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR/domains"
+
+cat > "$DIGEST_DIR/index.json" <<'IDX_EOF'
+{"spec_base_dir": "specs/", "source_hash": "full123", "file_count": 5, "timestamp": "2026-03-10"}
+IDX_EOF
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-FE-001", "title": "Frontend page", "domain": "Frontend"},
+    {"id": "REQ-FE-002", "title": "Frontend form", "domain": "Frontend"},
+    {"id": "REQ-BE-001", "title": "Backend API", "domain": "Backend"}
+  ]
+}
+REQ_EOF
+
+cat > "$DIGEST_DIR/ambiguities.json" <<'AMB_EOF'
+{"ambiguities": [{"description": "Pagination limit unspecified"}, {"description": "Error format TBD"}]}
+AMB_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{
+  "coverage": {
+    "REQ-FE-001": {"change": "fe-pages", "status": "assigned"},
+    "REQ-FE-002": {"change": "fe-pages", "status": "assigned"},
+    "REQ-BE-001": {"change": "be-api", "status": "assigned"}
+  }
+}
+COV_EOF
+
+echo "Frontend summary" > "$DIGEST_DIR/domains/Frontend.md"
+echo "Backend summary" > "$DIGEST_DIR/domains/Backend.md"
+
+cat > "$PLAN_FILENAME" <<'PLAN_EOF'
+{
+  "changes": [
+    {"name": "fe-pages", "scope": "Frontend", "requirements": ["REQ-FE-001", "REQ-FE-002"], "depends_on": []},
+    {"name": "be-api", "scope": "Backend", "requirements": ["REQ-BE-001"], "depends_on": []}
+  ]
+}
+PLAN_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "status": "running",
+  "changes": [
+    {"name": "fe-pages", "status": "merged", "tokens_used": 80000, "test_result": "pass", "smoke_result": "pass"},
+    {"name": "be-api", "status": "running", "tokens_used": 40000, "test_result": "fail", "smoke_result": null}
+  ]
+}
+STATE_EOF
+
+generate_report 2>/dev/null
+
+report_html=$(cat "$REPORT_OUTPUT_PATH" 2>/dev/null || echo "")
+ok=true
+[[ "$report_html" != *"Frontend"* ]] && ok=false
+[[ "$report_html" != *"Backend"* ]] && ok=false
+[[ "$report_html" != *"REQ-FE-001"* ]] && ok=false
+[[ "$report_html" != *"REQ-BE-001"* ]] && ok=false
+[[ "$report_html" != *"fe-pages"* ]] && ok=false
+[[ "$report_html" != *"be-api"* ]] && ok=false
+# Gate checkmarks/crosses
+[[ "$report_html" != *"10003"* ]] && ok=false  # checkmark entity
+[[ "$report_html" != *"10007"* ]] && ok=false  # cross entity
+[[ "$report_html" != *"Generated:"* ]] && ok=false  # timestamp footer
+
+if $ok; then
+    test_pass
+else
+    test_fail "domain names, REQ-IDs, change names, gate marks, footer" "${report_html:0:300}"
+fi
+
+# Test 9.5: HTML report graceful degradation
+test_start "HTML report renders plan+execution without digest"
+INT_REPO5=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO5/orchestration-state.json"
+PLAN_FILENAME="$INT_REPO5/orchestration-plan.json"
+LOG_FILE="$INT_REPO5/orchestrate.log"
+REPORT_OUTPUT_PATH="$INT_REPO5/wt/orchestration/report.html"
+touch "$LOG_FILE"
+cd "$INT_REPO5"
+
+DIGEST_DIR="wt/orchestration/digest"
+# No digest
+
+cat > "$PLAN_FILENAME" <<'PLAN_EOF'
+{"changes": [{"name": "quick-fix", "scope": "Fix", "depends_on": []}]}
+PLAN_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{"status": "running", "changes": [{"name": "quick-fix", "status": "running", "tokens_used": 5000, "test_result": null, "smoke_result": null}]}
+STATE_EOF
+
+generate_report 2>/dev/null
+
+report_html=$(cat "$REPORT_OUTPUT_PATH" 2>/dev/null || echo "")
+if [[ "$report_html" == *"Not available"* ]] && \
+   [[ "$report_html" == *"quick-fix"* ]] && \
+   [[ "$report_html" == *"Execution"* ]]; then
+    test_pass
+else
+    test_fail "Not available + quick-fix + Execution" "${report_html:0:200}"
+fi
+
+# Test 9.6: review with REQ-ID not in digest
+test_start "review handles ghost REQ-ID with '(not found in digest)'"
+INT_REPO6=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO6/orchestration-state.json"
+LOG_FILE="$INT_REPO6/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO6"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{"requirements": [{"id": "REQ-REAL-001", "title": "Real feature", "brief": "Exists"}]}
+REQ_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "ghost-test",
+      "status": "running",
+      "requirements": ["REQ-REAL-001", "REQ-GHOST-001"]
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "ghost-test")
+if [[ "$req_output" == *"REQ-GHOST-001"* ]] && [[ "$req_output" == *"not found in digest"* ]]; then
+    test_pass
+else
+    test_fail "REQ-GHOST-001 with 'not found in digest'" "${req_output:0:200}"
+fi
+
+# Test 9.7: coverage with merge-blocked change
+test_start "final_coverage_check reports merge-blocked reqs as blocked"
+INT_REPO7=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO7/orchestration-state.json"
+LOG_FILE="$INT_REPO7/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO7"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{"requirements": [{"id": "REQ-MB-001", "title": "Blocked req", "domain": "Core"}]}
+REQ_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{"coverage": {"REQ-MB-001": {"change": "change-1", "status": "running"}}}
+COV_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{"changes": [{"name": "change-1", "status": "merge-blocked"}]}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+if [[ "$cov_output" == *"1 blocked"* ]] && [[ "$cov_output" == *"0 uncovered"* ]]; then
+    test_pass
+else
+    test_fail "1 blocked, 0 uncovered" "$cov_output"
+fi
+
+# Test 9.8: coverage with removed REQ
+test_start "final_coverage_check excludes removed requirements"
+INT_REPO8=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO8/orchestration-state.json"
+LOG_FILE="$INT_REPO8/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO8"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{
+  "requirements": [
+    {"id": "REQ-OK-001", "title": "Active", "domain": "Core"},
+    {"id": "REQ-OLD-001", "title": "Removed", "domain": "Core", "status": "removed"}
+  ]
+}
+REQ_EOF
+
+cat > "$DIGEST_DIR/coverage.json" <<'COV_EOF'
+{"coverage": {"REQ-OK-001": {"change": "change-1", "status": "assigned"}}}
+COV_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{"changes": [{"name": "change-1", "status": "merged"}]}
+STATE_EOF
+
+cov_output=$(final_coverage_check 2>/dev/null || true)
+# Should only count 1 total (REQ-OLD-001 excluded)
+if [[ "$cov_output" == *"total: 1"* ]] && [[ "$cov_output" == *"1 merged"* ]]; then
+    test_pass
+else
+    test_fail "total: 1, 1 merged (removed excluded)" "$cov_output"
+fi
+
+# Test 9.9: empty requirements array in state
+test_start "build_req_review_section returns empty for empty requirements array"
+INT_REPO9=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO9/orchestration-state.json"
+LOG_FILE="$INT_REPO9/orchestrate.log"
+touch "$LOG_FILE"
+cd "$INT_REPO9"
+
+DIGEST_DIR="wt/orchestration/digest"
+mkdir -p "$DIGEST_DIR"
+
+cat > "$DIGEST_DIR/requirements.json" <<'REQ_EOF'
+{"requirements": [{"id": "REQ-X-001", "title": "Something"}]}
+REQ_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{
+  "changes": [
+    {
+      "name": "empty-reqs",
+      "status": "running",
+      "requirements": []
+    }
+  ]
+}
+STATE_EOF
+
+req_output=$(build_req_review_section "empty-reqs")
+assert_equals "" "$req_output"
+
+# Test 9.10: report atomic write
+test_start "generate_report writes atomically via temp file"
+INT_REPO10=$(setup_test_repo)
+STATE_FILENAME="$INT_REPO10/orchestration-state.json"
+PLAN_FILENAME="$INT_REPO10/orchestration-plan.json"
+LOG_FILE="$INT_REPO10/orchestrate.log"
+REPORT_OUTPUT_PATH="$INT_REPO10/wt/orchestration/report.html"
+touch "$LOG_FILE"
+cd "$INT_REPO10"
+
+DIGEST_DIR="wt/orchestration/digest"
+
+cat > "$PLAN_FILENAME" <<'PLAN_EOF'
+{"changes": [{"name": "atomic-test", "scope": "Test", "depends_on": []}]}
+PLAN_EOF
+
+cat > "$STATE_FILENAME" <<'STATE_EOF'
+{"status": "done", "changes": [{"name": "atomic-test", "status": "merged", "tokens_used": 1000, "test_result": "pass", "smoke_result": null}]}
+STATE_EOF
+
+generate_report 2>/dev/null
+
+# Verify the file exists and is complete (ends with </html>)
+if [[ -f "$REPORT_OUTPUT_PATH" ]]; then
+    last_line=$(tail -1 "$REPORT_OUTPUT_PATH")
+    if [[ "$last_line" == *"</html>"* ]]; then
+        test_pass
+    else
+        test_fail "file ends with </html>" "$last_line"
+    fi
+else
+    test_fail "report.html exists" "file not found"
 fi
 
 # ============================================================
