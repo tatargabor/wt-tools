@@ -89,6 +89,7 @@ log() {
 log_info()  { log "INFO" "$@"; }
 log_warn()  { log "WARN" "$@"; }
 log_error() { log "ERROR" "$@"; }
+log_debug() { [[ "${ORCH_DEBUG:-}" == "1" ]] && log "DEBUG" "$@" || true; }
 
 # run_claude() is provided by wt-common.sh (sourced above)
 

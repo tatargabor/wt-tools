@@ -120,7 +120,7 @@ watchdog_check() {
             # PID alive = long operation, not stuck — warn but don't escalate
             # Throttle: log + event at threshold, then every 20th occurrence to reduce noise
             if [[ "$consecutive_same" -eq "$WATCHDOG_LOOP_THRESHOLD" || $((consecutive_same % 20)) -eq 0 ]]; then
-                log_warn "Watchdog: $change_name hash loop ($consecutive_same identical hashes) but PID $ralph_pid_loop alive — skipping escalation"
+                log_debug "Watchdog: $change_name hash loop ($consecutive_same identical hashes) but PID $ralph_pid_loop alive — skipping escalation"
                 emit_event "WATCHDOG_WARN" "$change_name" \
                     "{\"reason\":\"hash_loop_pid_alive\",\"consecutive\":$consecutive_same,\"pid\":$ralph_pid_loop}"
             fi

@@ -8,6 +8,7 @@ Self-healing watchdog integrated into the orchestration monitor loop. Detects st
 - Track last activity epoch per change (loop-state.json mtime or state transition timestamp)
 - Configurable timeout per status: `running` (600s default), `verifying` (300s), `dispatched` (120s)
 - Only trigger when the Ralph PID is also dead (alive PID = long iteration, not stale)
+- When PID is alive during hash loop, log at DEBUG level (not WARN) — the system correctly decides not to act, so this is informational only. The `WATCHDOG_WARN` event is still emitted to events JSONL for audit trail.
 - Timeout triggers escalation (R4)
 
 ### R2: Action Hash Loop Detection

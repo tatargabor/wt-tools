@@ -869,105 +869,8 @@ handle_change_done() {
     skip_test=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .skip_test // false' "$STATE_FILENAME")
     skip_review=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .skip_review // false' "$STATE_FILENAME")
 
-    # ── Step 1: Run tests if configured (VG-1) ──
-    local test_result="skip"
-    local test_output=""
-    if [[ "$skip_test" == "true" ]]; then
-        test_result="skipped"
-        log_info "Verify gate: tests skipped for $change_name (skip_test=true)"
-    elif [[ -n "$test_command" ]]; then
-        update_change_field "$change_name" "status" '"verifying"'
-        info "Running tests for $change_name..."
-        log_info "Verify gate: test start for $change_name"
-
-        local _t_start=$(($(date +%s%N) / 1000000))
-        if run_tests_in_worktree "$wt_path" "$test_command" "$test_timeout"; then
-            test_result="pass"
-            test_output="$TEST_OUTPUT"
-            log_info "Verify gate: tests passed for $change_name"
-            orch_remember "Tests passed for $change_name" Context "phase:test,change:$change_name"
-        else
-            test_result="fail"
-            test_output="$TEST_OUTPUT"
-            log_error "Verify gate: tests failed for $change_name"
-            orch_remember "Tests failed for $change_name: ${test_output:0:500}" Learning "phase:test,change:$change_name"
-        fi
-        gate_test_ms=$(( $(date +%s%N) / 1000000 - _t_start ))
-        update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
-        log_info "Verify gate: test took ${gate_test_ms}ms for $change_name"
-    fi
-
-    # Store test results in state (VG-5)
-    update_change_field "$change_name" "test_result" "\"$test_result\""
-    # Store truncated test output (escape for JSON)
-    local escaped_output
-    escaped_output=$(printf '%s' "$test_output" | head -c 2000 | jq -Rs .)
-    update_change_field "$change_name" "test_output" "$escaped_output"
-
-    # Parse test counts from output (Jest/Vitest/Playwright formats)
-    local t_passed=0 t_failed=0 t_suites=0 t_type="unknown"
-    if [[ -n "$test_output" ]]; then
-        # Jest/Vitest: "Tests:  X passed, Y total" or "Tests:  X failed, Y passed, Z total"
-        local jest_passed jest_failed
-        jest_passed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
-        jest_failed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+failed' | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
-        local jest_suites
-        jest_suites=$(echo "$test_output" | grep -oP 'Test Suites:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
-
-        # Playwright: "X passed" or "X failed, Y passed"
-        local pw_passed pw_failed
-        pw_passed=$(echo "$test_output" | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
-        pw_failed=$(echo "$test_output" | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
-
-        if [[ -n "$jest_passed" ]]; then
-            t_passed=$jest_passed; t_failed=${jest_failed:-0}; t_suites=${jest_suites:-0}; t_type="jest"
-        elif [[ -n "$pw_passed" ]]; then
-            t_passed=$pw_passed; t_failed=${pw_failed:-0}; t_type="playwright"
-        fi
-
-        if [[ "$((t_passed + t_failed))" -gt 0 ]]; then
-            update_change_field "$change_name" "test_stats" \
-                "{\"passed\":$t_passed,\"failed\":$t_failed,\"suites\":$t_suites,\"type\":\"$t_type\"}"
-        fi
-    fi
-
-    if [[ "$test_result" == "fail" ]]; then
-        # Retry with test failure context (VG-2)
-        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
-            verify_retry_count=$((verify_retry_count + 1))
-            info "Tests failed for $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
-            log_info "Verify gate: test fail retry $verify_retry_count/$max_verify_retries for $change_name"
-            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
-            update_change_field "$change_name" "status" '"verify-failed"'
-
-            # Resume Ralph with test failure context
-            local scope
-            scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
-            local retry_prompt="Tests failed after implementation. Fix the failing tests.\n\nTest command: $test_command\nTest output:\n$test_output\n\nOriginal scope: $scope"
-            # Recall relevant memories for retry context
-            local _mem_ctx
-            _mem_ctx=$(orch_recall "$scope" 3 "phase:verification")
-            if [[ -n "$_mem_ctx" ]]; then
-                retry_prompt="$retry_prompt\n\n## Context from Memory\n${_mem_ctx:0:1000}"
-            fi
-            update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
-            # Snapshot tokens before retry for cost tracking
-            local _snap_tokens
-            _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
-            update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
-            update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
-            resume_change "$change_name"
-            return
-        fi
-        update_change_field "$change_name" "status" '"failed"'
-        send_notification "wt-orchestrate" "Change '$change_name' failed tests after $max_verify_retries retries" "critical"
-        log_error "Verify gate: $change_name failed tests permanently"
-        trigger_checkpoint "failure"
-        return
-    fi
-
-    # ── Step 2: Build verification — cheap, no LLM cost (VG-BUILD) ──
-    # Run build BEFORE expensive LLM review/verify to catch failures early and save tokens
+    # ── Step 1: Build verification — cheapest check, no LLM cost (VG-BUILD) ──
+    # Build runs FIRST: catches type errors (~10s) before running tests (~5s+) or E2E (~30s+)
     local gate_build_ms=0
     local build_command=""
     if [[ -f "$wt_path/package.json" ]]; then
@@ -1082,7 +985,104 @@ handle_change_done() {
         update_change_field "$change_name" "build_result" '"pass"'
     fi
 
-    # ── Step 1b: E2E tests — Playwright functional tests in worktree (VG-E2E) ──
+    # ── Step 2: Run tests if configured (VG-1) ──
+    local test_result="skip"
+    local test_output=""
+    if [[ "$skip_test" == "true" ]]; then
+        test_result="skipped"
+        log_info "Verify gate: tests skipped for $change_name (skip_test=true)"
+    elif [[ -n "$test_command" ]]; then
+        update_change_field "$change_name" "status" '"verifying"'
+        info "Running tests for $change_name..."
+        log_info "Verify gate: test start for $change_name"
+
+        local _t_start=$(($(date +%s%N) / 1000000))
+        if run_tests_in_worktree "$wt_path" "$test_command" "$test_timeout"; then
+            test_result="pass"
+            test_output="$TEST_OUTPUT"
+            log_info "Verify gate: tests passed for $change_name"
+            orch_remember "Tests passed for $change_name" Context "phase:test,change:$change_name"
+        else
+            test_result="fail"
+            test_output="$TEST_OUTPUT"
+            log_error "Verify gate: tests failed for $change_name"
+            orch_remember "Tests failed for $change_name: ${test_output:0:500}" Learning "phase:test,change:$change_name"
+        fi
+        gate_test_ms=$(( $(date +%s%N) / 1000000 - _t_start ))
+        update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
+        log_info "Verify gate: test took ${gate_test_ms}ms for $change_name"
+    fi
+
+    # Store test results in state (VG-5)
+    update_change_field "$change_name" "test_result" "\"$test_result\""
+    # Store truncated test output (escape for JSON)
+    local escaped_output
+    escaped_output=$(printf '%s' "$test_output" | head -c 2000 | jq -Rs .)
+    update_change_field "$change_name" "test_output" "$escaped_output"
+
+    # Parse test counts from output (Jest/Vitest/Playwright formats)
+    local t_passed=0 t_failed=0 t_suites=0 t_type="unknown"
+    if [[ -n "$test_output" ]]; then
+        # Jest/Vitest: "Tests:  X passed, Y total" or "Tests:  X failed, Y passed, Z total"
+        local jest_passed jest_failed
+        jest_passed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
+        jest_failed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+failed' | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
+        local jest_suites
+        jest_suites=$(echo "$test_output" | grep -oP 'Test Suites:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
+
+        # Playwright: "X passed" or "X failed, Y passed"
+        local pw_passed pw_failed
+        pw_passed=$(echo "$test_output" | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
+        pw_failed=$(echo "$test_output" | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
+
+        if [[ -n "$jest_passed" ]]; then
+            t_passed=$jest_passed; t_failed=${jest_failed:-0}; t_suites=${jest_suites:-0}; t_type="jest"
+        elif [[ -n "$pw_passed" ]]; then
+            t_passed=$pw_passed; t_failed=${pw_failed:-0}; t_type="playwright"
+        fi
+
+        if [[ "$((t_passed + t_failed))" -gt 0 ]]; then
+            update_change_field "$change_name" "test_stats" \
+                "{\"passed\":$t_passed,\"failed\":$t_failed,\"suites\":$t_suites,\"type\":\"$t_type\"}"
+        fi
+    fi
+
+    if [[ "$test_result" == "fail" ]]; then
+        # Retry with test failure context (VG-2)
+        if [[ "$verify_retry_count" -lt "$max_verify_retries" ]]; then
+            verify_retry_count=$((verify_retry_count + 1))
+            info "Tests failed for $change_name — retrying ($verify_retry_count/$max_verify_retries)..."
+            log_info "Verify gate: test fail retry $verify_retry_count/$max_verify_retries for $change_name"
+            update_change_field "$change_name" "verify_retry_count" "$verify_retry_count"
+            update_change_field "$change_name" "status" '"verify-failed"'
+
+            # Resume Ralph with test failure context
+            local scope
+            scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
+            local retry_prompt="Tests failed after implementation. Fix the failing tests.\n\nTest command: $test_command\nTest output:\n$test_output\n\nOriginal scope: $scope"
+            # Recall relevant memories for retry context
+            local _mem_ctx
+            _mem_ctx=$(orch_recall "$scope" 3 "phase:verification")
+            if [[ -n "$_mem_ctx" ]]; then
+                retry_prompt="$retry_prompt\n\n## Context from Memory\n${_mem_ctx:0:1000}"
+            fi
+            update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+            # Snapshot tokens before retry for cost tracking
+            local _snap_tokens
+            _snap_tokens=$(jq -r '.total_tokens // 0' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo "0")
+            update_change_field "$change_name" "retry_tokens_start" "$_snap_tokens"
+            update_change_field "$change_name" "gate_test_ms" "$gate_test_ms"
+            resume_change "$change_name"
+            return
+        fi
+        update_change_field "$change_name" "status" '"failed"'
+        send_notification "wt-orchestrate" "Change '$change_name' failed tests after $max_verify_retries retries" "critical"
+        log_error "Verify gate: $change_name failed tests permanently"
+        trigger_checkpoint "failure"
+        return
+    fi
+
+    # ── Step 3: E2E tests — Playwright functional tests in worktree (VG-E2E) ──
     local gate_e2e_ms=0
     local e2e_result="skip"
     local e2e_output=""
@@ -1159,7 +1159,7 @@ handle_change_done() {
         return
     fi
 
-    # ── Step 2a: Pre-merge implementation scope check (BLOCKING) ──
+    # ── Step 4: Pre-merge implementation scope check (BLOCKING) ──
     if ! verify_implementation_scope "$change_name" "$wt_path"; then
         update_change_field "$change_name" "scope_check" '"fail"'
         log_error "Verify gate: scope check FAILED for $change_name — no implementation files"
@@ -1185,7 +1185,7 @@ handle_change_done() {
     fi
     update_change_field "$change_name" "scope_check" '"pass"'
 
-    # ── Step 2b: Check for test file existence (BLOCKING for feature types) ──
+    # ── Step 4b: Check for test file existence (BLOCKING for feature types) ──
     local test_files_count=0
     test_files_count=$(cd "$wt_path" && git diff --name-only "$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo HEAD~5)..HEAD" 2>/dev/null | grep -cE '\.(test|spec)\.' || true)
     if [[ "$test_files_count" -eq 0 ]]; then
@@ -1225,7 +1225,7 @@ handle_change_done() {
         update_change_field "$change_name" "has_tests" "true"
     fi
 
-    # ── Step 3: LLM Code Review (VG-4) ──
+    # ── Step 5: LLM Code Review (VG-4) ──
     if [[ "$skip_review" == "true" ]]; then
         update_change_field "$change_name" "review_result" '"skipped"'
         log_info "Verify gate: review skipped for $change_name (skip_review=true)"
@@ -1289,7 +1289,7 @@ handle_change_done() {
         orch_remember "Code review passed for $change_name — no critical issues" Context "phase:review,change:$change_name"
     fi
 
-    # ── Step 3.5: Project verification rules ──
+    # ── Step 5b: Project verification rules ──
     if ! evaluate_verification_rules "$change_name" "$wt_path"; then
         log_error "Verification rules failed for $change_name — blocking merge"
         update_change_field "$change_name" "status" '"verify-failed"'
@@ -1304,7 +1304,7 @@ handle_change_done() {
         return
     fi
 
-    # ── Step 4: Run verify step (existing) ──
+    # ── Step 6: Run verify step (existing) ──
     info "Running verify for $change_name..."
     local _v_start=$(($(date +%s%N) / 1000000))
     local verify_ok=true
@@ -1342,7 +1342,7 @@ handle_change_done() {
     gate_retry_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_tokens // 0' "$STATE_FILENAME")
     local gate_retry_count
     gate_retry_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
-    log_info "Verify gate: $change_name total ${gate_total_ms}ms (test=${gate_test_ms}ms, build=${gate_build_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
+    log_info "Verify gate: $change_name total ${gate_total_ms}ms (build=${gate_build_ms}ms, test=${gate_test_ms}ms, review=${gate_review_ms}ms, verify=${gate_verify_ms}ms, retries=${gate_retry_count}, retry_tokens=${gate_retry_tokens})"
     emit_event "VERIFY_GATE" "$change_name" "$(jq -cn \
         --arg test "$test_result" \
         --argjson test_ms "$gate_test_ms" \
@@ -1361,7 +1361,7 @@ handle_change_done() {
         return
     fi
 
-    # ── Step 5: Mark done and handle merge ──
+    # ── Step 7: Mark done and handle merge ──
     update_change_field "$change_name" "status" '"done"'
     update_change_field "$change_name" "completed_at" "\"$(date -Iseconds)\""
     log_info "Change $change_name done (tests: $test_result, review: $([[ "$review_before_merge" == "true" ]] && echo "pass" || echo "skipped"), verify: ok)"
