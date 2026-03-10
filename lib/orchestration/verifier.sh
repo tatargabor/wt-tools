@@ -456,8 +456,9 @@ poll_change() {
     cr_tok=$(jq -r '.total_cache_read // 0' "$loop_state" 2>/dev/null)
     cc_tok=$(jq -r '.total_cache_create // 0' "$loop_state" 2>/dev/null)
 
-    # If loop-state hasn't recorded tokens yet (mid-iteration), query wt-usage directly
-    if [[ "$tokens" -eq 0 && "$ralph_status" == "running" ]]; then
+    # If loop-state hasn't recorded tokens yet, query wt-usage directly
+    # Note: check regardless of ralph_status — loop may have finished with 0 in state
+    if [[ "$tokens" -eq 0 ]]; then
         local derived_dir loop_started
         derived_dir=$(echo "$wt_path" | sed 's|/|-|g')
         # Use loop-state started_at (current loop start), not orchestrator started_at

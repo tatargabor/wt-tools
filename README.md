@@ -127,6 +127,45 @@ See [Getting Started](docs/getting-started.md) for the full guide.
 
 ![Orchestrator workspace — TUI, memory dashboard, agent terminal](docs/images/orchestrator-workspace.png)
 
+## Benchmark: What does autonomous orchestration look like?
+
+We run a repeatable benchmark: build a **Next.js webshop from a single spec file** — products, cart, checkout, admin auth, admin CRUD — with zero human intervention.
+
+**Run #4 results** (the latest):
+
+```
+Spec ──► 6 changes planned ──► parallel agents ──► all 6 merged ──► done
+
+Wall clock:        1h 45m
+Human interventions: 0
+Merge conflicts:     0
+Jest unit tests:    38 (6 suites)
+Playwright E2E:     32 (6 spec files)
+Source files:       47 TypeScript/TSX
+Verify retries:     5 (all self-healed)
+```
+
+```
+22:06          22:30     22:46          23:04    23:13              23:51
+  │              │         │              │        │                  │
+  ├─ Plan (3m)   │         │              │        │                  │
+  ├─ Infra ──────┤ 19m     │              │        │                  │
+  │              ├─ Prods ─┤ 12m          │        │                  │
+  │              │         ├─ Cart ───────┤ 16m    │                  │
+  │              │         ├─ Auth ───────┼────────┤ 26m              │
+  │              │         │              ├─ Orders┤ 18m              │
+  │              │         │              │        ├─ Admin Products ─┤ 36m
+  │              │         │              │        │                  │
+  done           done      │         2 parallel    │            2 parallel
+                           │              │        │                  │
+```
+
+Every change passes: **Jest → Build → Playwright E2E → OpenSpec verify → Merge → Post-merge smoke.**
+
+Full details with quality gate breakdown, retry analysis, and run-over-run comparison: **[Benchmark Report](docs/benchmark-minishop-run4.md)**
+
+---
+
 ## Fork & Adapt
 
 Our primary focus is web development — that's where we push hardest. But wt-tools is project-agnostic by design. The base tooling (worktrees, memory, orchestration) works on any codebase: APIs, mobile apps, data pipelines, research projects. Built from months of production work across web apps, sensor systems, education platforms, and more.
