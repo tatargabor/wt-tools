@@ -87,44 +87,45 @@ if [[ "$SCREENSHOTS" == "true" ]]; then
     echo "Capturing screenshots..."
     mkdir -p e2e-screenshots
 
-    # Build the app first
-    if pnpm build 2>/dev/null; then
-        # Start production server in background
-        pnpm start &
-        SERVER_PID=$!
+    # Use a dedicated port to avoid conflicts
+    SCREENSHOT_PORT=3100
+    export PW_PORT="$SCREENSHOT_PORT"
 
-        # Wait for server to be ready (poll health endpoint)
-        RETRIES=30
-        while [[ $RETRIES -gt 0 ]]; do
-            if curl -s http://localhost:3000/api/health | grep -q '"ok"' 2>/dev/null; then
-                break
-            fi
-            sleep 1
-            ((RETRIES--)) || true
-        done
+    # Start dev server in background
+    pnpm dev --port "$SCREENSHOT_PORT" &>/dev/null &
+    SERVER_PID=$!
 
-        if [[ $RETRIES -gt 0 ]]; then
-            SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-            CAPTURE_SRC="$SCRIPT_DIR/tests/e2e/capture-screenshots.ts"
-            CAPTURE_DST="tests/e2e/capture-screenshots.ts"
-            if [[ -f "$CAPTURE_SRC" ]]; then
-                mkdir -p "$(dirname "$CAPTURE_DST")"
-                cp "$CAPTURE_SRC" "$CAPTURE_DST"
-                pnpm exec playwright test "$CAPTURE_DST" 2>/dev/null || echo "Screenshot capture had errors (non-fatal)"
-                rm -f "$CAPTURE_DST"
-            else
-                echo "Warning: $CAPTURE_SRC not found, skipping screenshots"
-            fi
-        else
-            echo "Warning: server did not become ready, skipping screenshots"
+    # Wait for server to be ready
+    RETRIES=30
+    while [[ $RETRIES -gt 0 ]]; do
+        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${SCREENSHOT_PORT}/products" 2>/dev/null | grep -q "200"; then
+            break
         fi
+        sleep 1
+        ((RETRIES--)) || true
+    done
 
-        # Kill server
-        kill "$SERVER_PID" 2>/dev/null || true
-        wait "$SERVER_PID" 2>/dev/null || true
+    if [[ $RETRIES -gt 0 ]]; then
+        # Copy capture script from wt-tools source and run as standalone tsx script
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+        CAPTURE_SRC="$SCRIPT_DIR/tests/e2e/capture-screenshots.ts"
+        CAPTURE_DST="tests/e2e/capture-screenshots.ts"
+        if [[ -f "$CAPTURE_SRC" ]]; then
+            mkdir -p "$(dirname "$CAPTURE_DST")"
+            cp "$CAPTURE_SRC" "$CAPTURE_DST"
+            # Run as standalone script via tsx (not playwright test)
+            PW_PORT="$SCREENSHOT_PORT" npx tsx "$CAPTURE_DST" 2>&1 || echo "Screenshot capture had errors (non-fatal)"
+            rm -f "$CAPTURE_DST"
+        else
+            echo "Warning: $CAPTURE_SRC not found, skipping screenshots"
+        fi
     else
-        echo "Warning: pnpm build failed, skipping screenshots"
+        echo "Warning: server did not become ready, skipping screenshots"
     fi
+
+    # Kill server
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
 fi
 
 # ── Extract data from state.json ──

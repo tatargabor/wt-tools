@@ -218,6 +218,22 @@ auto_replan: true
 
 ---
 
+## Screenshots
+
+Captured automatically by `wt-e2e-report` from the running app after all changes merged.
+
+| Page | Screenshot |
+|---|---|
+| Product listing (storefront) | ![products](../tests/e2e/screenshots/products.png) |
+| Product detail | ![product-detail](../tests/e2e/screenshots/product-detail.png) |
+| Admin login | ![admin-login](../tests/e2e/screenshots/admin-login.png) |
+| Admin dashboard | ![admin-dashboard](../tests/e2e/screenshots/admin-dashboard.png) |
+| Admin product management | ![admin-products](../tests/e2e/screenshots/admin-products.png) |
+
+> **Note:** Cart page screenshot excluded — runtime cookie error in client component (minishop app bug, not wt-tools).
+
+---
+
 ## Reproducing This Benchmark
 
 ```bash
