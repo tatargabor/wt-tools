@@ -175,6 +175,56 @@ deps_satisfied() {
     return 0
 }
 
+# Check if any depends_on for a change has failed (terminal state)
+# Returns 0 if a dependency is failed/merge-blocked, 1 otherwise
+deps_failed() {
+    local change_name="$1"
+    local deps
+    deps=$(jq -r --arg name "$change_name" \
+        '.changes[] | select(.name == $name) | .depends_on[]?' "$STATE_FILENAME" 2>/dev/null)
+
+    [[ -z "$deps" ]] && return 1  # no dependencies → not failed
+
+    while IFS= read -r dep; do
+        local dep_status
+        dep_status=$(get_change_status "$dep")
+        if [[ "$dep_status" == "failed" || "$dep_status" == "merge-blocked" ]]; then
+            return 0
+        fi
+    done <<< "$deps"
+
+    return 1
+}
+
+# Cascade failure: mark pending changes as failed if their dependencies have failed.
+# Prevents deadlock where failed deps leave children stuck in pending forever.
+cascade_failed_deps() {
+    local cascaded=0
+    local pending_changes
+    pending_changes=$(jq -r '.changes[] | select(.status == "pending") | .name' "$STATE_FILENAME" 2>/dev/null)
+
+    [[ -z "$pending_changes" ]] && return 0
+
+    while IFS= read -r change_name; do
+        if deps_failed "$change_name"; then
+            local failed_dep
+            failed_dep=$(jq -r --arg name "$change_name" \
+                '.changes[] | select(.name == $name) | .depends_on[]?' "$STATE_FILENAME" 2>/dev/null | while read d; do
+                    local s; s=$(get_change_status "$d")
+                    [[ "$s" == "failed" || "$s" == "merge-blocked" ]] && echo "$d" && break
+                done)
+            log_warn "Cascade: $change_name failed — dependency '$failed_dep' is terminal"
+            emit_event "CASCADE_FAILED" "$change_name" "{\"reason\":\"dependency_failed\",\"failed_dep\":\"$failed_dep\"}"
+            update_change_field "$change_name" "status" '"failed"'
+            update_change_field "$change_name" "failure_reason" "\"dependency $failed_dep failed\""
+            cascaded=$((cascaded + 1))
+        fi
+    done <<< "$pending_changes"
+
+    [[ "$cascaded" -gt 0 ]] && log_info "Cascade: $cascaded changes marked failed due to dependency failures"
+    return 0
+}
+
 # ─── Dependency Graph ────────────────────────────────────────────────
 
 # Topological sort of changes (returns names in execution order)

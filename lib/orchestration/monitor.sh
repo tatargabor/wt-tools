@@ -263,6 +263,9 @@ monitor_loop() {
         # Resume stalled changes after cooldown (handles rate limit recovery)
         resume_stalled_changes
 
+        # Cascade failure: mark pending changes whose dependencies have failed
+        cascade_failed_deps
+
         # Retry failed builds before declaring all-done (cheaper than replan)
         retry_failed_builds "$max_verify_retries"
 

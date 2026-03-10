@@ -121,8 +121,20 @@ def gate_str(result):
     return GATE_NONE
 
 
+def format_ms(ms):
+    """Format milliseconds as compact duration (e.g. 5s, 1m12s)."""
+    if not ms or ms <= 0:
+        return ""
+    secs = ms / 1000
+    if secs < 60:
+        return f"{secs:.0f}s"
+    m = int(secs) // 60
+    s = int(secs) % 60
+    return f"{m}m{s:02d}s" if s else f"{m}m"
+
+
 def format_gates(change):
-    """Format gate results: pre-merge T/B/R/V, post-merge +S (smoke runs post-merge only)."""
+    """Format gate results: pre-merge T/B/E/R/V with timing, post-merge +S."""
     test = change.get("test_result")
     build = change.get("build_result")
     smoke = change.get("smoke_result")
@@ -133,9 +145,21 @@ def format_gates(change):
         "fail" if status == "verify-failed" else None
     )
 
+    # Gate timings (ms)
+    test_ms = change.get("gate_test_ms")
+    build_ms = change.get("gate_build_ms")
+    e2e_ms = change.get("gate_e2e_ms")
+    e2e = change.get("e2e_result")
+
     parts = []
-    parts.append(f"T{gate_str(test)}")
-    parts.append(f"B{gate_str(build)}")
+    t_time = f"[dim]{format_ms(test_ms)}[/]" if test_ms else ""
+    parts.append(f"T{gate_str(test)}{t_time}")
+    b_time = f"[dim]{format_ms(build_ms)}[/]" if build_ms else ""
+    parts.append(f"B{gate_str(build)}{b_time}")
+    # E2E gate (between Build and Review)
+    if e2e is not None and e2e != "skip":
+        e_time = f"[dim]{format_ms(e2e_ms)}[/]" if e2e_ms else ""
+        parts.append(f"E{gate_str(e2e)}{e_time}")
     parts.append(f"R{gate_str(review)}")
     parts.append(f"V{gate_str(verify)}")
     # Smoke runs post-merge — only show for merged/done changes
@@ -235,7 +259,8 @@ class StateReader:
 
 CSS = """
 #header-bar {
-    height: 3;
+    height: auto;
+    max-height: 5;
     padding: 0 1;
     background: $surface;
     color: $text;
@@ -409,14 +434,39 @@ class OrchestratorTUI(App):
         else:
             cache_text = ""
 
+        # Gate timing aggregates
+        gate_parts = []
+        total_test_ms = sum(c.get("gate_test_ms", 0) or 0 for c in changes)
+        total_build_ms = sum(c.get("gate_build_ms", 0) or 0 for c in changes)
+        total_e2e_ms = sum(c.get("gate_e2e_ms", 0) or 0 for c in changes)
+        total_gate_ms = total_test_ms + total_build_ms + total_e2e_ms
+        if total_gate_ms > 0:
+            if total_test_ms > 0:
+                gate_parts.append(f"T:{format_ms(total_test_ms)}")
+            if total_build_ms > 0:
+                gate_parts.append(f"B:{format_ms(total_build_ms)}")
+            if total_e2e_ms > 0:
+                gate_parts.append(f"E:{format_ms(total_e2e_ms)}")
+            gate_text = f"  Gates: {' '.join(gate_parts)} ({format_ms(total_gate_ms)} total)"
+        else:
+            gate_text = ""
+
+        # Verify retry count
+        total_retries = sum(c.get("verify_retry_count", 0) or 0 for c in changes)
+        retry_text = f"  [yellow]Retries: {total_retries}[/]" if total_retries > 0 else ""
+
         line1 = f"  [bold]{project_name}[/]  {status_text}  {plan_text}  {done}/{total} done  {token_text}"
         line2 = f"  {time_text}{cache_text}"
+        line3 = f"  {gate_text}{retry_text}" if gate_text or retry_text else ""
 
         # Extra note for time_limit status
         if orch_status == "time_limit":
             line2 += "  [yellow]Run 'wt-orchestrate start' to continue[/]"
 
-        header.update(f"{line1}\n{line2}")
+        lines = f"{line1}\n{line2}"
+        if line3.strip():
+            lines += f"\n{line3}"
+        header.update(lines)
 
     def _update_table(self, state) -> None:
         """Repopulate the change table, preserving cursor position."""

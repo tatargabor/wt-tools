@@ -105,6 +105,116 @@
 - **Fix**: emit_event bekerült a throttle condition-be (minden 20. occurrence). Commitolva.
 - **Státusz**: Fixelve
 
+### 14. Sentinel restart törli worktree-ket → resume fail
+- **Tünet**: Sentinel restart után `cd: /tmp/craftbrew-e2e-wt-content-stories: No such file or directory`
+- **Ok**: Sentinel fresh start prune-olja a stale worktree-ket. Ha a state.json is elveszett (vagy nincs), az orchestrator megpróbálja resume-olni a change-eket de a worktree dir nem létezik.
+- **Hatás**: content-stories és product-catalog nem tudott resume-olni → orchestrator crash → crash loop
+- **Megjegyzés**: A worktree prune helyes viselkedés, de az orchestrator resume-nak kezelnie kell a hiányzó worktree-t (re-dispatch helyett crash)
+- **Státusz**: Ismert limitáció, nem fixelve ebben a runban
+
+## Final Run Report
+
+### Status: INTERRUPTED (state lost, 4/7 merged)
+
+| Change | REQs | Status | Time | Notes |
+|--------|------|--------|------|-------|
+| test-infrastructure-setup | ~5 | merged | ~12 min | stall recovery tested, OK |
+| prisma-schema-and-seed | ~7 | merged | ~15 min | 0 retries |
+| app-layout-and-design-tokens | ~6 | merged | ~15 min | 0 retries |
+| i18n-routing | ~5 | merged | ~19 min | 1 E2E retry, then OK |
+| user-auth-and-accounts | 14 | **FAILED** | 41 min | 3x verify-fail, 708K tokens |
+| product-catalog | 22 | **INTERRUPTED** | >45 min | 1M+ tokens, worktree lost |
+| content-stories | ? | **INTERRUPTED** | ? | Only artifacts created, no impl |
+
+### Timeline
+- 12:00 — Sentinel starts, digest already fresh (skipped)
+- 12:00 — Planner decomposition (~8 min)
+- 12:08 — First dispatch (test-infrastructure-setup)
+- 12:08–13:30 — First 4 changes dispatched and merged (max_parallel: 2)
+- 13:30–14:03 — Large changes dispatched (user-auth 14 REQ, product-catalog 22 REQ)
+- 14:43 — user-auth-and-accounts FAILED after 3 verify retries
+- ~14:50 — Sentinel/orchestrator killed externally
+- 14:55 — Sentinel restarted, state.json lost, worktrees pruned → crash loop
+- 14:57 — Sentinel killed manually (rapid crash 2/5)
+
+### Key Metrics
+- **Wall clock**: ~3 hours (12:00–14:57)
+- **Changes merged**: 4/7 (57%)
+- **Changes failed**: 1/7 (user-auth, too large)
+- **Changes interrupted**: 2/7 (worktree lost)
+- **Sentinel restarts**: 5+ (events bug, external kills, crash loop)
+- **Bugs found & fixed**: 7 (#1–7) during this run
+- **Bugs found for next run**: 3 (#11–13, planner granularity + watchdog spam)
+
+### Conclusions
+
+1. **Digest pipeline works end-to-end**: 17 spec files → 178 REQs → 7 changes → 4 merged. First successful digest-mode orchestration.
+2. **Small changes succeed reliably**: 5-7 REQ changes merged in 12-19 min with 0-1 retries. This is the sweet spot.
+3. **Large changes fail or are very expensive**: 14+ REQ changes either fail verify (708K tokens wasted) or exceed 1M tokens. Max 6 REQ/change rule already committed.
+4. **Sentinel crash recovery works well**: Stale state detection, auto-restart, event-based monitoring all function correctly after the events filename fix.
+5. **Missing: graceful worktree-gone handling**: When worktrees are pruned but state references them, orchestrator should re-dispatch (not crash). This is a follow-up fix.
+6. **Total time to first agent**: ~20 min (digest + planner + dispatch). Acceptable for 17-file specs.
+
+---
+
+## Run #2 — Granularity Rules Applied
+
+### Run Info
+- Date: 2026-03-10 (same day, restart after Run #1 cleanup)
+- Plan: 8 changes (all ≤6 REQ), sub-domain dependency chaining
+- Digest: reused from Run #1 (fresh check worked)
+- Granularity rules: max 6 REQ/change, M complexity cap, sub-domain chaining
+
+### 15. user-auth E2E fail — Next.js logout server crash (FAILED)
+- **Tünet**: 8/9 Playwright teszt pass, 1 fail: `logout clears session and reverts header`
+- **Hiba**: `page.waitForURL("**/hu"): net::ERR_CONNECTION_REFUSED` — a Next.js dev server elcrashelt a logout action feldolgozása közben
+- **Ok**: Server Action-ben a cookie/session törlés crasheli a dev server-t. Ugyanaz a pattern mint MiniShop Run #1-ben ("Cookies can only be modified in Server Action")
+- **Hatás**: user-auth failed (1.02M token, 2 verify retry kimerítve). A Ralph kétszer próbálta fixelni, nem sikerült.
+- **Tanulság**: Ez nem granularity probléma (6 REQ, normális méret). Runtime bug amit Jest mock-ok nem kapnak el, csak Playwright.
+- **Lehetséges javítás**: verify retry prompt-ba Next.js-specifikus hint: "If E2E shows ERR_CONNECTION_REFUSED after server action, check cookies() usage in Server Actions"
+- **Státusz**: Finding, nem fixelve
+
+### 16. Failed dependency deadlock — BLOKKOLÓ BUG
+- **Tünet**: user-auth failed → user-profile, user-addresses-orders, product-catalog-search-crosssell örökre pending maradnak
+- **Ok**: `deps_satisfied()` (state.sh:170) csak `merged` statust fogad el. Ha a dependency `failed`, a függő change-ek nem indulnak el, de `active_count`-ba továbbra is `pending`-ként számítanak.
+- **Hatás**: `active_count > 0` → monitor loop soha nem jut el a replan/done ágba → **orchestrator örökre várakozik**
+- **Dependency graph**:
+  ```
+  user-auth (FAILED)
+    └→ user-profile (stuck pending)
+        └→ user-addresses-orders (stuck pending)
+    └→ product-catalog-search-crosssell (stuck pending, also depends on detail)
+  ```
+- **Fix**: Ha egy dependency `failed`, a függő change-eket is `failed`-nek jelölni (cascade), VAGY `pending`-et nem active-nek számolni ha minden dependency-je terminal (failed/merge-blocked)
+- **Státusz**: Nem fixelve, de blokkolja a Run #2 befejezését
+
+### 17. active_seconds megragad — timer bug
+- **Tünet**: `active_seconds` 1260-on ragadt 18+ heartbeat-en át
+- **Ok**: A monitor loop timer nem incrementálja az active_seconds-et verify retry fázisban
+- **Hatás**: TUI és reporting hibás időt mutat
+- **Státusz**: Finding, nem fixelve
+
+### Run #2 Status (in progress)
+
+| Change | REQs | Status | Tokens | Notes |
+|--------|------|--------|--------|-------|
+| content-stories | 4 | **merged** | 1.30M | 2 verify retry, E2E pass 3. próba |
+| user-auth | 6 | **FAILED** | 1.02M | logout E2E crash, 2 retry kimerítve |
+| product-catalog-list | 6 | running | 22K | artifact creation fázis |
+| product-catalog-detail | 6 | pending | — | blocked by list |
+| product-catalog-filter | 6 | pending | — | blocked by list |
+| product-catalog-search-crosssell | 3 | pending | — | **deadlocked** (depends on detail + user-auth) |
+| user-profile | 4 | pending | — | **deadlocked** (depends on user-auth) |
+| user-addresses-orders | 4 | pending | — | **deadlocked** (depends on user-profile) |
+
+### Observations (Run #2)
+- Granularity rules működnek: 8 change, mind ≤6 REQ
+- Sub-domain dependency chaining működik: product-catalog chain (list→detail→filter→search), user chain (auth→profile→addresses)
+- Watchdog throttle működik: 7 WARN event (vs Run #1: 66+)
+- content-stories merged 2 retry után — small change (4 REQ) végül átment
+- user-auth fail nem granularity probléma — runtime bug (Next.js logout crash)
+- **Dependency deadlock** a legfontosabb bug: failed dependency→stuck pending→no replan. Fixelni kell.
+
 ## Observations
 - Sentinel auto-restart működik: digest crash → restart → digest fresh (skip) → planner újra
 - Sentinel events fájlnév mismatch BLOKKOLÓ volt — stuck detection killed healthy orchestrator after 183s
@@ -114,3 +224,6 @@
 - A digest "fresh" check működik sentinel restart-oknál — nem generálja újra
 - Sentinel stale state recovery működik: kill -9 → stale detect → reset → restart (~33s)
 - Ha sentinel fut, manuális orchestrator start ütközik ("already running")
+- 5-7 REQ/change a sweet spot: gyors, megbízható, 0 retry
+- 14+ REQ/change nem működik: verify gate nem teljesíthető 3 próbálkozásra
+- Orchestrator resume nem kezeli a hiányzó worktree-t gracefully (crash helyett re-dispatch kéne)

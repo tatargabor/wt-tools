@@ -56,7 +56,10 @@ render_html_wrapper_open() {
   .gate-fail { color: #f44336; }
   .gate-na { color: #666; }
   .coverage-bar { background: #333; border-radius: 4px; height: 16px; overflow: hidden; display: inline-block; width: 120px; vertical-align: middle; }
-  .coverage-fill { height: 100%; background: #4caf50; }
+  .coverage-fill { height: 100%; background: #4caf50; float: left; }
+  .coverage-fill-inprogress { height: 100%; background: #ff9800; float: left; }
+  .coverage-summary { background: #252525; border: 1px solid #444; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  .coverage-summary p { margin: 8px 0 0 0; font-size: 14px; }
   details { margin: 8px 0; }
   summary { cursor: pointer; padding: 4px; color: #ccc; }
   .not-available { color: #666; font-style: italic; }
@@ -235,20 +238,26 @@ render_coverage_section() {
     local domains
     domains=$(jq -r '[.requirements[] | select(.status != "removed") | .domain // "unknown"] | unique | .[]' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
 
-    local grand_total=0 grand_covered=0
+    local grand_total=0 grand_covered=0 grand_inprogress=0
+
+    # First pass: collect data for summary + per-domain
+    local -a domain_list=()
+    local -A domain_totals=() domain_merged=() domain_inprogress=() domain_rows=()
 
     while IFS= read -r domain; do
         [[ -z "$domain" ]] && continue
-
-        local domain_reqs domain_total=0 domain_covered=0
-        local rows=""
+        domain_list+=("$domain")
+        domain_totals[$domain]=0
+        domain_merged[$domain]=0
+        domain_inprogress[$domain]=0
+        domain_rows[$domain]=""
 
         while IFS=$'\t' read -r req_id title; do
             [[ -z "$req_id" ]] && continue
-            domain_total=$((domain_total + 1))
+            domain_totals[$domain]=$(( ${domain_totals[$domain]} + 1 ))
             grand_total=$((grand_total + 1))
 
-            local cov_change cov_status effective_status status_class
+            local cov_change effective_status
             cov_change=$(jq -r --arg id "$req_id" '.coverage[$id].change // empty' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
 
             if [[ -z "$cov_change" ]]; then
@@ -257,36 +266,67 @@ render_coverage_section() {
                 local state_status
                 state_status=$(jq -r --arg n "$cov_change" '.changes[] | select(.name == $n) | .status // "planned"' "$STATE_FILENAME" 2>/dev/null || echo "planned")
                 case "$state_status" in
-                    merged|done) effective_status="merged"; domain_covered=$((domain_covered + 1)); grand_covered=$((grand_covered + 1)) ;;
+                    merged|done)
+                        effective_status="merged"
+                        domain_merged[$domain]=$(( ${domain_merged[$domain]} + 1 ))
+                        grand_covered=$((grand_covered + 1))
+                        ;;
+                    running|verifying)
+                        effective_status="running"
+                        domain_inprogress[$domain]=$(( ${domain_inprogress[$domain]} + 1 ))
+                        grand_inprogress=$((grand_inprogress + 1))
+                        ;;
                     failed) effective_status="failed" ;;
                     merge-blocked) effective_status="blocked" ;;
-                    running|verifying) effective_status="running" ;;
                     *) effective_status="planned" ;;
                 esac
             else
                 effective_status="planned"
             fi
 
-            rows+="<tr><td>$req_id</td><td>$title</td><td>$cov_change</td><td><span class=\"status-$effective_status\">$effective_status</span></td></tr>"
+            domain_rows[$domain]+="<tr><td>$req_id</td><td>$title</td><td>$cov_change</td><td><span class=\"status-$effective_status\">$effective_status</span></td></tr>"
         done < <(jq -r --arg d "$domain" '.requirements[] | select(.domain == $d and .status != "removed") | "\(.id)\t\(.title // "-")"' "$DIGEST_DIR/requirements.json" 2>/dev/null || true)
-
-        local pct=0
-        if [[ "$domain_total" -gt 0 ]]; then
-            pct=$((domain_covered * 100 / domain_total))
-        fi
-
-        echo "<details>"
-        echo "<summary><strong>$domain</strong> — $domain_covered/$domain_total ($pct%) <span class=\"coverage-bar\"><span class=\"coverage-fill\" style=\"width:${pct}%\"></span></span></summary>"
-        echo "<table><tr><th>REQ</th><th>Title</th><th>Change</th><th>Status</th></tr>"
-        echo "$rows"
-        echo "</table>"
-        echo "</details>"
     done <<< "$domains"
 
-    # Summary
-    local grand_pct=0
+    # Summary block at top
+    local grand_merged_pct=0 grand_inprog_pct=0
     if [[ "$grand_total" -gt 0 ]]; then
-        grand_pct=$((grand_covered * 100 / grand_total))
+        grand_merged_pct=$((grand_covered * 100 / grand_total))
+        grand_inprog_pct=$((grand_inprogress * 100 / grand_total))
     fi
-    echo "<p><strong>Total:</strong> $grand_covered/$grand_total requirements merged ($grand_pct%)</p>"
+    local grand_active=$((grand_covered + grand_inprogress))
+    local grand_active_pct=$((grand_merged_pct + grand_inprog_pct))
+
+    echo "<div class=\"coverage-summary\">"
+    echo "<strong style=\"font-size:18px\">$grand_active/$grand_total requirements active ($grand_active_pct%)</strong>"
+    echo " — <span class=\"status-merged\">$grand_covered merged ($grand_merged_pct%)</span>"
+    echo " + <span class=\"status-running\">$grand_inprogress in-progress ($grand_inprog_pct%)</span>"
+    echo "<br><span class=\"coverage-bar\" style=\"width:200px\"><span class=\"coverage-fill\" style=\"width:${grand_merged_pct}%\"></span><span class=\"coverage-fill-inprogress\" style=\"width:${grand_inprog_pct}%\"></span></span>"
+    echo "<p style=\"color:#888\">$((grand_total - grand_active)) uncovered</p>"
+    echo "</div>"
+
+    # Per-domain details
+    for domain in "${domain_list[@]}"; do
+        local dt=${domain_totals[$domain]}
+        local dm=${domain_merged[$domain]}
+        local di=${domain_inprogress[$domain]}
+        local da=$((dm + di))
+
+        local pct_m=0 pct_i=0
+        if [[ "$dt" -gt 0 ]]; then
+            pct_m=$((dm * 100 / dt))
+            pct_i=$((di * 100 / dt))
+        fi
+        local pct_a=$((pct_m + pct_i))
+
+        echo "<details>"
+        echo "<summary><strong>$domain</strong> — $da/$dt ($pct_a%) <span class=\"coverage-bar\"><span class=\"coverage-fill\" style=\"width:${pct_m}%\"></span><span class=\"coverage-fill-inprogress\" style=\"width:${pct_i}%\"></span></span></summary>"
+        echo "<table><tr><th>REQ</th><th>Title</th><th>Change</th><th>Status</th></tr>"
+        echo "${domain_rows[$domain]}"
+        echo "</table>"
+        echo "</details>"
+    done
+
+    # Bottom summary
+    echo "<p><strong>Total:</strong> $grand_covered/$grand_total merged ($grand_merged_pct%) | $grand_inprogress in-progress ($grand_inprog_pct%)</p>"
 }
