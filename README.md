@@ -208,6 +208,30 @@ The installer handles everything: CLI symlinks, shell completions, MCP server co
 
 ---
 
+## Project Types & Convention Plugins
+
+When multiple agents work on a codebase, they need shared conventions — not copied into CLAUDE.md (which wastes context every turn), but loaded on demand when relevant files are touched.
+
+**Project type plugins** solve this:
+
+```
+wt-project-base          Universal rules (file size, secrets, TODOs)
+  └── wt-project-web      Web domain rules (SEO, a11y, security, i18n, ...)
+        └── your-org-web   Organization-specific rules
+```
+
+```bash
+wt-project init --project-type web --template nextjs
+```
+
+This deploys path-scoped convention files, verification rules, and orchestration directives into the project. Agents only see the rules relevant to the files they're editing — an agent working on `prisma/schema.prisma` gets data-model conventions, not UI rules.
+
+Available project types:
+- **[wt-project-base](https://github.com/tatargabor/wt-project-base)** — universal rules for any codebase
+- **[wt-project-web](https://github.com/tatargabor/wt-project-web)** — 12 convention areas, 11 verification rules, 7 orchestration directives for modern web apps
+
+See [Plugin Architecture](https://github.com/tatargabor/wt-project-web/blob/master/docs/plugin-architecture.md) for customization and layering.
+
 ## Plugins
 
 wt-tools is extensible via plugins — separate repositories that add skills, agents, hooks, or CLI commands. Plugins deploy to a project's `.claude/` directory alongside core files. See [Plugins](docs/plugins.md).
