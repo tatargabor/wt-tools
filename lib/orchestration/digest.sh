@@ -69,6 +69,8 @@ USAGE
         info "Master file: $master_file"
     fi
 
+    emit_event "DIGEST_STARTED" "" "{\"file_count\":$file_count,\"source_hash\":\"$source_hash\"}"
+
     # Build prompt and call API
     local digest_prompt
     digest_prompt=$(build_digest_prompt "$abs_spec_path" "$scan_result")
@@ -78,13 +80,17 @@ USAGE
 
     local api_response
     api_response=$(call_digest_api "$digest_prompt") || {
+        emit_event "DIGEST_FAILED" "" "{\"reason\":\"api_call_failed\"}"
         error "Digest generation failed"
         return 1
     }
 
+    emit_event "DIGEST_RESPONSE_RECEIVED" "" "{\"file_count\":$file_count}"
+
     # Parse structured output from response
     local parsed_output
     parsed_output=$(parse_digest_response "$api_response" "$abs_spec_path" "$scan_result") || {
+        emit_event "DIGEST_FAILED" "" "{\"reason\":\"parse_failed\"}"
         error "Failed to parse digest response"
         return 1
     }
@@ -127,6 +133,7 @@ USAGE
 
     success "Digest complete: $req_count requirements across $domain_count domain(s)"
     log_info "Digest complete: files=$file_count, reqs=$req_count, domains=$domain_count, hash=$source_hash"
+    emit_event "DIGEST_COMPLETE" "" "{\"file_count\":$file_count,\"req_count\":$req_count,\"domain_count\":$domain_count}"
 }
 
 # ─── Spec Scanning ───────────────────────────────────────────────────

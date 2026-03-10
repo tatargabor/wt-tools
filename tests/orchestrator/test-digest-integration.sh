@@ -23,9 +23,11 @@ log_error() { :; }
 run_claude() { return 0; }
 model_id()  { echo "test-model"; }
 
-# Source digest module directly
+# Source digest module and its dependency (events.sh for emit_event)
 LIB_DIR="$PROJECT_DIR/lib/orchestration"
 DIGEST_DIR="wt/orchestration/digest"
+EVENTS_ENABLED="false"
+source "$LIB_DIR/events.sh"
 source "$LIB_DIR/digest.sh"
 
 # ── Test framework ──
