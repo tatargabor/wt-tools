@@ -198,11 +198,23 @@ auto_replan: true
 
 ---
 
-## Known Issues
+## Known Issues (Fixed)
 
-1. **Token tracking gap** — `token_usage` field in state file shows 0 for all changes. The events log also lacks token data. Tracking bug in the orchestrator state writer.
-2. **Watchdog noise** — 199 hash-loop warnings logged. The PID guard correctly prevented false kills, but the log is noisy. Needs throttling (log every 10th instead of every check).
-3. **Post-merge prisma issue** — First 2 merges failed the post-merge build (prisma client not generated). Auto-fix resolved both, but `post_merge_command` should include `npx prisma generate` by default for prisma projects.
+1. **~~Token tracking gap~~** — Fixed in `verifier.sh`: removed `ralph_status == "running"` condition that prevented reading tokens when loop completed. Report now shows 2.6M total (410K–655K per change).
+2. **~~Watchdog noise~~** — Fixed: throttled hash-loop warnings to log at threshold (5) then every 20th occurrence instead of every 16s poll cycle. Reduced 199 log lines to ~15.
+3. **Post-merge prisma issue** — First 2 merges failed the post-merge build (prisma client not generated). Auto-fix resolved both. Consider adding `npx prisma generate` to `post_merge_command` for prisma projects.
+
+## Token Usage (Post-Fix)
+
+| Change | Input | Output | Cache Read | Cache Create | Total |
+|---|---|---|---|---|---|
+| project-infrastructure | 367K | 42K | 12.3M | 871K | 410K |
+| products-page | 378K | 28K | 7.2M | 1M | 406K |
+| cart-feature | 460K | 39K | 12.6M | 663K | 499K |
+| admin-auth | 329K | 41K | 10.5M | 740K | 370K |
+| orders-checkout | 312K | 36K | 10.5M | 588K | 348K |
+| admin-products | 568K | 87K | 18.3M | 1M | 655K |
+| **Total** | **2.4M** | **273K** | **71.4M** | **4.9M** | **2.7M** |
 
 ---
 
