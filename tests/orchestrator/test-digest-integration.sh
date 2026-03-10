@@ -302,6 +302,14 @@ valid_rc=$?
 set -e
 assert_equals "0" "$valid_rc"
 
+test_start "accepts alphanumeric domain IDs (e.g. REQ-I18N-001)"
+i18n_digest=$(echo "$SAMPLE_DIGEST" | jq '.requirements[0].id = "REQ-I18N-001"')
+set +e
+validate_digest "$i18n_digest" 2>/dev/null
+i18n_rc=$?
+set -e
+assert_equals "0" "$i18n_rc"
+
 test_start "rejects invalid requirement ID format"
 bad_id_digest=$(echo "$SAMPLE_DIGEST" | jq '.requirements[0].id = "INVALID-ID"')
 set +e

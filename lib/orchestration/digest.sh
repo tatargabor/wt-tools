@@ -533,7 +533,7 @@ validate_digest() {
 
     # Check requirements have valid IDs
     local bad_ids
-    bad_ids=$(echo "$parsed" | jq -r '.requirements[]? | select(.id | test("^REQ-[A-Z]+-[0-9]+$") | not) | .id' 2>/dev/null || true)
+    bad_ids=$(echo "$parsed" | jq -r '.requirements[]? | select(.id | test("^REQ-[A-Z0-9]+-[0-9]+$") | not) | .id' 2>/dev/null || true)
     if [[ -n "$bad_ids" ]]; then
         warn "Invalid requirement IDs (must match REQ-{DOMAIN}-{NNN}): $bad_ids"
         errors=$((errors + 1))
