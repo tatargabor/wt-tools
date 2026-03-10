@@ -489,6 +489,19 @@ SPECREF_EOF
             fi
         fi
 
+        # Inject retry_context into proposal for redispatched changes
+        local retry_ctx
+        retry_ctx=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_context // empty' "$STATE_FILENAME")
+        if [[ -n "$retry_ctx" && "$retry_ctx" != "null" ]]; then
+            local proposal_path="openspec/changes/$change_name/proposal.md"
+            if [[ -f "$proposal_path" ]]; then
+                printf '\n%s\n' "$retry_ctx" >> "$proposal_path"
+                log_info "Injected retry_context into proposal for $change_name"
+            fi
+            # Clear retry_context after injection
+            update_change_field "$change_name" "retry_context" "null"
+        fi
+
         # Check artifact readiness — if tasks.md exists, agent can go straight to apply
         local tasks_path="openspec/changes/$change_name/tasks.md"
         if [[ -f "$tasks_path" ]]; then
@@ -786,6 +799,100 @@ resume_stalled_changes() {
             resume_change "$name" || true
         fi
     done <<< "$stalled"
+}
+
+# Redispatch a stuck change to a fresh worktree.
+# Kills Ralph, salvages partial work, builds retry_context, cleans up worktree,
+# resets watchdog state, sets status to pending for natural re-dispatch.
+redispatch_change() {
+    local change_name="$1"
+    local failure_pattern="${2:-stuck}"  # spinning|stuck|timeout
+
+    local wt_path
+    wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
+    local tokens_used
+    tokens_used=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME")
+    local redispatch_count
+    redispatch_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .redispatch_count // 0' "$STATE_FILENAME")
+
+    log_info "Redispatching $change_name (attempt $((redispatch_count + 1))/${MAX_REDISPATCH:-2}, pattern=$failure_pattern)"
+
+    # 1. Kill Ralph PID
+    local ralph_pid
+    ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
+    if [[ "$ralph_pid" -gt 0 ]] && kill -0 "$ralph_pid" 2>/dev/null; then
+        kill -TERM "$ralph_pid" 2>/dev/null || true
+        sleep 2
+        kill -0 "$ralph_pid" 2>/dev/null && kill -KILL "$ralph_pid" 2>/dev/null || true
+        log_info "Redispatch: killed Ralph PID $ralph_pid for $change_name"
+    fi
+
+    # 2. Salvage partial work (captures diff + file list in state)
+    _watchdog_salvage_partial_work "$change_name"
+
+    # 3. Build retry_context from failure info
+    local partial_files
+    partial_files=$(jq -r --arg n "$change_name" \
+        '.changes[] | select(.name == $n) | .partial_diff_files // [] | join(", ")' "$STATE_FILENAME" 2>/dev/null || true)
+    local iter_count=0
+    if [[ -n "$wt_path" && -f "$wt_path/.claude/loop-state.json" ]]; then
+        iter_count=$(jq '[.iterations // [] | length] | .[0]' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo 0)
+    fi
+
+    local retry_prompt
+    retry_prompt="## Previous Attempt Failed (redispatch ${redispatch_count}/$((redispatch_count + 1)))
+
+Failure pattern: $failure_pattern
+Iterations completed: $iter_count
+Tokens used: $tokens_used
+
+Files modified in failed attempt: $partial_files
+
+Start fresh — do not repeat the same approach that led to $failure_pattern."
+
+    update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
+
+    # 4. Increment redispatch_count
+    local new_count=$((redispatch_count + 1))
+    update_change_field "$change_name" "redispatch_count" "$new_count"
+
+    # 5. Emit event
+    emit_event "WATCHDOG_REDISPATCH" "$change_name" \
+        "{\"redispatch_count\":$new_count,\"failure_pattern\":\"$failure_pattern\",\"tokens_used\":$tokens_used,\"iterations\":$iter_count}"
+
+    # 6. Clean up old worktree
+    if [[ -n "$wt_path" && -d "$wt_path" ]]; then
+        local branch_name
+        branch_name=$(git -C "$wt_path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+        git worktree remove --force "$wt_path" 2>/dev/null || {
+            log_warn "Redispatch: git worktree remove failed for $wt_path, trying rm"
+            rm -rf "$wt_path"
+        }
+        if [[ -n "$branch_name" && "$branch_name" != "HEAD" ]]; then
+            git branch -D "$branch_name" 2>/dev/null || true
+        fi
+        log_info "Redispatch: cleaned up worktree $wt_path"
+    fi
+
+    # 7. Reset watchdog sub-object
+    local tmp
+    tmp=$(mktemp)
+    jq --arg n "$change_name" \
+        '(.changes[] | select(.name == $n) | .watchdog) = {
+            last_activity_epoch: (now | floor),
+            action_hash_ring: [],
+            consecutive_same_hash: 0,
+            escalation_level: 0
+        }' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+
+    # 8. Clear worktree-specific fields and set status to pending
+    update_change_field "$change_name" "worktree_path" "null"
+    update_change_field "$change_name" "ralph_pid" "null"
+    update_change_field "$change_name" "status" '"pending"'
+
+    send_notification "wt-orchestrate" \
+        "Redispatching '$change_name' ($failure_pattern, attempt $new_count/${MAX_REDISPATCH:-2})" "normal"
+    log_info "Redispatch complete for $change_name — status set to pending"
 }
 
 # Retry failed builds: give build failures a chance to self-repair

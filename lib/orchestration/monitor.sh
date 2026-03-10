@@ -60,6 +60,8 @@ monitor_loop() {
     wd_loop_thresh=$(echo "$directives" | jq -r '.watchdog_loop_threshold // empty')
     [[ -n "$wd_timeout" ]] && WATCHDOG_TIMEOUT_RUNNING="$wd_timeout" && WATCHDOG_TIMEOUT_VERIFYING="$wd_timeout" && WATCHDOG_TIMEOUT_DISPATCHED="$wd_timeout"
     [[ -n "$wd_loop_thresh" ]] && WATCHDOG_LOOP_THRESHOLD="$wd_loop_thresh"
+    # Max redispatch attempts per change (default: 2)
+    MAX_REDISPATCH=$(echo "$directives" | jq -r '.max_redispatch // 2')
     # Apply context pruning directive to global
     CONTEXT_PRUNING=$(echo "$directives" | jq -r '.context_pruning // true')
 

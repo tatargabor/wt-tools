@@ -47,7 +47,8 @@ init_state() {
         smoke_result: null,
 
 
-        verify_retry_count: 0
+        verify_retry_count: 0,
+        redispatch_count: 0
     }
     + (if .requirements then {requirements: .requirements} else {} end)
     + (if .also_affects_reqs then {also_affects_reqs: .also_affects_reqs} else {} end)
@@ -430,8 +431,13 @@ cmd_status() {
     printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "Change" "Status" "Progress" "Tests" "Review" "Tokens" "Gate Cost"
     printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "─────────────────────────" "──────────────" "───────────────" "────────" "────────" "──────────" "──────────────"
 
-    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)\t\(.test_result // "-")\t\(.review_result // "-")\t\(.gate_total_ms // 0)\t\(.gate_retry_tokens // 0)\t\(.gate_retry_count // 0)"' "$STATE_FILENAME" | \
-    while IFS=$'\t' read -r name change_status tokens test_res review_res g_ms g_rtok g_rcnt; do
+    jq -r '.changes[] | "\(.name)\t\(.status)\t\(.tokens_used)\t\(.test_result // "-")\t\(.review_result // "-")\t\(.gate_total_ms // 0)\t\(.gate_retry_tokens // 0)\t\(.gate_retry_count // 0)\t\(.redispatch_count // 0)"' "$STATE_FILENAME" | \
+    while IFS=$'\t' read -r name change_status tokens test_res review_res g_ms g_rtok g_rcnt redisp_cnt; do
+        # Append redispatch indicator to status
+        local display_status="$change_status"
+        if [[ "${redisp_cnt:-0}" -gt 0 ]]; then
+            display_status="${change_status} (R${redisp_cnt}/${MAX_REDISPATCH:-2})"
+        fi
         local progress="-"
         # Try to read iteration progress from worktree
         local wt_path
@@ -453,7 +459,7 @@ cmd_status() {
                 gate_col="${gate_col} +${rtok_k}k"
             fi
         fi
-        printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "$name" "$change_status" "$progress" "$test_res" "$review_res" "$tokens" "$gate_col"
+        printf "  %-25s %-14s %-15s %-8s %-8s %-10s %-14s\n" "$name" "$display_status" "$progress" "$test_res" "$review_res" "$tokens" "$gate_col"
     done
 
     # Manual task hints for waiting:human changes
