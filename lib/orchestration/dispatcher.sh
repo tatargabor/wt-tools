@@ -1049,11 +1049,11 @@ cmd_start() {
             update_state_field "status" '"running"'
 
             # Restore input path from plan
-            if [[ -z "${INPUT_PATH:-}" || ! -f "${INPUT_PATH:-}" ]]; then
+            if [[ -z "${INPUT_PATH:-}" || ! -e "${INPUT_PATH:-}" ]]; then
                 INPUT_MODE=$(jq -r '.input_mode // empty' "$PLAN_FILENAME")
                 INPUT_PATH=$(jq -r '.input_path // empty' "$PLAN_FILENAME")
-                if [[ -z "$INPUT_PATH" || ! -f "$INPUT_PATH" ]]; then
-                    error "Cannot find input file from plan: $INPUT_PATH"
+                if [[ -z "$INPUT_PATH" || ! -e "$INPUT_PATH" ]]; then
+                    error "Cannot find input from plan: $INPUT_PATH"
                     return 1
                 fi
             fi
@@ -1116,11 +1116,11 @@ cmd_start() {
     log_info "Orchestration started"
 
     # Restore input path from plan (so --spec is not needed again)
-    if [[ -z "${INPUT_PATH:-}" || ! -f "${INPUT_PATH:-}" ]]; then
+    if [[ -z "${INPUT_PATH:-}" || ! -e "${INPUT_PATH:-}" ]]; then
         INPUT_MODE=$(jq -r '.input_mode // empty' "$PLAN_FILENAME")
         INPUT_PATH=$(jq -r '.input_path // empty' "$PLAN_FILENAME")
-        if [[ -z "$INPUT_PATH" || ! -f "$INPUT_PATH" ]]; then
-            error "Cannot find input file from plan: $INPUT_PATH"
+        if [[ -z "$INPUT_PATH" || ! -e "$INPUT_PATH" ]]; then
+            error "Cannot find input from plan: $INPUT_PATH"
             error "Re-run with --spec or --brief, or regenerate the plan."
             return 1
         fi

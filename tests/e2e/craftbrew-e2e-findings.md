@@ -1,0 +1,76 @@
+# CraftBrew E2E — Digest Pipeline Findings
+
+## Run Info
+- Date: 2026-03-10
+- Spec: scaffold-complex (17 files, ~112KB, CraftBrew webshop)
+- Digest result: 178 requirements, 13 domains
+
+## Issues Found
+
+### 1. Digest API timeout (600s nem elég)
+- **Tünet**: 610s runtime → timeout kill → sentinel restart
+- **Ok**: 118KB prompt (17 spec fájl + instrukciók) + opus model = ~10 perc generálás
+- **Fix**: `RUN_CLAUDE_TIMEOUT=600` → `900` a `call_digest_api()`-ban
+- **Státusz**: Fixelve, 2. próbálkozásnál sikeres (~10 perc)
+
+### 2. Events fájlnév mismatch (sentinel vs orchestrator)
+- **Tünet**: sentinel `orchestration-events.jsonl`-t figyel, orchestrator `orchestration-state-events.jsonl`-ba ír
+- **Ok**: `events.sh` lazy init deriválja a fájlnevet `STATE_FILENAME`-ból (`orchestration-state.json` → `orchestration-state-events.jsonl`), de sentinel hardcoded `EVENTS_FILE="orchestration-events.jsonl"`
+- **Hatás**: sentinel stuck detection effektíve kikapcsolt (nem létező fájl → always alive)
+- **Nem blokkoló**: ha fájl nem létezik, `check_orchestrator_liveness` → return 0 (safe)
+- **Fix szükséges**: sentinel-ben szinkronizálni a fájlnevet az orchestratorral
+- **Státusz**: TODO
+
+### 3. Digest event-ek nem voltak — már fixelve
+- `cc4fe813a` commitban fixelve: DIGEST_STARTED/RESPONSE_RECEIVED/COMPLETE/FAILED emit
+- Működik: events.jsonl-ben megjelenik
+
+### 4. Directory path resolution — már fixelve
+- `93a15bd83` commitban fixelve: `cmd_start()` `-d` check + digest freshness check
+- Működik: sentinel → orchestrator → find_input → digest mode
+
+### 5. Planner decomposition timeout (300s nem elég)
+- **Tünet**: "Claude decomposition failed" — 850s runtime (planner 300s timeout a digest ~600s-e után)
+- **Ok**: digest-mode planner prompt tartalmazza a 178 req + conventions + dependencies + domain summaries-t → nagy input → opus lassan generál
+- **Fix**: `RUN_CLAUDE_TIMEOUT=300` → `600` a planner decomposition-ben
+- **Megjegyzés**: A sentinel auto-restart 2. próbánál a digest "fresh"-ként megmarad (jó!), de a planner újra timeout-olhat
+- **Státusz**: Fixelve, de a jelenlegi run a régi kóddal fut (sentinel nem reload-ol)
+
+## Timing Data
+- Scaffold setup: ~5s (17 fájl copy, git init, wt-project init)
+- Digest scan: <1s
+- Digest API call (opus, 118KB prompt): ~10 perc (timeout-olt 600s-nél, sikeres 900s-nél)
+- Digest parse + write: <1s
+- Digest result: 178 requirements, 13 domains
+- Planner decomposition: timeout-olt 300s-nél → TBD with 600s
+
+### 6. "Cannot find input file" — `-f` check rejects directory (dispatcher.sh)
+- **Tünet**: Plan sikerül, de dispatch fázisban "Cannot find input file from plan: /tmp/craftbrew-e2e/docs"
+- **Ok**: `cmd_start()` két helyen is `-f "$INPUT_PATH"` → false directory-nál
+- **Fix**: `-f` → `-e` (exists) a 1052 és 1119 soroknál
+- **Státusz**: Fixelve
+
+### 7. `parse_directives` "read error: Is a directory" (utils.sh)
+- **Tünet**: `read: read error: 0: Is a directory` a logban
+- **Ok**: `resolve_directives()` → `parse_directives("$input_file")` → `while read < "$brief_file"` — directory-ra read nem megy
+- **Fix**: `resolve_directives()`-ben directory check: ha `-d`, parse_directives /dev/null (defaults only)
+- **Státusz**: Fixelve
+
+## Timing Data (updated)
+- Scaffold setup: ~5s (17 fájl copy, git init, wt-project init)
+- Digest scan: <1s
+- Digest API call (opus, 118KB prompt): ~10 perc
+- Digest parse + write: <1s
+- Digest result: 178 requirements, 13 domains
+- Planner decomposition (opus): ~8 perc
+- Planner result: 7 changes (1. fázis), 58 req covered, 120 uncovered (auto-replan)
+- Dispatch first change: <5s
+- Total time to first agent working: ~20 perc (digest + planner + dispatch)
+
+## Observations
+- Sentinel auto-restart működik: digest crash → restart → digest fresh (skip) → planner újra
+- Sentinel events fájlnév mismatch nem blokkoló de a stuck detection teljesen inaktív
+- `wt-project init` → `.claude/` deploy teljesen automatikus és gyors
+- Digest mode plan: 7 change 1. fázisban, 120/178 req uncovered → auto-replan fog kelleni
+- max_parallel: 2 de az első change-nek nincs dependency → azonnal indul
+- A digest "fresh" check működik sentinel restart-oknál — nem generálja újra
