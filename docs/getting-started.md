@@ -2,6 +2,12 @@
 
 # Getting Started
 
+## Platform Support
+
+wt-tools is developed and primarily tested on **Linux** (Ubuntu 22.04+). **macOS** has partial support — core functionality works, but platform-specific features are less tested. Feature development is Linux-first; contributors are actively working on improving macOS parity.
+
+Platform-specific differences may exist in areas like window management (GUI), process signals, and shell behavior. We welcome macOS-focused contributions and bug reports.
+
 ## Prerequisites
 
 | Requirement | Check | Purpose |

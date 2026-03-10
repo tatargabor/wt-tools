@@ -200,11 +200,13 @@ The installer handles everything: CLI symlinks, shell completions, MCP server co
 
 | Platform / Tool | Status |
 |---|---|
-| **Linux** | Primary — tested on Ubuntu 22.04+ |
-| **macOS** | Supported |
+| **Linux** | Primary development platform — tested on Ubuntu 22.04+ |
+| **macOS** | Partial — core functionality works, contributors are actively improving macOS parity |
 | **Zed** | Primary editor, best tested |
 | **VS Code / Cursor / Windsurf** | Supported via `wt-config editor set` |
 | **Claude Code** | Integrated — auto-launch, MCP, skill hooks |
+
+> **Note:** Feature development is Linux-first. macOS is supported and used in production, but some platform-specific behavior (e.g. window management, process signals) may differ. We welcome macOS-focused contributions.
 
 ---
 
