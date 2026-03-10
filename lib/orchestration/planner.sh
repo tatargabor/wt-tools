@@ -832,17 +832,30 @@ $phase_instruction
 3. **Decompose** the selected batch into concrete, implementable OpenSpec changes.
 
 Rules:
-- Each change should be completable in 1-3 Ralph loop sessions (not too large, not too granular)
+- Each change should be completable in 1 Ralph loop session (not too large, not too granular)
 - Use kebab-case names (e.g., add-user-auth, refactor-payment-flow)
 - Define dependencies: if change B needs code from change A, list A in depends_on
 - Changes with no dependencies can run in parallel
-- Complexity: S (< 10 tasks), M (10-25 tasks), L (25+ tasks)
+- Complexity: S (< 8 tasks, preferred), M (8-15 tasks, maximum). L (15+ tasks) is NOT ALLOWED — split into smaller changes.
+- Max 6 requirements per change. If a feature domain has more than 6 requirements, split it into sub-domain changes.
+- Scope text should be 800-1500 chars. If you need more than 2000 chars to describe a change, it is too large — split it.
 - Skip already-active changes listed above
 - Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
 - For security-related changes: include tenant isolation tests, auth guard tests
 - If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
 - If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
 - NEVER create a standalone "e2e-consolidation", "playwright-e2e", or "e2e-tests" change that only writes E2E tests. This anti-pattern overloads one agent with all cross-feature tests and wastes tokens. Each feature change MUST include its OWN E2E tests inline.
+
+Sub-domain dependency chaining:
+- When splitting a large feature domain into multiple changes, those changes MUST form a depends_on chain (sequential execution within the domain)
+- Different domain chains can still run in parallel with each other
+- Example: splitting "product-catalog" (22 reqs) into product-list → product-detail → product-search — each depends_on the previous, but all can run in parallel with an unrelated "user-auth" chain
+
+Split heuristics for common patterns:
+- List page + detail page → split into separate changes if combined requirements exceed 6
+- CRUD operations → separate from read-only views when the domain is large
+- Search/filtering with its own API routes → separate change
+- Auth + profile + password management → split auth/login from profile/account management
 
 Dependency ordering heuristics — classify each change by type and apply ordering:
 - Classify each change as one of: infrastructure (test/build setup, CI), schema (DB migrations, model changes), foundational (auth, shared types, base components), feature (new functionality), cleanup-before (refactor/rename/reorganize existing code), cleanup-after (dead code removal, cosmetic fixes)
@@ -965,16 +978,29 @@ fi)
 Analyze the "Next" section of the brief and decompose it into concrete, implementable OpenSpec changes.
 
 Rules:
-- Each change should be completable in 1-3 Ralph loop sessions (not too large, not too granular)
+- Each change should be completable in 1 Ralph loop session (not too large, not too granular)
 - Use kebab-case names (e.g., add-user-auth, refactor-payment-flow)
 - Define dependencies: if change B needs code from change A, list A in depends_on
 - Changes with no dependencies can run in parallel
-- Complexity: S (< 10 tasks), M (10-25 tasks), L (25+ tasks)
+- Complexity: S (< 8 tasks, preferred), M (8-15 tasks, maximum). L (15+ tasks) is NOT ALLOWED — split into smaller changes.
+- Max 6 requirements per change. If a feature domain has more than 6 requirements, split it into sub-domain changes.
+- Scope text should be 800-1500 chars. If you need more than 2000 chars to describe a change, it is too large — split it.
 - Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
 - For security-related changes: include tenant isolation tests, auth guard tests
 - If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
 - If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
 - NEVER create a standalone "e2e-consolidation", "playwright-e2e", or "e2e-tests" change that only writes E2E tests. This anti-pattern overloads one agent with all cross-feature tests and wastes tokens. Each feature change MUST include its OWN E2E tests inline.
+
+Sub-domain dependency chaining:
+- When splitting a large feature domain into multiple changes, those changes MUST form a depends_on chain (sequential execution within the domain)
+- Different domain chains can still run in parallel with each other
+- Example: splitting "product-catalog" (22 reqs) into product-list → product-detail → product-search — each depends_on the previous, but all can run in parallel with an unrelated "user-auth" chain
+
+Split heuristics for common patterns:
+- List page + detail page → split into separate changes if combined requirements exceed 6
+- CRUD operations → separate from read-only views when the domain is large
+- Search/filtering with its own API routes → separate change
+- Auth + profile + password management → split auth/login from profile/account management
 
 Dependency ordering heuristics — classify each change by type and apply ordering:
 - Classify each change as one of: infrastructure (test/build setup, CI), schema (DB migrations, model changes), foundational (auth, shared types, base components), feature (new functionality), cleanup-before (refactor/rename/reorganize existing code), cleanup-after (dead code removal, cosmetic fixes)
