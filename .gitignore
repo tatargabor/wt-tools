@@ -63,5 +63,4 @@ test-results/
 local-docs/
 wt/.work/
 
-# Generated documentation output
-docs/howitworks/output/
+# Generated documentation output (PDFs committed intentionally)
