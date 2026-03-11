@@ -4,6 +4,7 @@ Admin panel — accessible only to logged-in users with the ADMIN role.
 
 - Admin accounts are created via seed data only (no admin user management in v1)
 - Single admin role: full access to all admin features
+- Admin actions are logged: order status changes, review moderation, stock modifications, coupon creation/edit — log entry includes: admin name, timestamp, action type, affected entity
 
 ## Admin layout
 

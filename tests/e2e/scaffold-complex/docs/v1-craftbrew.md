@@ -1,14 +1,14 @@
-# CraftBrew v1 — Specialty Coffee Webshop Spec
+# CraftBrew v1 — Specialty Coffee Webshop
 
-> Next.js 14+ App Router, Prisma (SQLite), shadcn/ui, Tailwind CSS, NextAuth.js v5, Stripe (test mode), Resend (mock)
+> Business specification — the complete functional and content description of the CraftBrew specialty coffee webshop.
 
 ## Spec Structure
 
-This spec is modular. The main file (this one) contains the overview, conventions, feature dependency graph, and verification checklist. Detailed specs are in subdirectories:
+This spec is modular. The main file (this one) contains the overview, conventions, and verification checklist. Detailed specs are in subdirectories:
 
 ```
 docs/
-├── v1-craftbrew.md              ← You are here (overview + dependency graph + checklist)
+├── v1-craftbrew.md              ← You are here (overview + conventions + checklist)
 ├── catalog/
 │   ├── coffees.md               ← 8 specialty coffees with variants
 │   ├── equipment.md             ← 7 brewing equipment items
@@ -16,13 +16,13 @@ docs/
 │   └── bundles.md               ← 4 curated bundles
 ├── features/                    ← HOW it should work (business requirements)
 │   ├── product-catalog.md       ← Search, filter, variants, cross-sell
-│   ├── cart-checkout.md         ← Cart, checkout, shipping zones, Stripe, invoice
+│   ├── cart-checkout.md         ← Cart, checkout, shipping zones, payment, invoice
 │   ├── subscription.md          ← Coffee subscription + delivery scheduling
 │   ├── user-accounts.md         ← Registration, login, profile, addresses
 │   ├── reviews-wishlist.md      ← Ratings, comments, wishlist, restock alerts
 │   ├── promotions.md            ← Coupons, promo days, gift cards
 │   ├── content-stories.md       ← Blog/stories, origin stories, brew guides
-│   ├── email-notifications.md   ← Transactional emails (mock)
+│   ├── email-notifications.md   ← Transactional emails
 │   ├── admin.md                 ← Dashboard, CRUD, orders, reviews, content
 │   ├── i18n.md                  ← HU/EN internationalization rules
 │   └── seo.md                   ← Meta tags, schema.org, sitemap, canonical URLs
@@ -30,17 +30,14 @@ docs/
     └── design-system.md         ← Colors, fonts, layouts, ASCII mockups
 ```
 
-## Project-Specific Conventions
+## Business Conventions
 
-- **Package manager:** pnpm
-- **Currency:** HUF (Hungarian Forint). Integer, no decimals. Format: `new Intl.NumberFormat("hu-HU", { style: "currency", currency: "HUF", maximumFractionDigits: 0 }).format(price)` yielding `2 490 Ft`
-- **Language:** HU/EN. Routes: `/hu/...` and `/en/...`. Default: `/hu`. Admin: HU only.
-- **Session:** Anonymous cart uses `session_id` httpOnly cookie (UUID via `crypto.randomUUID()`)
-- **Tests:** Jest + `@testing-library/react` for unit tests. Playwright for E2E.
-- **Stripe:** Test mode. Use `STRIPE_SECRET_KEY=sk_test_...` and `STRIPE_PUBLISHABLE_KEY=pk_test_...` in `.env.local`
-- **Email:** Resend SDK in mock mode (no real emails sent). Log to console in dev.
-- **Invoice:** szamlazz.hu API mock — fake endpoint returns PDF placeholder
-- **Images:** Use `https://placehold.co/400x300?text=...` placeholders in seed data
+- **Currency:** HUF (Hungarian Forint). Integer, no decimals. Display format: `2 490 Ft`. All displayed prices are gross (VAT-inclusive, 27% Hungarian VAT).
+- **Language:** HU/EN bilingual. Default language: HU. Admin panel: HU only.
+- **Anonymous shopping:** Cart works without login (session-based). Checkout requires login.
+- **Payment:** Card payment via Stripe. Invoicing via szamlazz.hu.
+- **Email:** Transactional emails (mock mode in development — no real emails sent)
+- **Images:** Placeholder images in seed data
 
 ## Seed Data
 
@@ -55,85 +52,15 @@ The seed script must populate data from the following sources:
 - 5 story categories + 10 stories (see features/content-stories.md)
 - Admin user: admin@craftbrew.hu / admin123
 
-## Required Environment Variables
-
-```bash
-DATABASE_URL=...          # SQLite or PostgreSQL connection string
-NEXTAUTH_SECRET=...       # NextAuth session encryption secret
-STRIPE_SECRET_KEY=...     # Stripe test mode secret key (sk_test_...)
-STRIPE_PUBLISHABLE_KEY=...# Stripe test mode publishable key (pk_test_...)
-STRIPE_WEBHOOK_SECRET=... # Stripe webhook signing secret (whsec_...)
-RESEND_API_KEY=...        # Resend API key (re_test_... for mock mode)
-SZAMLAZZ_API_URL=...      # szamlazz.hu invoice API endpoint (mock in dev)
-```
-
-## Feature Dependency Graph
-
-Shows the natural implementation order and dependencies between features.
-
-```
-                      ┌──────────────────┐
-                      │  Infrastructure  │
-                      │ Prisma, layout,  │
-                      │ design, i18n     │
-                      └────────┬─────────┘
-                               │
-                ┌──────────────┼──────────────┐
-                ▼              ▼              ▼
-      ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-      │   Product    │ │  User Auth   │ │   Content    │
-      │   Catalog    │ │  & Accounts  │ │   Stories    │
-      └──────┬───────┘ └──────┬───────┘ └──────────────┘
-             │                │
-             ▼                ▼
-        ┌────────┐       ┌──────────┐
-        │  Cart  │       │ Wishlist │
-        └───┬────┘       └──────────┘
-            │
-            ▼
-  ┌─────────────────┐
-  │    Checkout     │
-  │ Stripe, zones,  │
-  │ coupons, gift   │
-  └───┬─────────────┘
-      │
-      ├──────────────────────┐
-      ▼                      ▼
-  ┌────────────┐      ┌─────────────────┐
-  │  Reviews   │      │  Subscription   │
-  └────────────┘      └───┬─────────────┘
-                           │
-                           ▼
-                    ┌──────────────────┐
-                    │   Admin Core    │
-                    └────────┬─────────┘
-                             │
-                  ┌──────────┴──────────┐
-                  │   Admin Promo      │
-                  └────────┬────────────┘
-                           │
-                           ▼
-  ┌──────────────────────────────────────┐
-  │       Email Notifications           │
-  └──────────────────┬───────────────────┘
-                     │
-                     ▼
-           ┌──────────────────┐
-           │       SEO        │
-           └────────┬─────────┘
-                    │
-                    ▼
-           ┌──────────────────┐
-           │    E2E Tests     │
-           └──────────────────┘
-```
-
 ## Verification Checklist
 
 Post-run verification. Each item must be manually or automatically checkable.
 
 ### Storefront
-- [ ] Homepage (`/hu`) hero banner with CraftBrew branding, featured products, "What Others Say" section
+- [ ] Header: logo, search, language switcher, wishlist icon, cart icon with badge, user menu
+- [ ] Footer: shop links, info links, legal links (Terms, Privacy, Cookie Policy)
+- [ ] Homepage (`/hu`) hero banner with CraftBrew branding, featured products, subscription teaser, story highlights, "What Others Say" section
+- [ ] 404 page with search bar and links to homepage
 - [ ] `/hu/kavek` shows 8 coffee products in responsive grid (1/2/3 columns)
 - [ ] `/hu/eszkozok` shows 7 equipment items
 - [ ] `/hu/merch` shows merch items
@@ -154,12 +81,15 @@ Post-run verification. Each item must be manually or automatically checkable.
 - [ ] Coupon code input on cart page — "ELSO10" gives 10% off first order
 - [ ] Gift card code input — partially redeemable, shows remaining balance
 - [ ] Checkout step 1: shipping address + zone auto-detection + shipping cost display
-- [ ] Checkout step 2: Stripe payment form (test mode card: 4242...)
+- [ ] Checkout step 2: card payment form
 - [ ] Checkout step 3: order summary with all line items, shipping, discount, total
 - [ ] After order: cart cleared, stock decremented, order confirmation page
-- [ ] Invoice generated via mock API, downloadable as PDF placeholder
+- [ ] Invoice generated and downloadable as PDF
 - [ ] Shipping zones: Budapest 990 Ft, +20km 1490 Ft, +40km 2490 Ft
 - [ ] Free shipping: Budapest over 15000 Ft, +20km over 25000 Ft
+- [ ] Estimated delivery date shown at checkout (Budapest: next day, +20km: 1-2 days, +40km: 2-3 days)
+- [ ] Return request from "My Orders" page (within 14 days of delivery)
+- [ ] Invoice shows net amount, VAT (27%), and gross amount
 
 ### Subscription
 - [ ] Subscription setup page: coffee selection, form/size, frequency (daily/weekly/biweekly/monthly)
@@ -173,12 +103,14 @@ Post-run verification. Each item must be manually or automatically checkable.
 - [ ] Daily delivery not available for +40km zone
 
 ### User Account
-- [ ] Registration form: name, email, password
+- [ ] Registration form: name, email, password, Terms & Conditions checkbox
 - [ ] Login with credentials
-- [ ] Profile page: personal info, language preference
+- [ ] Password reset via email with time-limited token
+- [ ] Profile page: personal info, language preference, notification preferences
 - [ ] Saved addresses with zone labels
 - [ ] Order history with status tracking
 - [ ] "My Orders" page shows all past orders with status badges
+- [ ] Legal pages: Terms & Conditions, Privacy Policy, Cookie consent banner
 
 ### Reviews & Wishlist
 - [ ] Product detail: star rating display (1-5) with count
@@ -220,6 +152,8 @@ Post-run verification. Each item must be manually or automatically checkable.
 - [ ] Gift cards: list with balance, transaction log
 - [ ] Review moderation: approve/reject, admin reply
 - [ ] Content/stories: create/edit, category, HU+EN, related products, draft/published
+- [ ] Return management: approve/reject return requests, refund processing
+- [ ] Admin action audit log visible on dashboard
 
 ### Email
 - [ ] Welcome email on registration (in user's language)
@@ -230,14 +164,10 @@ Post-run verification. Each item must be manually or automatically checkable.
 - [ ] Promo day announcement to all subscribers
 - [ ] All emails respect user language preference (HU/EN)
 
-### SEO & Technical
+### SEO
 - [ ] Meta title and description on all public pages
 - [ ] schema.org Product structured data on product pages
 - [ ] XML sitemap at `/sitemap.xml`
 - [ ] Open Graph tags for social sharing
 - [ ] Canonical URLs on all pages
 - [ ] `hreflang` tags linking HU/EN versions
-- [ ] `/api/health` returns `{ status: "ok" }`
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test` passes
-- [ ] `pnpm test:e2e` passes

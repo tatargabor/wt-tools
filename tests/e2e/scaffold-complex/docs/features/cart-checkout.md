@@ -140,10 +140,6 @@
 
 **Zero-amount checkout:** If gift card covers the entire order amount (0 Ft payable), Step 2 (Payment) is skipped — checkout goes directly from Step 1 (Shipping) to Step 3 (Confirmation).
 
-**Payment in test mode:**
-- Test card: 4242 4242 4242 4242, any future expiry date, any CVC
-- Successful payment → automatic order status update
-
 ### Step 3: Confirmation
 
 ```
@@ -206,12 +202,25 @@ If any step fails → full rollback.
 - Coupon usage count decremented
 - Stock restored
 - Orders in SHIPPING or DELIVERED status cannot be cancelled
+- Customers may also request cancellation from their "My Orders" page (orders in NEW or PROCESSING status only)
 
-## Invoicing (mock)
+## Returns & Right of Withdrawal
 
-- Mock invoicing — accepts order data, returns a fake PDF URL
-- Follows the real szamlazz.hu API format, but does not send a real invoice
-- The invoice PDF associated with the order is downloadable from both admin and user sides
+- EU 14-day right of withdrawal applies to all physical products
+- Customer can initiate a return request from "My Orders" page (within 14 days of delivery)
+- Return request requires: order number, reason (dropdown: "Changed my mind", "Defective", "Wrong item", "Other"), optional comment
+- Admin reviews return requests: approve → provide return shipping instructions, or reject with reason
+- Approved returns: once product received back → Stripe refund processed, stock restored
+- Food safety: **opened coffee packages cannot be returned** (hygiene exception per EU rules). Only sealed/unopened coffee is eligible.
+- Equipment and merch: standard 14-day returns, must be unused and in original packaging
+- Gift cards: non-refundable
+
+## Invoicing
+
+- Every completed order generates an invoice via szamlazz.hu
+- The invoice PDF is downloadable from both the admin panel and the user's order history
+- All prices are gross (VAT-inclusive). Hungarian VAT rate: 27%.
+- Invoice must show: net amount, VAT amount (27%), gross amount, per line item and in total
 
 ## Shipping Zones
 
@@ -230,6 +239,15 @@ The zone is automatically determined upon postal code entry:
 - Based on 4-digit Hungarian postal codes
 - The zone and shipping fee appear instantly in checkout
 - If the postal code is unrecognized: default +40km zone
+
+### Estimated Delivery Time
+
+- **Budapest:** next business day
+- **+20km zone:** 1-2 business days
+- **+40km zone:** 2-3 business days
+- **In-store pickup:** same day if ordered before 14:00, otherwise next business day
+- Business days: Monday-Friday (excluding Hungarian public holidays)
+- The estimated delivery date is shown at checkout and in the order confirmation email
 
 ### In-store Pickup
 

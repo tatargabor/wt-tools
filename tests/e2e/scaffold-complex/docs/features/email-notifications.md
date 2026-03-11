@@ -2,7 +2,6 @@
 
 ## General Rules
 
-- **Mode:** Mock — in development mode, no real emails are sent; content is logged
 - **Language:** Emails are sent according to the user's language preference (HU or EN). If there is no logged-in user (e.g., gift card recipient), the default is HU. All example subjects and CTA text below are shown in English.
 
 ## Email Types

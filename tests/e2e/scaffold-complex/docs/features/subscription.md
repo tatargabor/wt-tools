@@ -139,8 +139,10 @@ On the logged-in user's dashboard:
 ## Payment Subscription
 
 - Subscription is created at launch
-- Modification: when coffee, frequency, address, etc. changes
-- Cancellation: immediate or at end of cycle
+- First payment is charged immediately at subscription creation
+- Subsequent payments are charged 1 day before each scheduled delivery
+- Modification: when coffee, frequency, address, etc. changes — price difference applied from next billing
+- Cancellation: immediate (no further charges) or at end of cycle (last paid delivery still ships)
 - Billing cycle start point: the start date
 - Successful payment → shipment generation added to the schedule
 
@@ -156,6 +158,10 @@ On the logged-in user's dashboard:
 - Subscription setup wizard steps arranged vertically
 - Calendar view in compact format
 - All action buttons (pause, skip, modify, cancel) easily tappable
+
+## Out-of-Stock Handling
+
+If the subscribed coffee goes out of stock, the system should handle it gracefully and notify the customer.
 
 ## Subscriptions and Promotions
 

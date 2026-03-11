@@ -8,6 +8,7 @@ Form fields:
 - **Password** (required, min 8 characters)
 - **Password confirmation** (match validation)
 - **Language preference** (HU / EN, default: current language)
+- **Terms & Conditions** (required checkbox: "I accept the Terms & Conditions and Privacy Policy" — with links)
 
 After successful registration:
 - Automatic login
@@ -116,6 +117,21 @@ Order details (modal or separate page):
 
 - Account sidebar collapses into a drawer
 - All forms render full width
+
+## Notification Preferences
+
+On the profile page, a "Notifications" section:
+- **Promo emails:** opt-in/opt-out toggle (default: on for new users)
+- **Restock alerts:** managed per-product via wishlist (see reviews-wishlist.md)
+- **Order updates:** always sent (cannot be disabled — transactional)
+- Unsubscribe link in every promotional email → directly toggles the preference
+
+## Legal Pages
+
+The following static pages must exist (linked from the footer):
+- **Terms & Conditions** (`/hu/aszf`, `/en/terms`) — placeholder content in seed data
+- **Privacy Policy** (`/hu/adatvedelem`, `/en/privacy`) — placeholder content in seed data
+- **Cookie Policy** — brief banner on first visit: "We use cookies for session management and language preference." Accept / Decline buttons. No tracking cookies in v1.
 
 ## Behavior Without Login
 
