@@ -416,6 +416,11 @@ test_start "freshness returns 'fresh' after write"
 freshness2=$(check_digest_freshness "$SPEC_DIR")
 assert_equals "fresh" "$freshness2"
 
+test_start "hash re-check: stored hash matches recomputed hash (skip re-digest scenario)"
+_stored_hash=$(jq -r '.source_hash' "$DIGEST_DIR/index.json" 2>/dev/null)
+_recomputed=$(scan_spec_directory "$SPEC_DIR" 2>/dev/null | jq -r '.source_hash' 2>/dev/null)
+assert_equals "$_stored_hash" "$_recomputed"
+
 echo ""
 
 # ============================================================

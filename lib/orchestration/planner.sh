@@ -502,12 +502,21 @@ cmd_plan() {
                 info "Using existing digest (fresh)"
                 ;;
             stale)
-                info "Digest is stale — auto-re-digesting..."
-                log_info "Auto-digest triggered (stale)"
-                cmd_digest --spec "$INPUT_PATH" || {
-                    error "Auto-digest failed"
-                    return 1
-                }
+                # Double-check: recompute hash to catch false stale (finding #21)
+                local _stored_hash _current_hash
+                _stored_hash=$(jq -r '.source_hash' "$DIGEST_DIR/index.json" 2>/dev/null || echo "")
+                _current_hash=$(scan_spec_directory "$INPUT_PATH" 2>/dev/null | jq -r '.source_hash' 2>/dev/null || echo "none")
+                if [[ -n "$_stored_hash" && "$_stored_hash" == "$_current_hash" ]]; then
+                    info "Hash re-check: still fresh, skipping re-digest"
+                    log_info "Digest hash re-check passed — skipping re-digest (hash=$_stored_hash)"
+                else
+                    info "Digest is stale — auto-re-digesting..."
+                    log_info "Auto-digest triggered (stale, stored=$_stored_hash current=$_current_hash)"
+                    cmd_digest --spec "$INPUT_PATH" || {
+                        error "Auto-digest failed"
+                        return 1
+                    }
+                fi
                 ;;
             missing)
                 info "Auto-generating digest..."

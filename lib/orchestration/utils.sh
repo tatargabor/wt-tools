@@ -38,6 +38,12 @@ any_loop_active() {
     local stale_threshold=300  # 5 minutes
     local now
     now=$(date +%s)
+
+    # Verifying changes count as active — the orchestrator is running tests/builds (finding #17)
+    local verifying
+    verifying=$(get_changes_by_status "verifying" 2>/dev/null || true)
+    [[ -n "$verifying" ]] && return 0
+
     local running
     running=$(get_changes_by_status "running" 2>/dev/null || true)
     [[ -z "$running" ]] && return 1

@@ -753,6 +753,78 @@ test_start "orch_recall passes tags parameter (verified by log output)"
 ) && test_pass || test_fail "empty result" "error"
 
 # ============================================================
+# Test: cascade_failed_deps (#16)
+# ============================================================
+
+PLAN_FOR_CASCADE=$(mktemp)
+cat > "$PLAN_FOR_CASCADE" <<'EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "cascadetest",
+  "changes": [
+    {"name": "dep-a", "depends_on": [], "scope": "Dependency A", "complexity": "S", "roadmap_item": "A"},
+    {"name": "dep-b", "depends_on": ["dep-a"], "scope": "Depends on A", "complexity": "S", "roadmap_item": "B"},
+    {"name": "dep-c", "depends_on": ["dep-b"], "scope": "Depends on B", "complexity": "S", "roadmap_item": "C"},
+    {"name": "indep", "depends_on": [], "scope": "Independent", "complexity": "S", "roadmap_item": "D"}
+  ]
+}
+EOF
+
+init_state "$PLAN_FOR_CASCADE"
+
+test_start "cascade_failed_deps: failed dep cascades to child"
+update_change_field "dep-a" "status" '"failed"'
+cascade_failed_deps
+s=$(get_change_status "dep-b")
+assert_equals "failed" "$s"
+
+test_start "cascade_failed_deps: transitive cascade (dep-c via dep-b)"
+cascade_failed_deps
+s=$(get_change_status "dep-c")
+assert_equals "failed" "$s"
+
+test_start "cascade_failed_deps: independent change NOT affected"
+s=$(get_change_status "indep")
+assert_equals "pending" "$s"
+
+rm -f "$PLAN_FOR_CASCADE" "$STATE_FILENAME"
+
+# ============================================================
+# Test: any_loop_active with verifying status (#17)
+# ============================================================
+
+PLAN_FOR_TIMER=$(mktemp)
+cat > "$PLAN_FOR_TIMER" <<'EOF'
+{
+  "plan_version": 1,
+  "brief_hash": "timertest",
+  "changes": [
+    {"name": "timer-change", "depends_on": [], "scope": "Timer test", "complexity": "S", "roadmap_item": "T"}
+  ]
+}
+EOF
+
+init_state "$PLAN_FOR_TIMER"
+
+test_start "any_loop_active: returns true when change is verifying"
+update_change_field "timer-change" "status" '"verifying"'
+if any_loop_active; then
+    test_pass
+else
+    test_fail "true (verifying)" "false"
+fi
+
+test_start "any_loop_active: returns false when change is pending"
+update_change_field "timer-change" "status" '"pending"'
+if ! any_loop_active; then
+    test_pass
+else
+    test_fail "false (pending)" "true"
+fi
+
+rm -f "$PLAN_FOR_TIMER" "$STATE_FILENAME"
+
+# ============================================================
 # Summary
 # ============================================================
 

@@ -260,6 +260,10 @@ monitor_loop() {
             fi
         done <<< "$vf_changes"
 
+        # Cascade failure first: mark pending changes whose dependencies have failed
+        # Must run BEFORE dispatch to prevent deadlock (finding #16)
+        cascade_failed_deps
+
         # Dispatch newly ready changes (skipped during token_wait)
         dispatch_ready_changes "$max_parallel"
 
@@ -268,9 +272,6 @@ monitor_loop() {
 
         # Resume stalled changes after cooldown (handles rate limit recovery)
         resume_stalled_changes
-
-        # Cascade failure: mark pending changes whose dependencies have failed
-        cascade_failed_deps
 
         # Retry failed builds before declaring all-done (cheaper than replan)
         retry_failed_builds "$max_verify_retries"
