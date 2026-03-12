@@ -296,10 +296,11 @@ dispatch_change() {
             log_info "Removing stale branch change/$change_name before worktree creation"
             git branch -D "change/$change_name" 2>/dev/null || true
         fi
-        wt-new "$change_name" --skip-open 2>/dev/null || {
+        local wt_new_output
+        wt_new_output=$(wt-new "$change_name" --skip-open 2>&1) || {
             error "Failed to create worktree for $change_name"
+            log_error "wt-new output: $wt_new_output"
             update_change_field "$change_name" "status" '"failed"'
-            log_error "Failed to create worktree for $change_name"
             return 1
         }
     fi

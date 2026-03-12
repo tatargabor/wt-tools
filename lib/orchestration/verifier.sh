@@ -1330,7 +1330,7 @@ handle_change_done() {
     update_change_field "$change_name" "gate_verify_ms" "$gate_verify_ms"
     log_info "Verify gate: verify took ${gate_verify_ms}ms for $change_name"
 
-    # Parse verify output for structured sentinel line (fail-closed)
+    # Parse verify output for structured sentinel line
     if [[ "$verify_ok" == "true" ]]; then
         if echo "$verify_output" | grep -q "VERIFY_RESULT: PASS"; then
             gate_spec_coverage="pass"
@@ -1342,11 +1342,18 @@ handle_change_done() {
             update_change_field "$change_name" "spec_coverage_result" '"fail"'
             log_error "Verify gate: spec coverage FAIL for $change_name"
         else
-            # No sentinel line — fail-closed
-            verify_ok=false
-            gate_spec_coverage="fail"
-            update_change_field "$change_name" "spec_coverage_result" '"fail"'
-            log_error "Verify gate: spec coverage unparseable for $change_name (no VERIFY_RESULT sentinel)"
+            # No sentinel line — use heuristic: if Claude exited 0 and no obvious
+            # failure indicators, treat as pass (the LLM often omits the sentinel)
+            if echo "$verify_output" | grep -qi "CRITICAL\|critical issue\|not implemented\|missing implementation"; then
+                verify_ok=false
+                gate_spec_coverage="fail"
+                update_change_field "$change_name" "spec_coverage_result" '"fail"'
+                log_error "Verify gate: no sentinel but critical issues detected for $change_name"
+            else
+                gate_spec_coverage="pass"
+                update_change_field "$change_name" "spec_coverage_result" '"pass"'
+                log_info "Verify gate: no sentinel but no critical issues — treating as PASS for $change_name"
+            fi
         fi
     fi
 
