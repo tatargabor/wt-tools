@@ -60,11 +60,10 @@ export interface WorktreeInfo {
   branch: string
   head: string
   bare?: boolean
-  loop_state?: {
-    iteration?: number
-    status?: string
-    change?: string
-  }
+  iteration?: number
+  max_iterations?: number
+  logs?: string[]
+  has_reflection?: boolean
   activity?: {
     skill?: string
     skill_args?: string
@@ -101,6 +100,14 @@ export function getChange(project: string, name: string): Promise<ChangeInfo> {
 
 export function getWorktrees(project: string): Promise<WorktreeInfo[]> {
   return fetchJSON(`/${project}/worktrees`)
+}
+
+export function getWorktreeLog(project: string, branch: string, filename: string): Promise<{ filename: string; lines: string[] }> {
+  return fetchJSON(`/${project}/worktrees/${branch}/log/${filename}`)
+}
+
+export function getWorktreeReflection(project: string, branch: string): Promise<{ content: string }> {
+  return fetchJSON(`/${project}/worktrees/${branch}/reflection`)
 }
 
 export function getActivity(project: string): Promise<ActivityInfo[]> {

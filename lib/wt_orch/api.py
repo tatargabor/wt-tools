@@ -143,6 +143,20 @@ def _list_worktrees(project_path: Path) -> list[dict]:
             except (json.JSONDecodeError, OSError):
                 pass
 
+        # Available log files
+        logs_dir = wt_path / ".claude" / "logs"
+        if logs_dir.is_dir():
+            log_files = sorted(
+                f.name for f in logs_dir.iterdir()
+                if f.is_file() and f.suffix == ".log"
+            )
+            wt["logs"] = log_files
+
+        # Reflection
+        reflection = wt_path / ".claude" / "reflection.md"
+        if reflection.exists():
+            wt["has_reflection"] = True
+
     return worktrees
 
 
@@ -295,6 +309,42 @@ def list_worktrees_endpoint(project: str):
     """List git worktrees with loop-state and activity data."""
     project_path = _resolve_project(project)
     return _list_worktrees(project_path)
+
+
+@router.get("/api/{project}/worktrees/{branch:path}/log/{filename}")
+def get_worktree_log(project: str, branch: str, filename: str):
+    """Read a specific log file from a worktree."""
+    project_path = _resolve_project(project)
+
+    # Validate filename — only allow ralph-iter-*.log pattern
+    if not filename.endswith(".log") or ".." in filename or "/" in filename:
+        raise HTTPException(400, "Invalid filename")
+
+    # Find the worktree by branch name
+    for wt in _list_worktrees(project_path):
+        if wt.get("branch") == branch:
+            log_file = Path(wt["path"]) / ".claude" / "logs" / filename
+            if not log_file.exists():
+                raise HTTPException(404, f"Log file not found: {filename}")
+            try:
+                content = log_file.read_text(errors="replace")
+                return {"filename": filename, "lines": content.splitlines()[-2000:]}
+            except OSError:
+                raise HTTPException(500, "Failed to read log")
+    raise HTTPException(404, f"Worktree not found: {branch}")
+
+
+@router.get("/api/{project}/worktrees/{branch:path}/reflection")
+def get_worktree_reflection(project: str, branch: str):
+    """Read the reflection.md from a worktree."""
+    project_path = _resolve_project(project)
+    for wt in _list_worktrees(project_path):
+        if wt.get("branch") == branch:
+            refl = Path(wt["path"]) / ".claude" / "reflection.md"
+            if not refl.exists():
+                raise HTTPException(404, "No reflection found")
+            return {"content": refl.read_text(errors="replace")}
+    raise HTTPException(404, f"Worktree not found: {branch}")
 
 
 @router.get("/api/{project}/activity")

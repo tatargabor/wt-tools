@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { getWorktrees, type WorktreeInfo } from '../lib/api'
+import { useState, useEffect, useRef } from 'react'
+import { getWorktrees, getWorktreeLog, type WorktreeInfo } from '../lib/api'
 
 interface Props {
   project: string | null
@@ -7,13 +7,13 @@ interface Props {
 
 export default function Worktrees({ project }: Props) {
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([])
+  const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => {
     if (!project) return
-    getWorktrees(project).then(setWorktrees).catch(() => setWorktrees([]))
-    const interval = setInterval(() => {
-      getWorktrees(project).then(setWorktrees).catch(() => {})
-    }, 10000)
+    const load = () => getWorktrees(project).then(setWorktrees).catch(() => setWorktrees([]))
+    load()
+    const interval = setInterval(load, 10000)
     return () => clearInterval(interval)
   }, [project])
 
@@ -25,41 +25,175 @@ export default function Worktrees({ project }: Props) {
     )
   }
 
+  const selectedWt = worktrees.find((wt) => wt.branch === selected)
+
   return (
-    <div className="p-4">
-      <h2 className="text-lg font-semibold text-neutral-100 mb-4">Worktrees</h2>
-      {worktrees.length === 0 ? (
-        <p className="text-neutral-500">No worktrees found</p>
-      ) : (
-        <div className="space-y-3">
-          {worktrees.map((wt) => (
-            <div key={wt.path} className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-sm text-neutral-300">{wt.branch}</span>
-                <span className="text-xs text-neutral-500 font-mono">{wt.head?.slice(0, 8)}</span>
-              </div>
-              <div className="text-xs text-neutral-500 mb-2 font-mono truncate">{wt.path}</div>
-              {wt.loop_state && (
-                <div className="flex gap-4 text-xs text-neutral-400">
-                  <span>Iteration: {wt.loop_state.iteration ?? '—'}</span>
-                  <span>Status: {wt.loop_state.status ?? '—'}</span>
-                  {wt.loop_state.change && <span>Change: {wt.loop_state.change}</span>}
-                </div>
-              )}
-              {wt.activity && (
-                <div className="mt-2 text-xs text-neutral-400">
-                  {wt.activity.broadcast && (
-                    <p className="text-neutral-300">{wt.activity.broadcast}</p>
-                  )}
-                  {wt.activity.skill && (
-                    <p>Skill: {wt.activity.skill} {wt.activity.skill_args ?? ''}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+    <div className="flex h-full">
+      {/* Worktree list */}
+      <div className="w-80 shrink-0 border-r border-neutral-800 overflow-auto">
+        <div className="p-3 border-b border-neutral-800">
+          <h2 className="text-sm font-semibold text-neutral-100">Worktrees ({worktrees.length})</h2>
         </div>
-      )}
+        {worktrees.length === 0 ? (
+          <p className="p-3 text-neutral-500 text-sm">No worktrees found</p>
+        ) : (
+          <div className="divide-y divide-neutral-800/50">
+            {worktrees.map((wt) => (
+              <button
+                key={wt.path}
+                onClick={() => setSelected(wt.branch === selected ? null : wt.branch)}
+                className={`w-full text-left p-3 hover:bg-neutral-900 transition-colors ${
+                  wt.branch === selected ? 'bg-neutral-900 border-l-2 border-blue-500' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-sm text-neutral-200 truncate">{wt.branch}</span>
+                  <span className="text-[10px] text-neutral-600 font-mono">{wt.head?.slice(0, 7)}</span>
+                </div>
+                {(wt.iteration !== undefined || wt.activity) && (
+                  <div className="flex gap-3 text-xs text-neutral-500">
+                    {wt.iteration !== undefined && (
+                      <span>iter {wt.iteration}{wt.max_iterations ? `/${wt.max_iterations}` : ''}</span>
+                    )}
+                    {wt.logs && wt.logs.length > 0 && (
+                      <span>{wt.logs.length} logs</span>
+                    )}
+                  </div>
+                )}
+                {wt.activity?.broadcast && (
+                  <p className="mt-1 text-xs text-neutral-400 truncate">{wt.activity.broadcast}</p>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Log viewer panel */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {selectedWt ? (
+          <WorktreeDetail project={project} worktree={selectedWt} />
+        ) : (
+          <div className="flex items-center justify-center h-full text-neutral-600 text-sm">
+            Select a worktree to view agent logs
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+function WorktreeDetail({ project, worktree }: { project: string; worktree: WorktreeInfo }) {
+  const [activeLog, setActiveLog] = useState<string | null>(null)
+  const [logLines, setLogLines] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  // Auto-select latest log
+  useEffect(() => {
+    if (worktree.logs && worktree.logs.length > 0) {
+      setActiveLog(worktree.logs[worktree.logs.length - 1])
+    } else {
+      setActiveLog(null)
+      setLogLines([])
+    }
+  }, [worktree.branch, worktree.logs?.length])
+
+  // Load log content
+  useEffect(() => {
+    if (!activeLog) return
+    setLoading(true)
+    getWorktreeLog(project, worktree.branch, activeLog)
+      .then((data) => {
+        setLogLines(data.lines)
+        // Scroll to bottom
+        setTimeout(() => {
+          if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+        }, 50)
+      })
+      .catch(() => setLogLines(['(Failed to load log)']))
+      .finally(() => setLoading(false))
+  }, [project, worktree.branch, activeLog])
+
+  // Auto-refresh active log for running worktrees
+  useEffect(() => {
+    if (!activeLog || !worktree.iteration) return
+    const interval = setInterval(() => {
+      getWorktreeLog(project, worktree.branch, activeLog)
+        .then((data) => setLogLines(data.lines))
+        .catch(() => {})
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [project, worktree.branch, activeLog, worktree.iteration])
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-900/50">
+        <span className="font-mono text-sm text-neutral-200">{worktree.branch}</span>
+        {worktree.iteration !== undefined && (
+          <span className="text-xs text-neutral-500">
+            Iteration {worktree.iteration}{worktree.max_iterations ? ` / ${worktree.max_iterations}` : ''}
+          </span>
+        )}
+        <span className="text-xs text-neutral-600 font-mono truncate ml-auto">{worktree.path}</span>
+      </div>
+
+      {/* Activity bar */}
+      {worktree.activity && (
+        <div className="px-4 py-1.5 border-b border-neutral-800 text-xs text-neutral-400 bg-neutral-900/30">
+          {worktree.activity.broadcast && <span>{worktree.activity.broadcast}</span>}
+          {worktree.activity.skill && (
+            <span className="ml-3 text-neutral-500">
+              Skill: {worktree.activity.skill} {worktree.activity.skill_args ?? ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Log tabs */}
+      {worktree.logs && worktree.logs.length > 0 && (
+        <div className="flex gap-0.5 px-2 pt-2 border-b border-neutral-800 overflow-x-auto">
+          {worktree.logs.map((name) => {
+            const label = name.replace('ralph-iter-', '').replace('.log', '').replace('-chain', 'c')
+            return (
+              <button
+                key={name}
+                onClick={() => setActiveLog(name)}
+                className={`px-2 py-1 text-xs rounded-t font-mono transition-colors ${
+                  name === activeLog
+                    ? 'bg-neutral-800 text-neutral-200'
+                    : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-900'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Log content */}
+      <div ref={logRef} className="flex-1 overflow-auto p-3 font-mono text-xs leading-5">
+        {loading && <p className="text-neutral-600">Loading...</p>}
+        {!loading && logLines.length === 0 && (
+          <p className="text-neutral-600">No logs available</p>
+        )}
+        {logLines.map((line, i) => (
+          <div key={i} className={logLineColor(line)}>
+            {line}
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function logLineColor(line: string): string {
+  if (line.includes('ERROR') || line.includes('error')) return 'text-red-400'
+  if (line.includes('WARN') || line.includes('warning')) return 'text-yellow-400'
+  if (line.includes('✓') || line.includes('PASS') || line.includes('pass')) return 'text-green-400'
+  if (line.includes('FAIL') || line.includes('fail')) return 'text-red-400'
+  if (line.includes('>>>') || line.includes('---')) return 'text-cyan-400'
+  return 'text-neutral-400'
 }
