@@ -229,7 +229,7 @@ recover_orphaned_changes() {
 
         # Skip if Ralph PID is still alive — process is running somewhere
         if [[ -n "$ralph_pid" && "$ralph_pid" != "0" && "$ralph_pid" != "null" ]]; then
-            if kill -0 "$ralph_pid" 2>/dev/null; then
+            if wt-orch-core process check-pid --pid "$ralph_pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
                 log_warn "Change $name has live process PID $ralph_pid, skipping recovery"
                 warn "Change $name has live process PID $ralph_pid, skipping recovery"
                 continue
@@ -384,35 +384,19 @@ dispatch_change() {
         # Pre-create proposal.md from scope
         local proposal_path="openspec/changes/$change_name/proposal.md"
         if [[ ! -f "$proposal_path" ]]; then
-            cat > "$proposal_path" <<PROPOSAL_EOF
-## Why
+            # Generate core proposal via Python template (replaces 3 heredocs)
+            local _spec_ref=""
+            [[ "${INPUT_MODE:-}" == "spec" && -n "${INPUT_PATH:-}" ]] && _spec_ref="$INPUT_PATH"
+            jq -n \
+                --arg change_name "$change_name" \
+                --arg scope "$scope" \
+                --arg roadmap_item "$roadmap_item" \
+                --arg memory_ctx "${dispatch_memory:-}" \
+                --arg spec_ref "$_spec_ref" \
+                '{change_name: $change_name, scope: $scope, roadmap_item: $roadmap_item, memory_ctx: $memory_ctx, spec_ref: $spec_ref}' \
+            | wt-orch-core template proposal --input-file - > "$proposal_path"
 
-$roadmap_item
-
-## What Changes
-
-$scope
-
-## Capabilities
-
-### New Capabilities
-- \`$change_name\`: $roadmap_item
-
-### Modified Capabilities
-
-## Impact
-
-To be determined during design phase.
-PROPOSAL_EOF
-            # Append context sections if available
-            if [[ -n "$dispatch_memory" ]]; then
-                cat >> "$proposal_path" <<MEMORY_EOF
-
-## Context from Memory
-
-$dispatch_memory
-MEMORY_EOF
-            fi
+            # Append additional context sections (simple appends, no heredoc risk)
             if [[ -n "$pk_context" ]]; then
                 echo "" >> "$proposal_path"
                 echo "$pk_context" >> "$proposal_path"
@@ -420,16 +404,6 @@ MEMORY_EOF
             if [[ -n "$sibling_context" ]]; then
                 echo "" >> "$proposal_path"
                 echo "$sibling_context" >> "$proposal_path"
-            fi
-            # Add source spec reference for spec-mode orchestration
-            if [[ "${INPUT_MODE:-}" == "spec" && -n "${INPUT_PATH:-}" ]]; then
-                cat >> "$proposal_path" <<SPECREF_EOF
-
-## Source Spec
-- Path: \`$INPUT_PATH\`
-- Section: \`$roadmap_item\`
-- Full spec available via: \`cat $INPUT_PATH\`
-SPECREF_EOF
             fi
 
             # Digest mode: add spec context references and requirement IDs to proposal
@@ -712,7 +686,7 @@ pause_change() {
     if [[ -f "$pid_file" ]]; then
         local pid
         pid=$(cat "$pid_file")
-        if kill -0 "$pid" 2>/dev/null; then
+        if wt-orch-core process check-pid --pid "$pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
             kill -TERM "$pid" 2>/dev/null || true
             info "Sent SIGTERM to Ralph (PID $pid) for $change_name"
             log_info "Paused $change_name (SIGTERM to PID $pid)"
@@ -740,11 +714,8 @@ resume_change() {
     if [[ -f "$loop_state_file" ]]; then
         local iter_count
         iter_count=$(jq '[.iterations // [] | length] | .[0]' "$loop_state_file" 2>/dev/null || echo 0)
-        local tmp
-        tmp=$(mktemp)
-        jq --arg n "$change_name" --argjson b "$iter_count" \
-            '(.changes[] | select(.name == $n) | .watchdog.progress_baseline) = $b' \
-            "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson b "$iter_count" \
+            '(.changes[] | select(.name == $n) | .watchdog.progress_baseline) = $b'
         log_info "Set watchdog progress_baseline=$iter_count for $change_name"
     fi
 
@@ -863,14 +834,13 @@ redispatch_change() {
 
     log_info "Redispatching $change_name (attempt $((redispatch_count + 1))/${MAX_REDISPATCH:-2}, pattern=$failure_pattern)"
 
-    # 1. Kill Ralph PID
+    # 1. Kill Ralph PID (identity-verified safe kill)
     local ralph_pid
     ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-    if [[ "$ralph_pid" -gt 0 ]] && kill -0 "$ralph_pid" 2>/dev/null; then
-        kill -TERM "$ralph_pid" 2>/dev/null || true
-        sleep 2
-        kill -0 "$ralph_pid" 2>/dev/null && kill -KILL "$ralph_pid" 2>/dev/null || true
-        log_info "Redispatch: killed Ralph PID $ralph_pid for $change_name"
+    if [[ "$ralph_pid" -gt 0 ]]; then
+        local kill_result
+        kill_result=$(wt-orch-core process safe-kill --pid "$ralph_pid" --expect-cmd "wt-loop" --timeout 5 2>/dev/null) || true
+        log_info "Redispatch: safe-kill PID $ralph_pid for $change_name: $kill_result"
     fi
 
     # 2. Salvage partial work (captures diff + file list in state)
@@ -921,15 +891,13 @@ Start fresh — do not repeat the same approach that led to $failure_pattern."
     fi
 
     # 7. Reset watchdog sub-object
-    local tmp
-    tmp=$(mktemp)
-    jq --arg n "$change_name" \
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" \
         '(.changes[] | select(.name == $n) | .watchdog) = {
             last_activity_epoch: (now | floor),
             action_hash_ring: [],
             consecutive_same_hash: 0,
             escalation_level: 0
-        }' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        }'
 
     # 8. Clear worktree-specific fields and set status to pending
     update_change_field "$change_name" "worktree_path" "null"
@@ -1098,7 +1066,7 @@ cmd_start() {
             running_pids=$(jq -r '.changes[] | select(.status == "running" or .status == "verifying") | .ralph_pid // 0' "$STATE_FILENAME" 2>/dev/null || true)
             while IFS= read -r pid; do
                 [[ -z "$pid" || "$pid" == "0" || "$pid" == "null" ]] && continue
-                if kill -0 "$pid" 2>/dev/null; then
+                if wt-orch-core process check-pid --pid "$pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
                     has_live_pid=true
                     break
                 fi

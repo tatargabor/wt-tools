@@ -86,9 +86,7 @@ merge_change() {
         update_coverage_status "$change_name" "merged" 2>/dev/null || true
         cleanup_worktree "$change_name" "$wt_path"
         archive_change "$change_name"
-        local tmp
-        tmp=$(mktemp)
-        jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        safe_jq_update "$STATE_FILENAME" --arg n "$change_name" '.merge_queue -= [$n]'
         return 0
     fi
 
@@ -104,9 +102,7 @@ merge_change() {
         update_coverage_status "$change_name" "merged" 2>/dev/null || true
         cleanup_worktree "$change_name" "$wt_path"
         archive_change "$change_name"
-        local tmp
-        tmp=$(mktemp)
-        jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        safe_jq_update "$STATE_FILENAME" --arg n "$change_name" '.merge_queue -= [$n]'
         return 0
     fi
 
@@ -315,23 +311,15 @@ The failure may be caused by an interaction between changes, not just the last o
                         fi
                     fi
                     local smoke_fix_prompt
-                    smoke_fix_prompt=$(cat <<SMOKE_FIX_EOF
-Post-merge smoke/e2e tests failed on main after merging $change_name.
-Fix the code or tests so smoke tests pass again.
-$_legacy_mc_ctx
-Smoke command: $smoke_command
-Smoke output (last 2000 chars):
-${pm_smoke_output: -2000}
-
-Instructions:
-1. Analyze the smoke test failures above
-2. Fix the root cause — either the implementation code or the test expectations
-3. Run: $smoke_command — confirm it passes
-4. Commit the fix with message: "fix: repair smoke tests after $change_name merge"
-
-Do NOT create a worktree — fix directly in the current directory.
-SMOKE_FIX_EOF
-)
+                    smoke_fix_prompt=$(jq -n \
+                        --arg change_name "$change_name" \
+                        --arg scope "" \
+                        --arg output_tail "${pm_smoke_output: -2000}" \
+                        --arg smoke_cmd "$smoke_command" \
+                        --arg multi_change_context "$_legacy_mc_ctx" \
+                        --arg variant "smoke" \
+                        '{change_name: $change_name, scope: $scope, output_tail: $output_tail, smoke_cmd: $smoke_cmd, multi_change_context: $multi_change_context, variant: $variant}' \
+                    | wt-orch-core template fix --input-file -)
                     local smoke_fix_rc=0
                     echo "$smoke_fix_prompt" | run_claude --model "$(model_id sonnet)" --max-turns 20 >>"$LOG_FILE" 2>&1 || smoke_fix_rc=$?
                     if [[ $smoke_fix_rc -eq 0 ]]; then
@@ -366,9 +354,7 @@ SMOKE_FIX_EOF
         cleanup_worktree "$change_name" "$wt_path"
         archive_change "$change_name"
         # Remove from merge queue if present
-        local tmp
-        tmp=$(mktemp)
-        jq --arg n "$change_name" '.merge_queue -= [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        safe_jq_update "$STATE_FILENAME" --arg n "$change_name" '.merge_queue -= [$n]'
     else
         # Log level: ERROR on first conflict, INFO on subsequent (retry) calls
         local merge_retry_count

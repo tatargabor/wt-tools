@@ -47,7 +47,7 @@ plan_memory_hygiene() {
     # 1. Dedup dry-run — log duplicate count
     local dedup_output dedup_count=0
     dedup_output=$(wt-memory dedup --dry-run 2>/dev/null || true)
-    dedup_count=$(echo "$dedup_output" | grep -oP '\d+ duplicates' | grep -oP '\d+' || echo "0")
+    dedup_count=$(echo "$dedup_output" | grep -oE '[0-9]+ duplicates' | grep -oE '[0-9]+' || echo "0")
 
     # 2. Memory stats — total count
     local mem_count=0

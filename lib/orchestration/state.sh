@@ -6,83 +6,11 @@
 init_state() {
     local plan_file="$1"
 
-    local plan_version
-    plan_version=$(jq -r '.plan_version' "$plan_file")
-    local plan_brief_hash
-    plan_brief_hash=$(jq -r '.brief_hash' "$plan_file")
-    local plan_phase
-    plan_phase=$(jq -r '.plan_phase // "initial"' "$plan_file")
-    local plan_method
-    plan_method=$(jq -r '.plan_method // "api"' "$plan_file")
+    wt-orch-core state init --plan-file "$plan_file" --output "$STATE_FILENAME"
 
-    # Build changes array from plan
-    local changes
-    changes=$(jq '[.changes[] | {
-        name: .name,
-        scope: .scope,
-        complexity: .complexity,
-        change_type: (.change_type // "feature"),
-        depends_on: .depends_on,
-        roadmap_item: .roadmap_item,
-        model: (.model // null),
-        skip_review: (.skip_review // false),
-        skip_test: (.skip_test // false),
-        has_manual_tasks: (.has_manual_tasks // false),
-        status: "pending",
-        worktree_path: null,
-        ralph_pid: null,
-        started_at: null,
-        completed_at: null,
-        tokens_used: 0,
-        tokens_used_prev: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_create_tokens: 0,
-        input_tokens_prev: 0,
-        output_tokens_prev: 0,
-        cache_read_tokens_prev: 0,
-        cache_create_tokens_prev: 0,
-        test_result: null,
-        test_stats: null,
-        smoke_result: null,
-        smoke_stats: null,
-        smoke_screenshot_dir: "",
-        smoke_screenshot_count: 0,
-        e2e_screenshot_dir: "",
-        e2e_screenshot_count: 0,
-
-        verify_retry_count: 0,
-        redispatch_count: 0
-    }
-    + (if .requirements then {requirements: .requirements} else {} end)
-    + (if .also_affects_reqs then {also_affects_reqs: .also_affects_reqs} else {} end)
-    ]' "$plan_file")
-
-    jq -n \
-        --argjson plan_version "$plan_version" \
-        --arg brief_hash "$plan_brief_hash" \
-        --arg created_at "$(date -Iseconds)" \
-        --argjson changes "$changes" \
-        --arg plan_phase "$plan_phase" \
-        --arg plan_method "$plan_method" \
-        '{
-            plan_version: $plan_version,
-            brief_hash: $brief_hash,
-            plan_phase: $plan_phase,
-            plan_method: $plan_method,
-            status: "running",
-            created_at: $created_at,
-            changes: $changes,
-            checkpoints: [],
-            merge_queue: [],
-            changes_since_checkpoint: 0,
-            cycle_started_at: null,
-            last_smoke_pass_commit: ""
-        }' > "$STATE_FILENAME"
-
-    local change_count
-    change_count=$(echo "$changes" | jq 'length')
+    local change_count plan_version
+    change_count=$(jq '.changes | length' "$STATE_FILENAME")
+    plan_version=$(jq -r '.plan_version' "$STATE_FILENAME")
     log_info "State initialized with $change_count changes (plan v$plan_version)"
 }
 

@@ -267,7 +267,7 @@ check_scope_overlap() {
         local scope_text
         scope_text=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .scope // ""' "$plan_file")
         # Extract lowercase words (3+ chars), deduplicate
-        scope_words["$name"]=$(echo "$scope_text" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ')
+        scope_words["$name"]=$(echo "$scope_text" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ' || true)  # expected: scope may have no 3+ char words
     done < <(jq -r '.changes[].name' "$plan_file")
 
     # Pairwise jaccard comparison
@@ -310,7 +310,7 @@ check_scope_overlap() {
                 local active_scope
                 active_scope=$(jq -r --arg n "$active_name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
                 local active_words
-                active_words=$(echo "$active_scope" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ')
+                active_words=$(echo "$active_scope" | tr '[:upper:]' '[:lower:]' | grep -oE '[a-z]{3,}' | sort -u | tr '\n' ' ' || true)  # expected: scope may have no 3+ char words
                 local active_count
                 active_count=$(echo "$active_words" | wc -w)
                 [[ "$active_count" -lt 3 ]] && continue
@@ -879,330 +879,64 @@ $req_entries"
             phase_instruction="The user requested phase: $PHASE_HINT. Focus decomposition on items matching this phase."
         fi
 
-        prompt=$(cat <<PROMPT_EOF
-You are a software architect analyzing a project specification to plan the next batch of implementation work.
+        # Pre-compute coverage info for digest mode
+        local coverage_info=""
+        if [[ "${INPUT_MODE:-}" == "digest" && -f "$DIGEST_DIR/coverage.json" ]]; then
+            local cov_merged cov_running
+            cov_merged=$(jq -r '[.coverage | to_entries[] | select(.value.status == "merged") | .key] | join(", ")' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
+            cov_running=$(jq -r '[.coverage | to_entries[] | select(.value.status == "running") | .key] | join(", ")' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
+            [[ -n "$cov_merged" ]] && coverage_info+="Already covered (merged): $cov_merged"$'\n'
+            [[ -n "$cov_running" ]] && coverage_info+="Already covered (running): $cov_running"
+        fi
 
-## Project Specification
-$input_content
+        # Build replan context object
+        local replan_json='{}'
+        if [[ -n "${_REPLAN_COMPLETED:-}" || -n "${_REPLAN_MEMORY:-}" || -n "${_REPLAN_E2E_FAILURES:-}" ]]; then
+            replan_json=$(jq -n \
+                --arg completed "${_REPLAN_COMPLETED:-}" \
+                --argjson cycle "${_REPLAN_CYCLE:-1}" \
+                --arg memory "${_REPLAN_MEMORY:-}" \
+                --arg e2e_failures "${_REPLAN_E2E_FAILURES:-}" \
+                '{completed: $completed, cycle: $cycle, memory: $memory, e2e_failures: $e2e_failures}')
+        fi
 
-## Existing OpenSpec Specs
-$existing_specs
-
-## Active Changes (already in progress)
-$active_changes
-$(if [[ -n "$memory_context" ]]; then
-cat <<MEM_CTX
-
-## Project Memory
-$memory_context
-MEM_CTX
-fi)
-$(if [[ -n "$pk_context" ]]; then
-echo ""
-echo "$pk_context"
-fi)
-$(if [[ -n "$req_context" ]]; then
-echo ""
-echo "$req_context"
-fi)
-
-## $test_infra_context
-$(if [[ "${INPUT_MODE:-}" == "digest" && -f "$DIGEST_DIR/coverage.json" ]]; then
-    local cov_merged cov_running
-    cov_merged=$(jq -r '[.coverage | to_entries[] | select(.value.status == "merged") | .key] | join(", ")' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
-    cov_running=$(jq -r '[.coverage | to_entries[] | select(.value.status == "running") | .key] | join(", ")' "$DIGEST_DIR/coverage.json" 2>/dev/null || true)
-    if [[ -n "$cov_merged" || -n "$cov_running" ]]; then
-        echo ""
-        echo "## Coverage Status (from digest)"
-        [[ -n "$cov_merged" ]] && echo "Already covered (merged): $cov_merged"
-        [[ -n "$cov_running" ]] && echo "Already covered (running): $cov_running"
-        echo "Do NOT re-plan requirements that are already merged or running."
-    fi
-fi)
-$(if [[ -n "${_REPLAN_COMPLETED:-}" ]]; then
-cat <<REPLAN_CTX
-
-## IMPORTANT: Already Completed (cycle ${_REPLAN_CYCLE:-1})
-The following roadmap items have ALREADY been implemented and merged.
-Roadmap items: $_REPLAN_COMPLETED
-
-CRITICAL INSTRUCTIONS FOR REPLAN:
-- DO NOT regenerate changes for any of these completed items
-- You MUST advance to the NEXT phase/priority group in the spec
-- If Phase/Priority 1 items are all completed, plan Phase/Priority 2 items
-- Generate changes with NEW names (not the same names as completed changes)
-- If no more phases remain in the spec, return an empty changes array: {"changes": [], "phase_detected": "all done", "reasoning": "all phases completed"}
-REPLAN_CTX
-fi)
-$(if [[ -n "${_REPLAN_MEMORY:-}" ]]; then
-cat <<ORCH_HIST
-
-## Orchestration History
-Past operational events from previous cycles — use this to avoid repeating mistakes:
-$_REPLAN_MEMORY
-ORCH_HIST
-fi)
-$(if [[ -n "${_REPLAN_E2E_FAILURES:-}" ]]; then
-cat <<E2E_CTX
-
-## Phase-End E2E Test Failures
-The previous phase's integrated E2E tests (Playwright) failed on main after all changes were merged.
-These are integration bugs that individual change tests did not catch.
-You MUST include fix changes for these failures in the next phase:
-
-$_REPLAN_E2E_FAILURES
-E2E_CTX
-fi)
-
-## Task
-1. **Analyze the specification** — identify which items are completed (look for status markers: checkboxes, emoji, "done"/"implemented"/"kész"/"ready" text, strikethrough, progress tables) and which are pending. Also consider the "Already Completed" section above if present.
-2. **Determine the next batch** — respect explicit phases, priorities, or numbered ordering in the document. Pick the first incomplete phase/priority group.
-$phase_instruction
-3. **Decompose** the selected batch into concrete, implementable OpenSpec changes.
-
-Rules:
-- Each change should be completable in 1 Ralph loop session (not too large, not too granular)
-- Use kebab-case names (e.g., add-user-auth, refactor-payment-flow)
-- Define dependencies: if change B needs code from change A, list A in depends_on
-- Changes with no dependencies can run in parallel
-- Complexity: S (< 8 tasks, preferred), M (8-15 tasks, maximum). L (15+ tasks) is NOT ALLOWED — split into smaller changes.
-- Max 6 requirements per change. If a feature domain has more than 6 requirements, split it into sub-domain changes.
-- Scope text should be 800-1500 chars. If you need more than 2000 chars to describe a change, it is too large — split it.
-- Skip already-active changes listed above
-- Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
-- For security-related changes: include tenant isolation tests, auth guard tests
-- If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
-- If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
-- NEVER create a standalone "e2e-consolidation", "playwright-e2e", or "e2e-tests" change that only writes E2E tests. This anti-pattern overloads one agent with all cross-feature tests and wastes tokens. Each feature change MUST include its OWN E2E tests inline.
-
-Sub-domain dependency chaining:
-- When splitting a large feature domain into multiple changes, those changes MUST form a depends_on chain (sequential execution within the domain)
-- Different domain chains can still run in parallel with each other
-- Example: splitting "product-catalog" (22 reqs) into product-list → product-detail → product-search — each depends_on the previous, but all can run in parallel with an unrelated "user-auth" chain
-
-Split heuristics for common patterns:
-- List page + detail page → split into separate changes if combined requirements exceed 6
-- CRUD operations → separate from read-only views when the domain is large
-- Search/filtering with its own API routes → separate change
-- Auth + profile + password management → split auth/login from profile/account management
-
-Dependency ordering heuristics — classify each change by type and apply ordering:
-- Classify each change as one of: infrastructure (test/build setup, CI), schema (DB migrations, model changes), foundational (auth, shared types, base components), feature (new functionality), cleanup-before (refactor/rename/reorganize existing code), cleanup-after (dead code removal, cosmetic fixes)
-- infrastructure changes run first — all others depend on them
-- schema/migration changes run before data-layer or API changes that use those tables
-- foundational changes (auth, shared types) run before features that consume them
-- cleanup-before/refactor changes run before feature changes that touch the same area (e.g., a UI cleanup should complete before new UI features are built on that code)
-- cleanup-after changes run last — they depend on the features they clean up around
-- If the spec contains explicit dependency hints (e.g., "depends_on: X", "requires X", "after X is complete"), preserve them in the output depends_on array
-
-Shared resource awareness:
-- If 2+ parallel changes would likely modify the same shared file (conventions docs, shared types, config files, common UI components), chain them via depends_on to prevent merge conflicts
-- Prefer serialization over parallel execution when shared files are involved
-- Common shared resources: design/convention docs, shared type definitions, package.json, layout components
-
-Test-per-change requirement:
-- Each change that adds a user-facing route, feature, or API endpoint MUST include its own tests. Do NOT defer all testing to a final "e2e" change.
-- The quality gate BLOCKS changes without test files for feature/infrastructure types.
-- Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts").
-
-Playwright E2E test planning (when e2e_command is configured):
-- The infrastructure/foundation change (first in dependency order) MUST set up Playwright alongside Jest:
-  * Create playwright.config.ts with PW_PORT env var support and webServer auto-start
-  * Add testPathIgnorePatterns: ["/node_modules/", "/tests/e2e/"] to jest.config (Jest crashes on Playwright .spec.ts imports in jsdom)
-  * Add @playwright/test to devDependencies + run npx playwright install chromium
-  * Create tests/e2e/global-setup.ts: prisma generate → prisma db push --force-reset → prisma db seed
-- Each subsequent feature change creating a user-facing route MUST create tests/e2e/<feature>.spec.ts as an explicit file deliverable in scope (e.g., "Create tests/e2e/cart.spec.ts")
-- Include CONCRETE test scenarios per feature:
-  * Page URL to visit
-  * User interactions: what to click, what data to type, what to select
-  * Expected outcomes: visible text, redirects, error messages
-  * Auth scenarios: verify protected routes redirect unauthenticated users
-  * Error scenarios: invalid form input, missing required fields
-  * COLD-VISIT test: navigate directly to the page as the FIRST action (no prior login, no add-to-cart, no session cookie). This catches Server Component cookie/session bugs where cookies().set() crashes outside a Server Action.
-- Example scope:
-  Create tests/e2e/orders.spec.ts:
-  - Cold visit: go to /cart directly (no prior actions) → should show empty state, NOT crash
-  - Visit /products → click "Add to Cart" on first product → cart badge shows "1"
-  - Visit /cart → verify product name and price → click "Checkout" → fill form → verify redirect to /orders/[id]
-  - Visit /admin/orders without login → verify redirect to /admin/login
-- Do NOT defer all E2E tests to a consolidation change — this overloads a single agent. Each feature change owns its tests.
-- Do NOT just list "Functional test scenarios:" as descriptions — create actual test files.
-- E2E tests run pre-merge in the worktree via e2e_command against an auto-started dev server with isolated port and DB.
-
-Model selection — suggest a model per change based on task nature:
-- "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)
-- "sonnet" ONLY for doc-only changes (doc sync, doc audit, README updates) — zero code writing
-- Sonnet cannot follow OpenSpec workflows, make architecture decisions, or write quality code
-- When in doubt, always use "opus"
-
-Manual tasks — flag changes that require human intervention:
-- Set "has_manual_tasks": true when a change involves: external API keys/secrets (Stripe, AWS, Firebase), third-party account/project creation, OAuth app registration, DNS configuration, webhook setup, or any step that cannot be automated
-- Examples: "integrate Stripe payments" (needs API key), "set up Firebase auth" (needs project creation), "configure custom domain" (needs DNS records)
-- When false or omitted, all tasks are assumed automatable
-
-$(if [[ "$INPUT_MODE" == "digest" ]]; then
-cat <<'DIGEST_FIELDS'
-Digest-mode additional requirements:
-- Each change MUST include "spec_files": an array of raw spec file paths (relative to spec base dir) that this change needs for implementation. These files will be copied into the worktree.
-- Each change MUST include "requirements": an array of REQ-* IDs from the digest that this change owns and implements.
-- If a change must incorporate a cross-cutting requirement owned by another change, list it in "also_affects_reqs" (not in "requirements").
-- Every non-removed REQ-* ID in the digest MUST appear in exactly one change's "requirements" array. Cross-cutting requirements appear in one change's "requirements" (primary owner) and other changes' "also_affects_reqs".
-DIGEST_FIELDS
-fi)
-
-Output ONLY valid JSON (no markdown, no explanation):
-{
-  "phase_detected": "Description of which phase/section was selected and why",
-  "reasoning": "Brief explanation of the decomposition choices",
-  "changes": [
-    {
-      "name": "change-name",
-      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
-      "complexity": "S|M|L",
-      "change_type": "infrastructure|schema|foundational|feature|cleanup-before|cleanup-after",
-      "model": "opus|sonnet",
-      "has_manual_tasks": false,
-      "depends_on": ["other-change-name"],
-      "roadmap_item": "The spec section/item this implements"$(if [[ "$INPUT_MODE" == "digest" ]]; then echo ',
-      "spec_files": ["path/relative/to/spec-base-dir.md"],
-      "requirements": ["REQ-DOMAIN-001"],
-      "also_affects_reqs": ["REQ-CROSS-001"],
-      "resolved_ambiguities": [{"id": "AMB-001", "resolution_note": "Decision rationale"}]'; fi)
-    }
-  ]
-}
-PROMPT_EOF
-)
+        # Build input JSON and render via Python template
+        local _plan_input_file
+        _plan_input_file=$(mktemp)
+        jq -n \
+            --arg input_content "$input_content" \
+            --arg specs "$existing_specs" \
+            --arg memory "${memory_context:-}" \
+            --argjson replan_ctx "$replan_json" \
+            --arg mode "spec" \
+            --arg phase_instruction "$phase_instruction" \
+            --arg input_mode "$INPUT_MODE" \
+            --arg test_infra_context "$test_infra_context" \
+            --arg pk_context "${pk_context:-}" \
+            --arg req_context "${req_context:-}" \
+            --arg active_changes "$active_changes" \
+            --arg coverage_info "$coverage_info" \
+            '{input_content: $input_content, specs: $specs, memory: $memory, replan_ctx: $replan_ctx, mode: $mode, phase_instruction: $phase_instruction, input_mode: $input_mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes, coverage_info: $coverage_info}' \
+            > "$_plan_input_file"
+        prompt=$(wt-orch-core template planning --mode spec --input-file "$_plan_input_file")
+        rm -f "$_plan_input_file"
     else
-        # Brief-mode prompt: existing behavior
-        prompt=$(cat <<PROMPT_EOF
-You are a software architect decomposing a project brief into OpenSpec changes.
-
-## Project Brief
-$input_content
-
-## Existing Specs
-$existing_specs
-
-## Active Changes
-$active_changes
-$(if [[ -n "$memory_context" ]]; then
-cat <<MEM_CTX
-
-## Project Memory
-$memory_context
-MEM_CTX
-fi)
-$(if [[ -n "$pk_context" ]]; then
-echo ""
-echo "$pk_context"
-fi)
-$(if [[ -n "$req_context" ]]; then
-echo ""
-echo "$req_context"
-fi)
-
-## $test_infra_context
-
-## Task
-Analyze the "Next" section of the brief and decompose it into concrete, implementable OpenSpec changes.
-
-Rules:
-- Each change should be completable in 1 Ralph loop session (not too large, not too granular)
-- Use kebab-case names (e.g., add-user-auth, refactor-payment-flow)
-- Define dependencies: if change B needs code from change A, list A in depends_on
-- Changes with no dependencies can run in parallel
-- Complexity: S (< 8 tasks, preferred), M (8-15 tasks, maximum). L (15+ tasks) is NOT ALLOWED — split into smaller changes.
-- Max 6 requirements per change. If a feature domain has more than 6 requirements, split it into sub-domain changes.
-- Scope text should be 800-1500 chars. If you need more than 2000 chars to describe a change, it is too large — split it.
-- Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
-- For security-related changes: include tenant isolation tests, auth guard tests
-- If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
-- If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
-- NEVER create a standalone "e2e-consolidation", "playwright-e2e", or "e2e-tests" change that only writes E2E tests. This anti-pattern overloads one agent with all cross-feature tests and wastes tokens. Each feature change MUST include its OWN E2E tests inline.
-
-Sub-domain dependency chaining:
-- When splitting a large feature domain into multiple changes, those changes MUST form a depends_on chain (sequential execution within the domain)
-- Different domain chains can still run in parallel with each other
-- Example: splitting "product-catalog" (22 reqs) into product-list → product-detail → product-search — each depends_on the previous, but all can run in parallel with an unrelated "user-auth" chain
-
-Split heuristics for common patterns:
-- List page + detail page → split into separate changes if combined requirements exceed 6
-- CRUD operations → separate from read-only views when the domain is large
-- Search/filtering with its own API routes → separate change
-- Auth + profile + password management → split auth/login from profile/account management
-
-Dependency ordering heuristics — classify each change by type and apply ordering:
-- Classify each change as one of: infrastructure (test/build setup, CI), schema (DB migrations, model changes), foundational (auth, shared types, base components), feature (new functionality), cleanup-before (refactor/rename/reorganize existing code), cleanup-after (dead code removal, cosmetic fixes)
-- infrastructure changes run first — all others depend on them
-- schema/migration changes run before data-layer or API changes that use those tables
-- foundational changes (auth, shared types) run before features that consume them
-- cleanup-before/refactor changes run before feature changes that touch the same area (e.g., a UI cleanup should complete before new UI features are built on that code)
-- cleanup-after changes run last — they depend on the features they clean up around
-- If the spec contains explicit dependency hints (e.g., "depends_on: X", "requires X", "after X is complete"), preserve them in the output depends_on array
-
-Shared resource awareness:
-- If 2+ parallel changes would likely modify the same shared file (conventions docs, shared types, config files, common UI components), chain them via depends_on to prevent merge conflicts
-- Prefer serialization over parallel execution when shared files are involved
-- Common shared resources: design/convention docs, shared type definitions, package.json, layout components
-
-Test-per-change requirement:
-- Each change that adds a user-facing route, feature, or API endpoint MUST include its own tests. Do NOT defer all testing to a final "e2e" change.
-- The quality gate BLOCKS changes without test files for feature/infrastructure types.
-- Explicitly list test files in scope (e.g., "Tests: Create orders.test.ts").
-
-Playwright E2E test planning (when e2e_command is configured):
-- The infrastructure/foundation change (first in dependency order) MUST set up Playwright alongside Jest:
-  * Create playwright.config.ts with PW_PORT env var support and webServer auto-start
-  * Add testPathIgnorePatterns: ["/node_modules/", "/tests/e2e/"] to jest.config (Jest crashes on Playwright .spec.ts imports in jsdom)
-  * Add @playwright/test to devDependencies + run npx playwright install chromium
-  * Create tests/e2e/global-setup.ts: prisma generate → prisma db push --force-reset → prisma db seed
-- Each subsequent feature change creating a user-facing route MUST create tests/e2e/<feature>.spec.ts as an explicit file deliverable in scope (e.g., "Create tests/e2e/cart.spec.ts")
-- Include CONCRETE test scenarios per feature:
-  * Page URL to visit
-  * User interactions: what to click, what data to type, what to select
-  * Expected outcomes: visible text, redirects, error messages
-  * Auth scenarios: verify protected routes redirect unauthenticated users
-  * Error scenarios: invalid form input, missing required fields
-  * COLD-VISIT test: navigate directly to the page as the FIRST action (no prior login, no add-to-cart, no session cookie). This catches Server Component cookie/session bugs where cookies().set() crashes outside a Server Action.
-- Example scope:
-  Create tests/e2e/orders.spec.ts:
-  - Cold visit: go to /cart directly (no prior actions) → should show empty state, NOT crash
-  - Visit /products → click "Add to Cart" on first product → cart badge shows "1"
-  - Visit /cart → verify product name and price → click "Checkout" → fill form → verify redirect to /orders/[id]
-  - Visit /admin/orders without login → verify redirect to /admin/login
-- Do NOT defer all E2E tests to a consolidation change — this overloads a single agent. Each feature change owns its tests.
-- Do NOT just list "Functional test scenarios:" as descriptions — create actual test files.
-- E2E tests run pre-merge in the worktree via e2e_command against an auto-started dev server with isolated port and DB.
-
-Model selection — suggest a model per change based on task nature:
-- "opus" for ALL changes that write functional code (features, bug fixes, refactors, cleanup, tests)
-- "sonnet" ONLY for doc-only changes (doc sync, doc audit, README updates) — zero code writing
-- Sonnet cannot follow OpenSpec workflows, make architecture decisions, or write quality code
-- When in doubt, always use "opus"
-
-Manual tasks — flag changes that require human intervention:
-- Set "has_manual_tasks": true when a change involves: external API keys/secrets (Stripe, AWS, Firebase), third-party account/project creation, OAuth app registration, DNS configuration, webhook setup, or any step that cannot be automated
-- Examples: "integrate Stripe payments" (needs API key), "set up Firebase auth" (needs project creation), "configure custom domain" (needs DNS records)
-- When false or omitted, all tasks are assumed automatable
-
-Output ONLY valid JSON (no markdown, no explanation):
-{
-  "changes": [
-    {
-      "name": "change-name",
-      "scope": "Detailed description of what this change implements, including key requirements and constraints. This becomes the proposal for the change. Tests: describe required tests.",
-      "complexity": "S|M|L",
-      "change_type": "infrastructure|schema|foundational|feature|cleanup-before|cleanup-after",
-      "model": "opus|sonnet",
-      "has_manual_tasks": false,
-      "depends_on": ["other-change-name"],
-      "roadmap_item": "The exact Next bullet this implements"
-    }
-  ]
-}
-PROMPT_EOF
-)
+        # Brief-mode prompt
+        local _plan_input_file
+        _plan_input_file=$(mktemp)
+        jq -n \
+            --arg input_content "$input_content" \
+            --arg specs "$existing_specs" \
+            --arg memory "${memory_context:-}" \
+            --arg mode "brief" \
+            --arg test_infra_context "$test_infra_context" \
+            --arg pk_context "${pk_context:-}" \
+            --arg req_context "${req_context:-}" \
+            --arg active_changes "$active_changes" \
+            '{input_content: $input_content, specs: $specs, memory: $memory, mode: $mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes}' \
+            > "$_plan_input_file"
+        prompt=$(wt-orch-core template planning --mode brief --input-file "$_plan_input_file")
+        rm -f "$_plan_input_file"
     fi
 
     info "Calling Claude for decomposition..."

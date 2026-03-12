@@ -41,15 +41,14 @@ watchdog_check() {
     esac
 
     # Lazy-init watchdog state for this change
-    local has_wd
-    has_wd=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .watchdog // empty' "$STATE_FILENAME" 2>/dev/null)
-    if [[ -z "$has_wd" || "$has_wd" == "null" ]]; then
+    local wd_json
+    wd_json=$(wt-orch-core state get --file "$STATE_FILENAME" --change "$change_name" --field watchdog 2>/dev/null) || true
+    if [[ -z "$wd_json" || "$wd_json" == "null" || "$wd_json" == "" ]]; then
         _watchdog_init "$change_name"
+        wd_json=$(wt-orch-core state get --file "$STATE_FILENAME" --change "$change_name" --field watchdog 2>/dev/null) || true
     fi
 
     # Read current watchdog state
-    local wd_json
-    wd_json=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .watchdog' "$STATE_FILENAME" 2>/dev/null)
     local last_activity
     last_activity=$(echo "$wd_json" | jq -r '.last_activity_epoch // 0')
     local escalation_level
@@ -94,16 +93,11 @@ watchdog_check() {
     fi
 
     # Append to ring buffer (keep last N)
-    local tmp
-    tmp=$(mktemp)
-    jq --arg n "$change_name" --arg h "$current_hash" --argjson max "$WATCHDOG_HASH_RING_SIZE" \
-        '(.changes[] | select(.name == $n) | .watchdog.action_hash_ring) |= (. + [$h] | .[-$max:])' \
-        "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --arg h "$current_hash" --argjson max "$WATCHDOG_HASH_RING_SIZE" \
+        '(.changes[] | select(.name == $n) | .watchdog.action_hash_ring) |= (. + [$h] | .[-$max:])'
     # Update consecutive count
-    tmp=$(mktemp)
-    jq --arg n "$change_name" --argjson c "$consecutive_same" \
-        '(.changes[] | select(.name == $n) | .watchdog.consecutive_same_hash) = $c' \
-        "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson c "$consecutive_same" \
+        '(.changes[] | select(.name == $n) | .watchdog.consecutive_same_hash) = $c'
 
     # ── Timeout check ──
     local timeout_secs
@@ -116,7 +110,7 @@ watchdog_check() {
     if [[ "$consecutive_same" -ge "$WATCHDOG_LOOP_THRESHOLD" ]]; then
         local ralph_pid_loop
         ralph_pid_loop=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-        if [[ "$ralph_pid_loop" -gt 0 ]] && kill -0 "$ralph_pid_loop" 2>/dev/null; then
+        if [[ "$ralph_pid_loop" -gt 0 ]] && wt-orch-core process check-pid --pid "$ralph_pid_loop" --expect-cmd "wt-loop" >/dev/null 2>&1; then
             # PID alive = long operation, not stuck — warn but don't escalate
             # Throttle: log + event at threshold, then every 20th occurrence to reduce noise
             if [[ "$consecutive_same" -eq "$WATCHDOG_LOOP_THRESHOLD" || $((consecutive_same % 20)) -eq 0 ]]; then
@@ -134,7 +128,7 @@ watchdog_check() {
     if [[ "$idle_secs" -ge "$timeout_secs" ]]; then
         local ralph_pid
         ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-        if [[ "$ralph_pid" -gt 0 ]] && kill -0 "$ralph_pid" 2>/dev/null; then
+        if [[ "$ralph_pid" -gt 0 ]] && wt-orch-core process check-pid --pid "$ralph_pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
             # PID alive = long iteration, not stuck
             return 0
         fi
@@ -172,15 +166,13 @@ _watchdog_init() {
     local change_name="$1"
     local now
     now=$(date +%s)
-    local tmp
-    tmp=$(mktemp)
-    jq --arg n "$change_name" --argjson now "$now" \
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson now "$now" \
         '(.changes[] | select(.name == $n) | .watchdog) = {
             last_activity_epoch: $now,
             action_hash_ring: [],
             consecutive_same_hash: 0,
             escalation_level: 0
-        }' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        }'
 }
 
 _watchdog_update() {
@@ -188,13 +180,10 @@ _watchdog_update() {
     local activity_epoch="$2"
     local esc_level="$3"
     local consec="$4"
-    local tmp
-    tmp=$(mktemp)
-    jq --arg n "$change_name" --argjson epoch "$activity_epoch" \
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson epoch "$activity_epoch" \
         --argjson esc "$esc_level" --argjson c "$consec" \
         '(.changes[] | select(.name == $n) | .watchdog) |=
-            (.last_activity_epoch = $epoch | .escalation_level = $esc | .consecutive_same_hash = $c)' \
-        "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+            (.last_activity_epoch = $epoch | .escalation_level = $esc | .consecutive_same_hash = $c)'
 }
 
 # Check if there's been activity since last_activity_epoch.
@@ -294,7 +283,9 @@ _watchdog_check_progress() {
 
     # Guard: progress baseline — only examine iterations after resume baseline
     local baseline
-    baseline=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .watchdog.progress_baseline // 0' "$STATE_FILENAME" 2>/dev/null)
+    local wd_progress_json
+    wd_progress_json=$(wt-orch-core state get --file "$STATE_FILENAME" --change "$change_name" --field watchdog 2>/dev/null) || true
+    baseline=$(echo "$wd_progress_json" | jq -r '.progress_baseline // 0' 2>/dev/null)
     [[ -z "$baseline" || "$baseline" == "null" ]] && baseline=0
 
     # Filter to iterations after baseline and get tail 3
@@ -420,13 +411,11 @@ _watchdog_salvage_partial_work() {
     # Record modified files list in state
     local modified_files
     modified_files=$(cd "$wt_path" && git diff HEAD --name-only 2>/dev/null | jq -R -s 'split("\n") | map(select(length > 0))' || echo '[]')
-    local tmp
-    tmp=$(mktemp)
-    jq --arg n "$change_name" --argjson files "$modified_files" --arg patch "$patch_file" \
+    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson files "$modified_files" --arg patch "$patch_file" \
         '(.changes[] | select(.name == $n)) |= (
             .partial_diff_patch = $patch |
             .partial_diff_files = $files
-        )' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        )'
 
     local file_count
     file_count=$(echo "$modified_files" | jq 'length')

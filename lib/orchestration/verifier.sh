@@ -158,38 +158,12 @@ review_change() {
     req_section=$(build_req_review_section "$change_name")
 
     local review_prompt
-    review_prompt=$(cat <<REVIEW_EOF
-You are a senior code reviewer. Review this diff for critical issues.
-
-## Change Scope
-$scope
-
-## Diff
-\`\`\`diff
-$diff_output
-\`\`\`
-$req_section
-
-## Review Criteria
-Check for:
-1. Security vulnerabilities: SQL injection, XSS, command injection, path traversal
-2. Authentication/authorization gaps: missing auth checks, broken access control
-3. Tenant isolation: can one user/org access another's data?
-4. Data integrity: missing validation, race conditions, data loss risks
-5. Error handling: unhandled exceptions that crash the app
-
-For each issue found, classify severity as: CRITICAL, HIGH, MEDIUM, LOW.
-
-Output format:
-- If no issues: "REVIEW PASS — no critical issues found"
-- If issues found:
-  ISSUE: [severity] description
-  FILE: path/to/file
-  LINE: approximate line number
-
-Only flag real problems — not style preferences.
-REVIEW_EOF
-)
+    review_prompt=$(jq -n \
+        --arg scope "$scope" \
+        --arg diff_output "$diff_output" \
+        --arg req_section "$req_section" \
+        '{scope: $scope, diff_output: $diff_output, req_section: $req_section}' \
+    | wt-orch-core template review --input-file -)
 
     REVIEW_OUTPUT=$(echo "$review_prompt" | run_claude --model "$(model_id "$rev_model")") || {
         if [[ "$rev_model" != "opus" ]]; then
@@ -394,7 +368,7 @@ verify_implementation_scope() {
 extract_health_check_url() {
     local smoke_cmd="$1"
     local port
-    port=$(echo "$smoke_cmd" | grep -oP 'localhost:\K[0-9]+' | head -1)
+    port=$(echo "$smoke_cmd" | grep -oE 'localhost:[0-9]+' | head -1 | sed 's/localhost://' || true)  # expected: command may not contain localhost
     if [[ -n "$port" ]]; then
         echo "http://localhost:$port"
     fi
@@ -470,34 +444,16 @@ Multiple changes were merged since the last smoke pass. The failure may be cause
         log_info "Smoke fix attempt $attempt/$max_retries for $change_name"
 
         local fix_prompt
-        fix_prompt=$(cat <<SCOPED_FIX_EOF
-Post-merge smoke/e2e tests failed on main after merging "$change_name".
-
-## Change scope
-$change_scope
-
-## Files modified by this change
-$modified_files
-$multi_change_context
-
-## Smoke command
-$smoke_cmd
-
-## Smoke output
-$smoke_output
-
-## Constraints
-- MAY ONLY modify files that were part of this change (listed above)
-- MUST NOT delete or weaken existing test assertions
-- MUST NOT modify files outside the change scope
-- Fix the root cause — either implementation code or test expectations
-
-## Steps
-1. Analyze the smoke test failures
-2. Fix the root cause in the modified files
-3. Commit with message: "fix: repair smoke after $change_name merge"
-SCOPED_FIX_EOF
-)
+        fix_prompt=$(jq -n \
+            --arg change_name "$change_name" \
+            --arg scope "$change_scope" \
+            --arg output_tail "$smoke_output" \
+            --arg smoke_cmd "$smoke_cmd" \
+            --arg modified_files "$modified_files" \
+            --arg multi_change_context "$multi_change_context" \
+            --arg variant "scoped" \
+            '{change_name: $change_name, scope: $scope, output_tail: $output_tail, smoke_cmd: $smoke_cmd, modified_files: $modified_files, multi_change_context: $multi_change_context, variant: $variant}' \
+        | wt-orch-core template fix --input-file -)
         local fix_rc=0
         echo "$fix_prompt" | run_claude --model "$(model_id sonnet)" --max-turns "$max_turns" >>"$LOG_FILE" 2>&1 || fix_rc=$?
 
@@ -599,9 +555,7 @@ run_phase_end_e2e() {
     local escaped_output
     escaped_output=$(printf '%s' "$e2e_output" | head -c 8000 | jq -Rs .)
 
-    local tmp
-    tmp=$(mktemp)
-    jq --arg result "$e2e_result" \
+    safe_jq_update "$STATE_FILENAME" --arg result "$e2e_result" \
        --argjson ms "$_elapsed" \
        --arg output "$escaped_output" \
        --argjson cycle "$cycle" \
@@ -615,7 +569,7 @@ run_phase_end_e2e() {
             screenshot_dir: $screenshots,
             screenshot_count: $sc_count,
             timestamp: (now | todate)
-        }]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+        }]'
 
     emit_event "PHASE_E2E_COMPLETED" "" "{\"result\":\"$e2e_result\",\"duration_ms\":$_elapsed,\"cycle\":$cycle}"
 
@@ -673,7 +627,7 @@ poll_change() {
         # No loop-state yet — check if terminal process is alive via state file
         local ralph_pid
         ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // empty' "$STATE_FILENAME")
-        if [[ -n "$ralph_pid" && "$ralph_pid" != "0" ]] && ! kill -0 "$ralph_pid" 2>/dev/null; then
+        if [[ -n "$ralph_pid" && "$ralph_pid" != "0" ]] && ! wt-orch-core process check-pid --pid "$ralph_pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
             log_error "Terminal process $ralph_pid for $change_name is dead, no loop-state found"
             emit_event "ERROR" "$change_name" '{"error":"terminal process died without loop-state"}'
             update_change_field "$change_name" "status" '"failed"'
@@ -745,7 +699,7 @@ poll_change() {
             if [[ "$stale_secs" -gt 300 ]]; then
                 local terminal_pid
                 terminal_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-                if [[ "$terminal_pid" -gt 0 ]] && kill -0 "$terminal_pid" 2>/dev/null; then
+                if [[ "$terminal_pid" -gt 0 ]] && wt-orch-core process check-pid --pid "$terminal_pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
                     return  # PID alive = long iteration, not stale
                 fi
                 log_warn "Change $change_name loop-state stale (${stale_secs}s, PID $terminal_pid dead) — marking stalled for watchdog"
@@ -1065,15 +1019,15 @@ handle_change_done() {
     if [[ -n "$test_output" ]]; then
         # Jest/Vitest: "Tests:  X passed, Y total" or "Tests:  X failed, Y passed, Z total"
         local jest_passed jest_failed
-        jest_passed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
-        jest_failed=$(echo "$test_output" | grep -oP 'Tests:\s+.*?(\d+)\s+failed' | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
+        jest_passed=$(echo "$test_output" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)  # expected: may not match
+        jest_failed=$(echo "$test_output" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | tail -1 || true)  # expected: may not match
         local jest_suites
-        jest_suites=$(echo "$test_output" | grep -oP 'Test Suites:\s+.*?(\d+)\s+passed' | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
+        jest_suites=$(echo "$test_output" | grep -oE 'Test Suites:.*[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)  # expected: may not match
 
         # Playwright: "X passed" or "X failed, Y passed"
         local pw_passed pw_failed
-        pw_passed=$(echo "$test_output" | grep -oP '\d+(?=\s+passed)' | tail -1 || true)
-        pw_failed=$(echo "$test_output" | grep -oP '\d+(?=\s+failed)' | tail -1 || true)
+        pw_passed=$(echo "$test_output" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)  # expected: may not match
+        pw_failed=$(echo "$test_output" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | tail -1 || true)  # expected: may not match
 
         if [[ -n "$jest_passed" ]]; then
             t_passed=$jest_passed; t_failed=${jest_failed:-0}; t_suites=${jest_suites:-0}; t_type="jest"
@@ -1472,9 +1426,7 @@ handle_change_done() {
     # manual: queue is not drained automatically (user runs 'approve --merge')
     case "$merge_policy" in
         eager|checkpoint)
-            local tmp
-            tmp=$(mktemp)
-            jq --arg n "$change_name" '.merge_queue += [$n]' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+            safe_jq_update "$STATE_FILENAME" --arg n "$change_name" '.merge_queue += [$n]'
             log_info "$change_name added to merge queue (policy: $merge_policy)"
             info "$change_name queued for merge"
             ;;
