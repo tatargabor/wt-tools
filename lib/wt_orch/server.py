@@ -10,8 +10,9 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
@@ -56,14 +57,29 @@ def create_app(web_dist_dir: str | None = None) -> FastAPI:
     app.include_router(api_router)
     app.include_router(ws_router)
 
-    # Static SPA serving — must be last (catch-all)
+    # Static SPA serving
     if web_dist_dir is None:
-        # Try relative to this file: lib/wt_orch/../../web/dist
         candidate = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
         if candidate.is_dir():
             web_dist_dir = str(candidate)
 
     if web_dist_dir and Path(web_dist_dir).is_dir():
-        app.mount("/", StaticFiles(directory=web_dist_dir, html=True), name="spa")
+        dist_path = Path(web_dist_dir)
+        index_html = dist_path / "index.html"
+
+        # Serve static assets (js, css, images) from /assets/
+        assets_dir = dist_path / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Serve other static files at root (favicon.svg, icons.svg, etc.)
+        @app.get("/{file_path:path}")
+        async def spa_catchall(request: Request, file_path: str):
+            # Try serving as a real file first
+            real_file = dist_path / file_path
+            if file_path and real_file.is_file() and ".." not in file_path:
+                return FileResponse(str(real_file))
+            # Otherwise return index.html for client-side routing
+            return FileResponse(str(index_html))
 
     return app

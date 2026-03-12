@@ -1,33 +1,27 @@
 import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { getProjects, type ProjectInfo } from '../lib/api'
 
-const STORAGE_KEY = 'wt-web-project'
-
 export function useProject() {
+  const { project: urlProject } = useParams<{ project: string }>()
+  const navigate = useNavigate()
   const [projects, setProjects] = useState<ProjectInfo[]>([])
-  const [project, setProjectState] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEY)
-  })
 
   useEffect(() => {
     getProjects()
       .then((list) => {
         setProjects(list)
-        // Auto-select first project if none stored
-        if (!project && list.length > 0) {
-          setProjectState(list[0].name)
-          localStorage.setItem(STORAGE_KEY, list[0].name)
+        // If no project in URL, redirect to first project
+        if (!urlProject && list.length > 0) {
+          navigate(`/wt/${list[0].name}`, { replace: true })
         }
       })
-      .catch(() => {
-        // API not available yet
-      })
+      .catch(() => {})
   }, [])
 
   const setProject = (name: string) => {
-    setProjectState(name)
-    localStorage.setItem(STORAGE_KEY, name)
+    navigate(`/wt/${name}`)
   }
 
-  return { project, setProject, projects }
+  return { project: urlProject ?? null, setProject, projects }
 }
