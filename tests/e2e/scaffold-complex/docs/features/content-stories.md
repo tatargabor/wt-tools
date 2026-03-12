@@ -1,5 +1,7 @@
 # Content & Stories Feature
 
+> **Figma frames:** Stories — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Stories Section
 
 Blog-like content section, but structured — every article is linked to a category and products.

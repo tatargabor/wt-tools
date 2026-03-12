@@ -1,5 +1,7 @@
 # Cart & Checkout Feature
 
+> **Figma frames:** Cart, Checkout 3-Step — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Cart
 
 ### Adding to Cart

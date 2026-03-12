@@ -1,5 +1,7 @@
 # Admin Panel
 
+> **Figma frames:** Admin Dashboard, Admin Products, Admin Orders & Deliveries, Admin Coupons/Promo/Gift/Reviews — see [design-system.md](../design/design-system.md#frame-mapping)
+
 Admin panel — accessible only to logged-in users with the ADMIN role.
 
 - Admin accounts are created via seed data only (no admin user management in v1)

@@ -1,5 +1,7 @@
 # Promotions Feature
 
+> **Figma frames:** Cart (coupon/gift card input), Admin Coupons/Promo/Gift/Reviews, Special States (promo banner) — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Coupons
 
 ### Coupon Types

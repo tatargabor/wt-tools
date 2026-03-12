@@ -1,5 +1,7 @@
 # Subscription & Delivery Feature
 
+> **Figma frames:** Subscription Wizard, User Subscriptions & Calendar — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Subscription Concept
 
 Registered users can order regular coffee deliveries. A subscription is for a selected coffee, with a specified frequency and delivery time window.

@@ -1,5 +1,7 @@
 # Reviews & Wishlist Feature
 
+> **Figma frames:** Product Detail (reviews section), User Orders & Profile (favorites), Admin Coupons/Promo/Gift/Reviews — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Reviews
 
 ### Who Can Write a Review?

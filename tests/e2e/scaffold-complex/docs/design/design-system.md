@@ -1,5 +1,35 @@
 # Design System
 
+## Figma
+
+**Design file:** https://www.figma.com/design/QrtIGnpTs8jPbEXFuLu2xO/Untitled
+**Figma Make:** https://www.figma.com/make/DDCs2kpcLYw6E3Q1EcDjCK/Detailed-Webshop-Design
+
+### Frame mapping
+
+| Frame | Content | Related spec |
+|-------|---------|--------------|
+| Design Tokens & Components | Colors, typography, buttons, cards, badges | design-system.md |
+| Homepage Desktop (1280px) | Header, Hero, Featured, Subscription CTA, Stories, Testimonials, Footer | product-catalog.md |
+| Homepage Mobile (375px) | Hamburger drawer, mobile hero, 1-column layout | product-catalog.md |
+| Coffee Catalog | Filter sidebar, 3-column grid, sorting | product-catalog.md |
+| Product Detail | Variant selector, reviews, recommended products | product-catalog.md, reviews-wishlist.md |
+| Cart | Cart items, coupon/gift card input, summary | cart-checkout.md |
+| Checkout 3-Step | Shipping, payment, confirmation | cart-checkout.md |
+| Subscription Wizard | 5-step wizard (coffee, form, frequency, delivery, summary) | subscription.md |
+| User Subscriptions & Calendar | Subscription card, calendar view | subscription.md |
+| User Orders & Profile | Profile, addresses, orders, favorites | user-accounts.md, reviews-wishlist.md |
+| Admin Dashboard | KPI cards, revenue chart, top products, low stock | admin.md |
+| Admin Products | Product list, editor tabs, bundle editor | admin.md |
+| Admin Orders & Deliveries | Order list, daily deliveries view | admin.md |
+| Admin Coupons/Promo/Gift/Reviews | 4 admin management pages | admin.md, promotions.md, reviews-wishlist.md |
+| Stories | Story list + detail + admin editor | content-stories.md |
+| Auth Pages | Login, register, password reset | user-accounts.md |
+| Special States | 404, 500, empty states, loading, toast, promo banner | — |
+| Email Templates | Welcome, order, shipping, gift card | email-notifications.md |
+
+> Agents read Figma frames via Figma MCP during implementation. The design-bridge rule (.claude/rules/design-bridge.md) instructs them to follow design tokens and component structure.
+
 ## Brand
 
 **CraftBrew** — warm, artisanal, premium but not elitist. The joy and community of coffee.
@@ -54,69 +84,7 @@ Sizing:
 - Grid gap: gap-6 (24px) desktop, gap-4 (16px) mobile
 - Border radius: rounded-lg (8px) cards, rounded-md (6px) buttons/inputs
 
-## Homepage Layout (`/hu`)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  ┌─ Header ───────────────────────────────────────────────┐│
-│  │ 🔶 CraftBrew    Coffees  Equipment  Stories  🔍  🛒 EN││
-│  └────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─ Hero Banner ──────────────────────────────────────────┐│
-│  │                                                         ││
-│  │  "Specialty coffee,                                     ││
-│  │   delivered to your table."  [Browse our coffees →]    ││
-│  │                                                         ││
-│  │  (background: large coffee bean/cup image placeholder)  ││
-│  │                                                         ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─ Featured Coffees ───────────────────────────────────────┐│
-│  │  "Our Favorites"                                        ││
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  ││
-│  │  │ Ethiopia │ │ Colombia │ │ Rwanda   │ │ Kenya    │  ││
-│  │  │ 2490 Ft  │ │ 2890 Ft  │ │ 3490 Ft  │ │ 3290 Ft  │  ││
-│  │  │ ★★★★★    │ │ ★★★★☆    │ │ ★★★★★    │ │ ★★★★☆    │  ││
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘  ││
-│  │                          [View all →]                   ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─ Subscription CTA ──────────────────────────────────────┐│
-│  │  ┌──────────────────────────────────────────────────┐  ││
-│  │  │  "Fresh coffee every morning — with a sub"       │  ││
-│  │  │  Daily delivery in Budapest, 15% discount        │  ││
-│  │  │                                                  │  ││
-│  │  │  [Subscription details →]                        │  ││
-│  │  └──────────────────────────────────────────────────┘  ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─ Testimonials ────────────────────────────────────────────┐│
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               ││
-│  │  │ ★★★★★    │ │ ★★★★★    │ │ ★★★★☆    │               ││
-│  │  │ "The best│ │ "The     │ │ "Always  │               ││
-│  │  │ coffee   │ │ Starter  │ │ arrives  │               ││
-│  │  │ of my    │ │ Pack is  │ │ fresh"   │               ││
-│  │  │ life"    │ │ perfect" │ │          │               ││
-│  │  │ Kiss J.  │ │ Toth M.  │ │ Szabo K. │               ││
-│  │  └──────────┘ └──────────┘ └──────────┘               ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─ Footer ───────────────────────────────────────────────┐│
-│  │  CraftBrew              Products          Contact      ││
-│  │  Specialty Coffee        Coffees           hello@craft ││
-│  │  Budapest               Equipment          brew.hu     ││
-│  │                          Stories                        ││
-│  │  © 2026 CraftBrew       Subscription       [FB] [IG]  ││
-│  └────────────────────────────────────────────────────────┘│
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Responsive Rules (CRITICAL)
-
-The entire application must be responsive. On mobile (< 640px) nothing should overflow or shift out of alignment.
-
-### Breakpoints
+## Responsive Breakpoints
 
 | Breakpoint | Width | Characteristics |
 |---|---|---|
@@ -124,120 +92,16 @@ The entire application must be responsive. On mobile (< 640px) nothing should ov
 | Tablet | 640px - 1023px | 2 column grid, compact nav |
 | Desktop | >= 1024px | 3-4 column grid, full nav |
 
-### Mobile-Specific Rules
+## Mobile Rules (CRITICAL)
 
-**Header:**
-- Logo + hamburger icon (NOT: all menu items spelled out!)
-- Hamburger click -> slide-in drawer (from left side)
-- Drawer content: menu items, language, cart, profile
-- Drawer close: overlay click or X button
-
-```
-Mobile header:
-┌─────────────────────────────┐
-│ ☰  🔶 CraftBrew     🔍 🛒  │
-└─────────────────────────────┘
-
-Drawer open:
-┌────────────────┬────────────┐
-│ ✕              │            │
-│                │  (overlay) │
-│ Coffees        │            │
-│ Equipment      │            │
-│ Stories        │            │
-│ Subscription   │            │
-│ ────────────── │            │
-│ 🛒 Cart (3)   │            │
-│ 👤 My Account │            │
-│ 🌐 EN         │            │
-└────────────────┴────────────┘
-```
-
-**Product Cards:**
-- 1 column, full width
-- Card: horizontal layout (image left, info right) OR vertical (image on top)
-- Price and stars clearly visible
-- Minimum touch target: 44x44px for every interactive element
-
-**Product Details:**
-- Image full width
-- Variant selector below it
-- Add-to-cart button in sticky bottom bar
-
-```
-Mobile product details:
-┌─────────────────────────────┐
-│ [← Back]                    │
-│                             │
-│ ┌─────────────────────────┐ │
-│ │                         │ │
-│ │    PRODUCT IMAGE        │ │
-│ │                         │ │
-│ └─────────────────────────┘ │
-│                             │
-│ Ethiopia Yirgacheffe        │
-│ ★★★★★ (12)                  │
-│ From 2 490 Ft               │
-│                             │
-│ Form: [Whole Bean ▼]        │
-│ Size: ○ 250g ● 500g ○ 1kg  │
-│                             │
-│ [description...]            │
-│                             │
-│ ─── Recommended With ─────  │
-│ [V60] [Filter]              │
-│                             │
-│ ─── Reviews ──────────────  │
-│ [review list...]            │
-│                             │
-├─────────────────────────────┤
-│  4 680 Ft  [███ Add to Cart]│  ← sticky bottom bar
-└─────────────────────────────┘
-```
-
-**Cart:**
-- Items in vertical list
-- Quantity buttons well-touchable (min 44px)
-- Summary sticky at bottom
-
-**Checkout:**
-- Steps arranged vertically
-- Form fields full width
-- "Pay" button sticky at bottom
-
-**Admin:**
-- Sidebar -> hamburger drawer
-- DataTables horizontally scrollable (must not break!)
-- Forms in vertical layout
-
-### General Mobile Rules
-
-1. **Overflow hidden** — nothing should overflow horizontally, no horizontal scroll on the page (except DataTable)
+1. **No horizontal overflow** — nothing should overflow horizontally (except DataTable)
 2. **Touch target** — minimum 44x44px for every button, link, checkbox
 3. **Font size** — minimum 16px in input fields (iOS zoom prevention)
 4. **Safe area** — padding-bottom for sticky elements (iOS bottom bar)
 5. **Images** — `object-fit: cover`, fixed aspect ratio, no distortion
 6. **Modal/Dialog** — on mobile use full-screen sheet (sliding up from bottom), not a small modal
 
-### Header Mobile (C01)
-
-- Desktop: full navigation bar
-- Mobile: hamburger icon → slide-in drawer (no overflow)
-- Drawer contains: menu items, language switcher, cart, profile
-
-## Promo Banner
-
-On promo day, appears at the top of the homepage (above hero):
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🎉 CraftBrew turns 1! 20% off everything!           [✕]  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- Background color: brand-secondary (#D97706)
-- Text: white, font-semibold
-- Dismissible (X button), but returns on page reload (session cookie)
+> For visual reference of all layouts (desktop + mobile), see the Figma frames listed above.
 
 ## Components
 

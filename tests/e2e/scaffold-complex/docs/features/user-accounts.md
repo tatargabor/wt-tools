@@ -1,5 +1,7 @@
 # User Accounts Feature
 
+> **Figma frames:** Auth Pages, User Orders & Profile — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Registration
 
 Form fields:

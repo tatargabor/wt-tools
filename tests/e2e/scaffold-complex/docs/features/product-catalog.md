@@ -1,5 +1,7 @@
 # Product Catalog Feature
 
+> **Figma frames:** Homepage Desktop, Homepage Mobile, Coffee Catalog, Product Detail — see [design-system.md](../design/design-system.md#frame-mapping)
+
 ## Homepage
 
 The homepage (`/hu` or `/en`) is the main entry point for customers.
