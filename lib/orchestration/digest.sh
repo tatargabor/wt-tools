@@ -999,7 +999,7 @@ populate_coverage() {
             if [[ "$already_covered" == "false" ]]; then
                 local prev_entry
                 prev_entry=$(jq --arg id "$prev_id" '.[$id]' "$merged_history")
-                coverage=$(echo "$coverage" | jq --arg id "$prev_id" --argjson entry "$prev_entry" '.[$id] = $entry')
+                coverage=$(echo "$coverage" | jq --arg id "$prev_id" --argjson entry "$prev_entry" '.[$id] = ($entry + {phase: "previous"})')
             fi
         done <<< "$prev_ids"
         log_info "Restored $(echo "$prev_ids" | grep -c . || true) previously-merged requirements from history"
