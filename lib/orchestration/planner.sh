@@ -699,6 +699,13 @@ ${orch_mem}"
         test_infra_context="Test Infrastructure: NONE — first change must set up test framework"
     fi
 
+    # Detect design MCP (non-fatal — pipeline unchanged if absent)
+    local design_context=""
+    if setup_design_bridge 2>/dev/null; then
+        design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
+        log_info "Design bridge active: $DESIGN_MCP_NAME (ref: ${DESIGN_FILE_REF:-none})"
+    fi
+
     # Build decomposition prompt (tri-mode: digest vs spec vs brief)
     local input_content
     local hash
@@ -916,7 +923,8 @@ $req_entries"
             --arg req_context "${req_context:-}" \
             --arg active_changes "$active_changes" \
             --arg coverage_info "$coverage_info" \
-            '{input_content: $input_content, specs: $specs, memory: $memory, replan_ctx: $replan_ctx, mode: $mode, phase_instruction: $phase_instruction, input_mode: $input_mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes, coverage_info: $coverage_info}' \
+            --arg design_context "${design_context:-}" \
+            '{input_content: $input_content, specs: $specs, memory: $memory, replan_ctx: $replan_ctx, mode: $mode, phase_instruction: $phase_instruction, input_mode: $input_mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes, coverage_info: $coverage_info, design_context: $design_context}' \
             > "$_plan_input_file"
         prompt=$(wt-orch-core template planning --mode spec --input-file "$_plan_input_file")
         rm -f "$_plan_input_file"
@@ -933,7 +941,8 @@ $req_entries"
             --arg pk_context "${pk_context:-}" \
             --arg req_context "${req_context:-}" \
             --arg active_changes "$active_changes" \
-            '{input_content: $input_content, specs: $specs, memory: $memory, mode: $mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes}' \
+            --arg design_context "${design_context:-}" \
+            '{input_content: $input_content, specs: $specs, memory: $memory, mode: $mode, test_infra_context: $test_infra_context, pk_context: $pk_context, req_context: $req_context, active_changes: $active_changes, design_context: $design_context}' \
             > "$_plan_input_file"
         prompt=$(wt-orch-core template planning --mode brief --input-file "$_plan_input_file")
         rm -f "$_plan_input_file"

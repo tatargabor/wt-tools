@@ -41,7 +41,14 @@ Decompose a specification document into an orchestration execution plan.
    ```
    List existing specs and active changes to avoid duplication.
 
-6. **Generate the plan**
+6. **Check for design tool** (skip if no design MCP available)
+   - If a design MCP (figma, penpot, sketch, zeplin) is registered in `.claude/settings.json`, query it for:
+     - Frame/page inventory — what screens/views are designed
+     - Component hierarchy — shared components, variants
+   - Map design frames to planned changes (e.g., `design_ref: "frame:Login"`)
+   - If a spec item requires UI but no matching design frame exists, add a `design_gap` ambiguity
+
+7. **Generate the plan**
 
    Write `orchestration-plan.json` to the project root with this schema:
 
@@ -59,6 +66,7 @@ Decompose a specification document into an orchestration execution plan.
          "has_manual_tasks": false,
          "depends_on": ["other-change-name"],
          "roadmap_item": "The spec section this implements",
+         "design_ref": "frame:PageName or component:ComponentName (optional, from design tool)",
          "spec_files": ["path/relative/to/spec-dir.md"],
          "requirements": ["REQ-DOMAIN-001"],
          "also_affects_reqs": ["REQ-CROSS-001"]
@@ -91,6 +99,11 @@ Decompose a specification document into an orchestration execution plan.
 
 **Manual tasks:**
 - Set `has_manual_tasks: true` for changes needing external intervention (API keys, DNS, OAuth setup)
+
+**Design gap detection:**
+- If a design tool is available and a change involves UI, include `design_ref` pointing to the relevant frame
+- If the spec describes a page/screen but no matching design frame exists, flag it as a `design_gap` ambiguity in the plan reasoning
+- Changes with design gaps can still proceed but the gap is recorded for user resolution
 
 **Project type integration:**
 - If `wt/plugins/project-type.yaml` exists, use its verification rules to inform change_type and dependency ordering

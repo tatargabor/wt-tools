@@ -381,6 +381,7 @@ def render_planning_prompt(
     req_context: str = "",
     active_changes: str = "",
     coverage_info: str = "",
+    design_context: str = "",
 ) -> str:
     """Render planning prompt for Claude decomposition.
 
@@ -401,6 +402,7 @@ def render_planning_prompt(
         req_context: Requirements context
         active_changes: Active changes summary
         coverage_info: Coverage status text
+        design_context: Design tool prompt section (from design bridge)
     """
     if replan_ctx is None:
         replan_ctx = {}
@@ -416,6 +418,9 @@ def render_planning_prompt(
 
     if req_context and req_context.strip():
         sections.append(f"\n{req_context}")
+
+    if design_context and design_context.strip():
+        sections.append(f"\n{design_context}")
 
     optional_text = "\n".join(sections)
 

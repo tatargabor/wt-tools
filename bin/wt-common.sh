@@ -499,10 +499,16 @@ run_claude() {
         printf -v quoted_args '%q ' "$@"
     fi
 
+    # Design MCP passthrough: if DESIGN_MCP_CONFIG is set, add --mcp-config
+    local mcp_arg=""
+    if [[ -n "${DESIGN_MCP_CONFIG:-}" && -f "${DESIGN_MCP_CONFIG:-}" ]]; then
+        mcp_arg="--mcp-config $(printf '%q' "$DESIGN_MCP_CONFIG")"
+    fi
+
     # Build wrapper script (avoids quoting hell with script -c)
     cat > "$tmpscript" <<WRAPPER
 #!/bin/bash
-exec env -u CLAUDECODE claude -p "\$(cat '$tmpprompt')" --dangerously-skip-permissions $quoted_args
+exec env -u CLAUDECODE claude -p "\$(cat '$tmpprompt')" --dangerously-skip-permissions $mcp_arg $quoted_args
 WRAPPER
     chmod +x "$tmpscript"
 
