@@ -60,6 +60,9 @@ def cmd_state(args):
                 val = getattr(c, args.field, None)
                 if val is None and args.field in c.extras:
                     val = c.extras[args.field]
+                # Serialize dataclass objects to dict for JSON output
+                if hasattr(val, "to_dict"):
+                    val = val.to_dict()
                 if isinstance(val, (dict, list)):
                     json.dump(val, sys.stdout)
                     print()
