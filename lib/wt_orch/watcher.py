@@ -194,13 +194,22 @@ class WatcherManager:
 
         try:
             with open(projects_file) as f:
-                projects = json.load(f)
+                data = json.load(f)
         except (json.JSONDecodeError, OSError):
             return
 
-        for p in projects:
-            name = p.get("name", "")
-            path = Path(p.get("path", ""))
+        # Format: {"projects": {"name": {"path": "...", ...}}}
+        projects = {}
+        if isinstance(data, dict) and "projects" in data:
+            projects = data["projects"]
+        elif isinstance(data, list):
+            # Legacy list format
+            projects = {p.get("name", ""): p for p in data if isinstance(p, dict)}
+
+        for name, info in projects.items():
+            if not isinstance(info, dict):
+                continue
+            path = Path(info.get("path", ""))
             if name and path.is_dir():
                 self._start_project_watcher(name, path)
 

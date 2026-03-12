@@ -27,13 +27,26 @@ PROJECTS_FILE = Path.home() / ".config" / "wt-tools" / "projects.json"
 
 
 def _load_projects() -> list[dict]:
-    """Load registered projects from ~/.config/wt-tools/projects.json."""
+    """Load registered projects from ~/.config/wt-tools/projects.json.
+
+    Format: {"projects": {"name": {"path": "...", "addedAt": "..."}}, "default": "..."}
+    Returns: [{"name": "...", "path": "..."}]
+    """
     if not PROJECTS_FILE.exists():
         return []
     try:
         with open(PROJECTS_FILE) as f:
             data = json.load(f)
-        return data if isinstance(data, list) else []
+        if isinstance(data, dict) and "projects" in data:
+            return [
+                {"name": name, "path": info.get("path", "")}
+                for name, info in data["projects"].items()
+                if isinstance(info, dict)
+            ]
+        # Legacy: list format
+        if isinstance(data, list):
+            return data
+        return []
     except (json.JSONDecodeError, OSError):
         return []
 
