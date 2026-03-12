@@ -9,13 +9,7 @@ export function useProject() {
 
   useEffect(() => {
     getProjects()
-      .then((list) => {
-        setProjects(list)
-        // If no project in URL, redirect to first project
-        if (!urlProject && list.length > 0) {
-          navigate(`/wt/${list[0].name}`, { replace: true })
-        }
-      })
+      .then(setProjects)
       .catch(() => {})
   }, [])
 

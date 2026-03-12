@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Worktrees from './pages/Worktrees'
+import Home from './pages/Home'
 import ProjectSelector from './components/ProjectSelector'
 import { useProject } from './hooks/useProject'
 
@@ -8,17 +9,15 @@ function ProjectLayout() {
   const { project, setProject, projects } = useProject()
   const location = useLocation()
 
-  // Determine active tab from URL
   const pathAfterProject = location.pathname.split('/').slice(3).join('/')
   const activeTab = pathAfterProject || 'dashboard'
 
   return (
     <div className="flex h-screen bg-neutral-950 text-neutral-200">
-      {/* Sidebar */}
       <aside className="w-56 shrink-0 border-r border-neutral-800 flex flex-col">
-        <div className="p-4 border-b border-neutral-800">
+        <Link to="/wt" className="block p-4 border-b border-neutral-800 hover:bg-neutral-900 transition-colors">
           <h1 className="text-sm font-semibold text-neutral-100 tracking-wide">wt-tools</h1>
-        </div>
+        </Link>
         <div className="p-3">
           <ProjectSelector
             projects={projects}
@@ -28,13 +27,13 @@ function ProjectLayout() {
         </div>
         <nav className="flex-1 p-3 space-y-1">
           <Link
-            to={project ? `/wt/${project}` : '/'}
+            to={project ? `/wt/${project}` : '/wt'}
             className={`block px-3 py-2 rounded text-sm ${activeTab === 'dashboard' ? 'bg-neutral-800 text-neutral-100' : 'hover:bg-neutral-800 text-neutral-300'}`}
           >
             Dashboard
           </Link>
           <Link
-            to={project ? `/wt/${project}/worktrees` : '/'}
+            to={project ? `/wt/${project}/worktrees` : '/wt'}
             className={`block px-3 py-2 rounded text-sm ${activeTab === 'worktrees' ? 'bg-neutral-800 text-neutral-100' : 'hover:bg-neutral-800 text-neutral-300'}`}
           >
             Worktrees
@@ -42,7 +41,6 @@ function ProjectLayout() {
         </nav>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-auto">
         <Routes>
           <Route index element={<Dashboard project={project} />} />
@@ -53,17 +51,27 @@ function ProjectLayout() {
   )
 }
 
-function RootRedirect() {
-  // Redirect / to /wt/ which will then redirect to the first project
-  return <Navigate to="/wt/" replace />
+function HomeLayout() {
+  return (
+    <div className="flex h-screen bg-neutral-950 text-neutral-200">
+      <aside className="w-56 shrink-0 border-r border-neutral-800 flex flex-col">
+        <div className="p-4 border-b border-neutral-800">
+          <h1 className="text-sm font-semibold text-neutral-100 tracking-wide">wt-tools</h1>
+        </div>
+      </aside>
+      <main className="flex-1 overflow-auto">
+        <Home />
+      </main>
+    </div>
+  )
 }
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/wt" element={<ProjectLayout />} />
+        <Route path="/" element={<Navigate to="/wt" replace />} />
+        <Route path="/wt" element={<HomeLayout />} />
         <Route path="/wt/:project/*" element={<ProjectLayout />} />
       </Routes>
     </BrowserRouter>
