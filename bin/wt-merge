@@ -578,14 +578,41 @@ main() {
 
     # Merge (|| true to prevent set -e from killing on conflict)
     local merge_result=0
+    local merge_stderr
+    merge_stderr=$(mktemp)
     if $squash; then
-        git merge --squash "$source_branch" || merge_result=$?
+        git merge --squash "$source_branch" 2>"$merge_stderr" || merge_result=$?
         if [[ $merge_result -eq 0 ]]; then
             git commit -m "Squashed merge of '$source_branch'" || merge_result=$?
         fi
     else
-        git merge "$source_branch" -m "Merge '$source_branch' into '$target_branch'" || merge_result=$?
+        git merge "$source_branch" -m "Merge '$source_branch' into '$target_branch'" 2>"$merge_stderr" || merge_result=$?
     fi
+
+    # Handle "untracked working tree files would be overwritten by merge"
+    if [[ $merge_result -ne 0 ]] && grep -q "untracked working tree files would be overwritten" "$merge_stderr" 2>/dev/null; then
+        # Extract the blocking file list from stderr
+        local blocking_files
+        blocking_files=$(grep -A 100 "untracked working tree files would be overwritten" "$merge_stderr" | grep $'^\t' | sed 's/^\t//')
+        if [[ -n "$blocking_files" ]]; then
+            warn "Untracked files blocking merge — removing them:"
+            while IFS= read -r f; do
+                info "  removing untracked: $f"
+                rm -f "$f"
+            done <<< "$blocking_files"
+            # Retry merge
+            merge_result=0
+            if $squash; then
+                git merge --squash "$source_branch" 2>/dev/null || merge_result=$?
+                if [[ $merge_result -eq 0 ]]; then
+                    git commit -m "Squashed merge of '$source_branch'" || merge_result=$?
+                fi
+            else
+                git merge "$source_branch" -m "Merge '$source_branch' into '$target_branch'" 2>/dev/null || merge_result=$?
+            fi
+        fi
+    fi
+    rm -f "$merge_stderr"
 
     if [[ $merge_result -ne 0 ]]; then
         # Check if conflicts are only in auto-resolvable generated files
