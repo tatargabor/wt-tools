@@ -86,18 +86,25 @@ init_state() {
     log_info "State initialized with $change_count changes (plan v$plan_version)"
 }
 
-# Update a top-level field in state
+# Update a top-level field in state (locked + validated)
 update_state_field() {
     local field="$1"
     local value="$2"
-    local tmp
-    tmp=$(mktemp)
-    jq ".$field = $value" "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+    with_state_lock safe_jq_update "$STATE_FILENAME" ".$field = $value"
 }
 
-# Update a change's field in state
+# Update a change's field in state (locked + validated)
 # Automatically emits STATE_CHANGE event when status field changes
 update_change_field() {
+    local change_name="$1"
+    local field="$2"
+    local value="$3"
+
+    with_state_lock _update_change_field_locked "$change_name" "$field" "$value"
+}
+
+# Internal: runs under state lock
+_update_change_field_locked() {
     local change_name="$1"
     local field="$2"
     local value="$3"
@@ -105,14 +112,11 @@ update_change_field() {
     # Capture old status before update for event emission
     local old_status=""
     if [[ "$field" == "status" ]]; then
-        old_status=$(jq -r --arg name "$change_name" '.changes[] | select(.name == $name) | .status // ""' "$STATE_FILENAME" 2>/dev/null)
+        old_status=$(jq -r --arg name "$change_name" '.changes[] | select(.name == $name) | .status // ""' "$STATE_FILENAME")
     fi
 
-    local tmp
-    tmp=$(mktemp)
-    jq --arg name "$change_name" --argjson val "$value" \
-        '(.changes[] | select(.name == $name)).'$field' = $val' \
-        "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+    safe_jq_update "$STATE_FILENAME" --arg name "$change_name" --argjson val "$value" \
+        '(.changes[] | select(.name == $name)).'"$field"' = $val'
 
     # Emit STATE_CHANGE event on status transitions
     if [[ "$field" == "status" && -n "$old_status" ]]; then
@@ -124,8 +128,8 @@ update_change_field() {
             # Trigger on_fail hook when a change transitions to failed
             if [[ "$new_status" == "failed" ]]; then
                 local wt_path_for_hook
-                wt_path_for_hook=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                run_hook "on_fail" "$change_name" "failed" "$wt_path_for_hook" || true
+                wt_path_for_hook=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME" 2>/dev/null || true)  # expected: worktree may not exist
+                run_hook "on_fail" "$change_name" "failed" "$wt_path_for_hook" || true  # expected: hook may not be defined
             fi
         fi
     fi
@@ -133,7 +137,7 @@ update_change_field() {
     # Emit TOKENS event on significant token updates
     if [[ "$field" == "tokens_used" ]]; then
         local prev_tokens
-        prev_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME" 2>/dev/null)
+        prev_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME")
         local delta=$((value - prev_tokens))
         # Only emit on significant deltas (>10K tokens)
         if [[ "$delta" -gt 10000 || "$delta" -lt -10000 ]]; then
@@ -146,19 +150,34 @@ update_change_field() {
 # Get a change's status
 get_change_status() {
     local change_name="$1"
-    jq -r --arg name "$change_name" '.changes[] | select(.name == $name) | .status' "$STATE_FILENAME"
+    local result
+    if ! result=$(jq -r --arg name "$change_name" '.changes[] | select(.name == $name) | .status' "$STATE_FILENAME" 2>&1); then
+        log_error "get_change_status: invalid JSON in $STATE_FILENAME — $result"
+        return 1
+    fi
+    echo "$result"
 }
 
 # Get all changes with a specific status
 get_changes_by_status() {
     local status="$1"
-    jq -r --arg s "$status" '[.changes[] | select(.status == $s) | .name] | .[]' "$STATE_FILENAME"
+    local result
+    if ! result=$(jq -r --arg s "$status" '[.changes[] | select(.status == $s) | .name] | .[]' "$STATE_FILENAME" 2>&1); then
+        log_error "get_changes_by_status: invalid JSON in $STATE_FILENAME — $result"
+        return 1
+    fi
+    echo "$result"
 }
 
 # Count changes with a specific status
 count_changes_by_status() {
     local status="$1"
-    jq --arg s "$status" '[.changes[] | select(.status == $s)] | length' "$STATE_FILENAME"
+    local result
+    if ! result=$(jq --arg s "$status" '[.changes[] | select(.status == $s)] | length' "$STATE_FILENAME" 2>&1); then
+        log_error "count_changes_by_status: invalid JSON in $STATE_FILENAME — $result"
+        return 1
+    fi
+    echo "$result"
 }
 
 # Check if all depends_on for a change are merged
@@ -392,7 +411,7 @@ cmd_status() {
     # Detect stale "running" status (process crashed without cleanup)
     if [[ "$status" == "running" ]]; then
         local state_mtime now_epoch staleness
-        state_mtime=$(stat --format='%Y' "$STATE_FILENAME" 2>/dev/null || echo 0)
+        state_mtime=$(stat -c %Y "$STATE_FILENAME" 2>/dev/null || stat -f %m "$STATE_FILENAME" 2>/dev/null || echo 0)
         now_epoch=$(date +%s)
         staleness=$((now_epoch - state_mtime))
         if [[ "$staleness" -gt 120 ]]; then
@@ -578,6 +597,12 @@ cmd_status() {
     echo ""
 }
 
+# Internal: approve checkpoint under state lock
+_approve_checkpoint_locked() {
+    safe_jq_update "$STATE_FILENAME" '(.checkpoints[-1]).approved = true'
+    safe_jq_update "$STATE_FILENAME" '.status = "running"'
+}
+
 cmd_approve() {
     local merge_flag=false
     local change_name=""
@@ -628,11 +653,8 @@ cmd_approve() {
         return 1
     fi
 
-    # Mark latest checkpoint as approved
-    local tmp
-    tmp=$(mktemp)
-    jq '(.checkpoints[-1]).approved = true' "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
-    update_state_field "status" '"running"'
+    # Mark latest checkpoint as approved + resume (under single lock)
+    with_state_lock _approve_checkpoint_locked
 
     log_info "Checkpoint approved (merge=$merge_flag)"
     success "Checkpoint approved"
@@ -645,6 +667,14 @@ cmd_approve() {
 
 # ─── Checkpoint & Summary ────────────────────────────────────────────
 
+# Internal: add checkpoint + reset counter under state lock
+_trigger_checkpoint_locked() {
+    local reason="$1"
+    safe_jq_update "$STATE_FILENAME" --arg at "$(date -Iseconds)" --arg reason "$reason" \
+        '.checkpoints += [{at: $at, type: $reason, approved: false}]'
+    safe_jq_update "$STATE_FILENAME" '.changes_since_checkpoint = 0'
+}
+
 trigger_checkpoint() {
     local reason="$1"
 
@@ -654,21 +684,14 @@ trigger_checkpoint() {
     # Generate summary (non-fatal — don't let summary crash kill the orchestrator)
     generate_summary "$reason" || log_warn "Summary generation failed (non-fatal)"
 
-    # Add checkpoint to state
-    local tmp
-    tmp=$(mktemp)
-    jq --arg at "$(date -Iseconds)" --arg reason "$reason" \
-        '.checkpoints += [{at: $at, type: $reason, approved: false}]' \
-        "$STATE_FILENAME" > "$tmp" && mv "$tmp" "$STATE_FILENAME"
+    # Add checkpoint to state + reset counter (single lock)
+    with_state_lock _trigger_checkpoint_locked "$reason"
 
-    # Reset counter
-    update_state_field "changes_since_checkpoint" "0"
-
-    # Send notification
+    # Send notification (reads are non-critical, outside lock)
     local total
-    total=$(jq '.changes | length' "$STATE_FILENAME")
+    total=$(jq '.changes | length' "$STATE_FILENAME" 2>/dev/null || echo 0)  # expected: state may be mid-write
     local done_count
-    done_count=$(jq '[.changes[] | select(.status == "done" or .status == "merged")] | length' "$STATE_FILENAME")
+    done_count=$(jq '[.changes[] | select(.status == "done" or .status == "merged")] | length' "$STATE_FILENAME" 2>/dev/null || echo 0)
     local running
     running=$(count_changes_by_status "running")
     send_notification "wt-orchestrate" "Checkpoint ($reason): $done_count/$total done, $running running. Run 'wt-orchestrate approve' to continue."
@@ -676,10 +699,7 @@ trigger_checkpoint() {
     # Auto-approve if directive is set (unattended/E2E mode)
     if [[ "${CHECKPOINT_AUTO_APPROVE:-false}" == "true" ]]; then
         log_info "Checkpoint auto-approved (checkpoint_auto_approve=true)"
-        local tmp2
-        tmp2=$(mktemp)
-        jq '.checkpoints[-1].approved = true' "$STATE_FILENAME" > "$tmp2" && mv "$tmp2" "$STATE_FILENAME"
-        update_state_field "status" '"running"'
+        with_state_lock _approve_checkpoint_locked
         return
     fi
 
@@ -837,9 +857,8 @@ reconstruct_state_from_events() {
                 local final_status
                 final_status=$(echo "$final_statuses" | jq -r --arg n "$cname" '.[$n] // empty')
                 [[ -z "$final_status" ]] && continue
-                jq --arg n "$cname" --arg s "$final_status" \
-                    '(.changes[] | select(.name == $n) | .status) = $s' \
-                    "$tmp_state" > "${tmp_state}.2" && mv "${tmp_state}.2" "$tmp_state"
+                safe_jq_update "$tmp_state" --arg n "$cname" --arg s "$final_status" \
+                    '(.changes[] | select(.name == $n) | .status) = $s'
             done <<< "$change_names"
         fi
     fi
@@ -860,9 +879,8 @@ reconstruct_state_from_events() {
                 [[ -z "$tname" ]] && continue
                 local tokens
                 tokens=$(echo "$final_tokens" | jq -r --arg n "$tname" '.[$n] // 0')
-                jq --arg n "$tname" --argjson t "$tokens" \
-                    '(.changes[] | select(.name == $n) | .tokens_used) = $t' \
-                    "$tmp_state" > "${tmp_state}.2" && mv "${tmp_state}.2" "$tmp_state"
+                safe_jq_update "$tmp_state" --arg n "$tname" --argjson t "$tokens" \
+                    '(.changes[] | select(.name == $n) | .tokens_used) = $t'
             done <<< "$tnames"
         fi
     fi
@@ -881,8 +899,8 @@ reconstruct_state_from_events() {
                 all_done=false
                 any_active=true
                 # Running changes with no live process should be stalled
-                jq '(.changes[] | select(.status == "running") | .status) = "stalled"' \
-                    "$tmp_state" > "${tmp_state}.2" && mv "${tmp_state}.2" "$tmp_state"
+                safe_jq_update "$tmp_state" \
+                    '(.changes[] | select(.status == "running") | .status) = "stalled"'
                 ;;
             *)
                 all_done=false
@@ -891,17 +909,22 @@ reconstruct_state_from_events() {
     done <<< "$change_statuses"
 
     if $all_done; then
-        jq '.status = "done"' "$tmp_state" > "${tmp_state}.2" && mv "${tmp_state}.2" "$tmp_state"
+        safe_jq_update "$tmp_state" '.status = "done"'
     else
-        jq '.status = "stopped"' "$tmp_state" > "${tmp_state}.2" && mv "${tmp_state}.2" "$tmp_state"
+        safe_jq_update "$tmp_state" '.status = "stopped"'
     fi
 
-    # 4. Write reconstructed state
-    mv "$tmp_state" "$state_file"
+    # 4. Write reconstructed state (validate + lock)
+    if ! jq empty "$tmp_state" 2>/dev/null; then
+        log_error "reconstruct_state: reconstructed state is invalid JSON — aborting"
+        rm -f "$tmp_state"
+        return 1
+    fi
+
+    with_state_lock mv "$tmp_state" "$state_file"
 
     local final_orch_status
     final_orch_status=$(jq -r '.status' "$state_file" 2>/dev/null)
-    log_info "State reconstructed: orchestration status=$final_orch_status"
 
     emit_event "STATE_RECONSTRUCTED" "" \
         "{\"event_count\":$event_count,\"status\":\"$final_orch_status\"}"

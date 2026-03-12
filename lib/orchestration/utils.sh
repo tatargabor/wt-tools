@@ -1,6 +1,47 @@
 #!/usr/bin/env bash
-# lib/orchestration/utils.sh — Parsing, duration, hashing, directive resolution
+# lib/orchestration/utils.sh — Parsing, duration, hashing, directive resolution, safe state primitives
 # Sourced by bin/wt-orchestrate after config.sh
+
+# ─── Safe State Primitives ────────────────────────────────────────────
+
+# Atomically update a JSON file via jq. Validates output before overwriting.
+# Usage: safe_jq_update <file> [jq args...]
+# Returns 1 if jq fails or produces empty output; original file is untouched.
+safe_jq_update() {
+    local file="$1"; shift
+    local _sjq_tmp _sjq_err
+    _sjq_tmp=$(mktemp)
+    _sjq_err=$(mktemp)
+
+    if ! jq "$@" "$file" > "$_sjq_tmp" 2>"$_sjq_err"; then
+        log_error "safe_jq_update: jq failed on $file — $(cat "$_sjq_err" 2>/dev/null)"
+        rm -f "$_sjq_tmp" "$_sjq_err"
+        return 1
+    fi
+    rm -f "$_sjq_err"
+
+    if [[ ! -s "$_sjq_tmp" ]]; then
+        log_error "safe_jq_update: jq produced empty output for $file"
+        rm -f "$_sjq_tmp"
+        return 1
+    fi
+
+    mv "$_sjq_tmp" "$file"
+}
+
+# Acquire exclusive flock on STATE_FILENAME and execute a command.
+# Usage: with_state_lock <command> [args...]
+# Returns the exit code of the wrapped command, or 1 on lock timeout.
+with_state_lock() {
+    local lock_file="${STATE_FILENAME}.lock"
+    (
+        flock --timeout 10 200 || {
+            log_error "with_state_lock: timeout acquiring lock on $STATE_FILENAME"
+            return 1
+        }
+        "$@"
+    ) 200>"$lock_file"
+}
 
 parse_duration() {
     local input="$1"
@@ -56,7 +97,7 @@ any_loop_active() {
         local loop_state="$wt_path/.claude/loop-state.json"
         if [[ -f "$loop_state" ]]; then
             local mtime
-            mtime=$(stat --format='%Y' "$loop_state" 2>/dev/null || echo 0)
+            mtime=$(stat -c %Y "$loop_state" 2>/dev/null || stat -f %m "$loop_state" 2>/dev/null || echo 0)
             local age=$((now - mtime))
             if [[ "$age" -lt "$stale_threshold" ]]; then
                 return 0  # at least one loop is active
