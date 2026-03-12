@@ -1,0 +1,58 @@
+import type { StateData } from '../lib/api'
+
+interface Props {
+  state: StateData | null
+  connected: boolean
+  project: string
+}
+
+function formatTokens(n?: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+export default function StatusHeader({ state, connected, project }: Props) {
+  const statusBadge = state?.status ?? 'unknown'
+  const badgeColor: Record<string, string> = {
+    running: 'bg-green-900 text-green-300',
+    checkpoint: 'bg-yellow-900 text-yellow-300',
+    completed: 'bg-blue-900 text-blue-300',
+    stopped: 'bg-neutral-800 text-neutral-400',
+    failed: 'bg-red-900 text-red-300',
+  }
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-3 border-b border-neutral-800 bg-neutral-900/50">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-neutral-100">{project}</h2>
+        <span className={`px-2 py-0.5 rounded text-xs font-medium ${badgeColor[statusBadge] ?? 'bg-neutral-800 text-neutral-400'}`}>
+          {statusBadge}
+        </span>
+        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} title={connected ? 'Connected' : 'Disconnected'} />
+      </div>
+
+      {state && (
+        <>
+          <div className="text-xs text-neutral-500">
+            {state.plan_version && <span>v{state.plan_version}</span>}
+          </div>
+
+          <div className="flex gap-3 ml-auto text-xs text-neutral-400">
+            <span>{state.completed ?? 0}/{state.total ?? 0} changes</span>
+            <span title="Input tokens">In: {formatTokens(state.tokens_in)}</span>
+            <span title="Output tokens">Out: {formatTokens(state.tokens_out)}</span>
+            {(state.tokens_cache_read ?? 0) > 0 && (
+              <span title="Cache read">Cache: {formatTokens(state.tokens_cache_read)}</span>
+            )}
+          </div>
+        </>
+      )}
+
+      {!state && (
+        <span className="ml-auto text-xs text-neutral-500">Waiting for data...</span>
+      )}
+    </div>
+  )
+}

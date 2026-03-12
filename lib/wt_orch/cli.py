@@ -126,6 +126,38 @@ def cmd_template(args):
         ))
 
 
+def cmd_serve(args):
+    """Start the web dashboard server."""
+    import os
+    import signal
+    import uvicorn
+
+    from .server import create_app
+
+    port = args.port or int(os.environ.get("WT_WEB_PORT", "7400"))
+    host = args.host or "127.0.0.1"
+
+    app = create_app()
+    print(f"wt-web dashboard running at http://{host}:{port}")
+
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+    )
+    server = uvicorn.Server(config)
+
+    # Graceful shutdown on SIGTERM
+    def handle_sigterm(signum, frame):
+        server.should_exit = True
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
+    server.run()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="wt-orch-core",
@@ -187,6 +219,11 @@ def main():
     t_planning.add_argument("--mode", default="spec", choices=["spec", "brief"])
     t_planning.add_argument("--input-file", default=None, help="JSON input (- for stdin)")
 
+    # --- serve ---
+    serve_parser = subparsers.add_parser("serve", help="Start the web dashboard server")
+    serve_parser.add_argument("--port", type=int, default=None, help="Port (default: 7400, env: WT_WEB_PORT)")
+    serve_parser.add_argument("--host", default=None, help="Host (default: 127.0.0.1)")
+
     args = parser.parse_args()
 
     if args.command == "process":
@@ -195,6 +232,8 @@ def main():
         cmd_state(args)
     elif args.command == "template":
         cmd_template(args)
+    elif args.command == "serve":
+        cmd_serve(args)
 
 
 if __name__ == "__main__":

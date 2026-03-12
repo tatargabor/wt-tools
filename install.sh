@@ -883,6 +883,47 @@ EOF
     success "Created Zed keymap.json (Ctrl+Shift+L for Claude)"
 }
 
+# Install wt-web systemd user service
+install_web_service() {
+    info "Setting up wt-web dashboard service..."
+
+    # Skip on non-systemd systems (macOS, containers, WSL1)
+    if ! command -v systemctl &>/dev/null; then
+        info "  systemctl not found, skipping systemd service setup"
+        return 0
+    fi
+
+    # Check if user session is available
+    if ! systemctl --user status &>/dev/null 2>&1; then
+        warn "  systemd user session not available, skipping"
+        return 0
+    fi
+
+    local service_src="$SCRIPT_DIR/templates/systemd/wt-web.service"
+    local service_dir="$HOME/.config/systemd/user"
+    local service_dst="$service_dir/wt-web.service"
+
+    if [[ ! -f "$service_src" ]]; then
+        warn "  Service template not found: $service_src"
+        return 0
+    fi
+
+    mkdir -p "$service_dir"
+    cp "$service_src" "$service_dst"
+    success "  Installed: $service_dst"
+
+    # Reload systemd, enable and start
+    systemctl --user daemon-reload
+    systemctl --user enable wt-web.service 2>/dev/null || true
+    systemctl --user start wt-web.service 2>/dev/null || true
+
+    if systemctl --user is-active --quiet wt-web.service 2>/dev/null; then
+        success "  wt-web service running at http://127.0.0.1:7400"
+    else
+        warn "  wt-web service installed but not running (start manually: systemctl --user start wt-web)"
+    fi
+}
+
 # Main
 main() {
     echo ""
@@ -935,6 +976,9 @@ main() {
     echo ""
 
     install_shodh_memory
+    echo ""
+
+    install_web_service
     echo ""
 
     if [[ "$PLATFORM" == "linux" ]]; then

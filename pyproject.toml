@@ -26,6 +26,9 @@ dependencies = [
     "cloudscraper>=1.2.0",
     "psutil>=5.9.0",
     "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "watchfiles>=0.20.0",
 ]
 
 [project.optional-dependencies]
