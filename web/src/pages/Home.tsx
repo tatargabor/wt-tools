@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getProjects, type ProjectInfo } from '../lib/api'
+import { sortByLastUpdated } from '../lib/sort'
 
 const statusStyle: Record<string, { dot: string; label: string }> = {
   running: { dot: 'bg-green-500 animate-pulse', label: 'Running' },
+  planning: { dot: 'bg-cyan-500 animate-pulse', label: 'Planning' },
   checkpoint: { dot: 'bg-yellow-500 animate-pulse', label: 'Checkpoint' },
   completed: { dot: 'bg-blue-500', label: 'Completed' },
   stopped: { dot: 'bg-neutral-500', label: 'Stopped' },
@@ -22,9 +24,9 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [])
 
-  const active = projects.filter((p) => p.status && !['idle', 'error'].includes(p.status))
-  const idle = projects.filter((p) => !p.status || p.status === 'idle')
-  const errored = projects.filter((p) => p.status === 'error')
+  const active = sortByLastUpdated(projects.filter((p) => p.status && !['idle', 'error'].includes(p.status)))
+  const idle = sortByLastUpdated(projects.filter((p) => !p.status || p.status === 'idle'))
+  const errored = sortByLastUpdated(projects.filter((p) => p.status === 'error'))
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -68,8 +70,21 @@ export default function Home() {
   )
 }
 
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 function ProjectCard({ project, compact }: { project: ProjectInfo; compact?: boolean }) {
   const s = statusStyle[project.status ?? 'idle'] ?? statusStyle.idle
+  const ago = timeAgo(project.last_updated)
 
   return (
     <Link
@@ -81,8 +96,9 @@ function ProjectCard({ project, compact }: { project: ProjectInfo; compact?: boo
       <div className="flex items-center gap-2">
         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${s.dot}`} />
         <span className="font-mono text-sm text-neutral-200 truncate">{project.name}</span>
+        <span className="ml-auto text-[10px] text-neutral-600 shrink-0">{ago}</span>
         {!compact && (
-          <span className="ml-auto text-xs text-neutral-500">{s.label}</span>
+          <span className="text-xs text-neutral-500 shrink-0">{s.label}</span>
         )}
       </div>
       {!compact && (

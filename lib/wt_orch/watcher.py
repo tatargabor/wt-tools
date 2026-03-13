@@ -22,6 +22,17 @@ class LogTailer:
         self._offset = 0
         self._initialized = False
 
+    def get_tail(self, n: int = 200) -> list[str]:
+        """Read last n lines independently (does not affect offset tracking)."""
+        if not self.path.exists():
+            return []
+        try:
+            with open(self.path) as f:
+                lines = f.readlines()
+            return [l.rstrip() for l in lines[-n:]]
+        except OSError:
+            return []
+
     def read_new_lines(self) -> list[str]:
         """Read lines appended since last call. First call returns last 200 lines."""
         if not self.path.exists():
@@ -66,14 +77,48 @@ class ProjectWatcher:
     def __init__(self, project_name: str, project_path: Path):
         self.project_name = project_name
         self.project_path = project_path
-        self.state_path = project_path / "wt" / "orchestration" / "orchestration-state.json"
-        self.log_path = project_path / "wt" / "orchestration" / "orchestration.log"
-        self.log_tailer = LogTailer(self.log_path)
         self._last_state: dict | None = None
         self._task: asyncio.Task | None = None
+        # Resolve paths (re-resolved dynamically when not found)
+        self.state_path = self._find_state()
+        self.log_path = self._find_log()
+        self.log_tailer = LogTailer(self.log_path)
+
+    def _find_state(self) -> Path:
+        new = self.project_path / "wt" / "orchestration" / "orchestration-state.json"
+        if new.exists():
+            return new
+        legacy = self.project_path / "orchestration-state.json"
+        if legacy.exists():
+            return legacy
+        return new  # default
+
+    def _find_log(self) -> Path:
+        new = self.project_path / "wt" / "orchestration" / "orchestration.log"
+        if new.exists():
+            return new
+        legacy = self.project_path / "orchestration.log"
+        if legacy.exists():
+            return legacy
+        return new  # default
+
+    def _refresh_paths(self):
+        """Re-discover state/log paths (handles files appearing at runtime)."""
+        new_state = self._find_state()
+        if new_state != self.state_path:
+            self.state_path = new_state
+            logger.info(f"State path updated for {self.project_name}: {new_state}")
+        new_log = self._find_log()
+        if new_log != self.log_path:
+            self.log_path = new_log
+            self.log_tailer = LogTailer(new_log)
+            logger.info(f"Log path updated for {self.project_name}: {new_log}")
 
     def _read_state(self) -> dict | None:
         """Read state file as dict (lightweight, no dataclass parsing)."""
+        if not self.state_path.exists():
+            # Maybe it appeared at the other location
+            self._refresh_paths()
         if not self.state_path.exists():
             return None
         try:
@@ -99,14 +144,25 @@ class ProjectWatcher:
             await self._poll_fallback(callback)
             return
 
-        watch_dir = self.project_path / "wt" / "orchestration"
-        if not watch_dir.exists():
+        # Collect directories to watch (state and log may be in different dirs)
+        watch_dirs: set[Path] = set()
+        state_dir = self.state_path.parent
+        log_dir = self.log_path.parent
+        if state_dir.exists():
+            watch_dirs.add(state_dir)
+        if log_dir.exists():
+            watch_dirs.add(log_dir)
+        # Always watch project root for legacy file creation
+        if self.project_path.exists():
+            watch_dirs.add(self.project_path)
+
+        if not watch_dirs:
             logger.info(f"No orchestration dir for {self.project_name}, polling for creation")
             await self._poll_fallback(callback)
             return
 
         try:
-            async for changes in awatch(watch_dir, poll_delay_ms=500):
+            async for changes in awatch(*watch_dirs, poll_delay_ms=500):
                 for change_type, change_path in changes:
                     path = Path(change_path)
                     if path.name == "orchestration-state.json":
@@ -122,6 +178,7 @@ class ProjectWatcher:
         """Simple polling fallback when watchfiles is unavailable."""
         while True:
             await asyncio.sleep(3)
+            self._refresh_paths()
             await self._handle_state_change(callback)
             await self._handle_log_change(callback)
 
@@ -130,6 +187,20 @@ class ProjectWatcher:
         new_state = self._read_state()
         if new_state is None:
             return
+
+        # Enrich changes with worktree log file lists
+        for c in new_state.get("changes", []):
+            wt_path = c.get("worktree_path")
+            if wt_path:
+                logs_dir = Path(wt_path) / ".claude" / "logs"
+                if logs_dir.is_dir():
+                    try:
+                        c["logs"] = sorted(
+                            f.name for f in logs_dir.iterdir()
+                            if f.is_file() and f.suffix == ".log"
+                        )
+                    except OSError:
+                        pass
 
         old_status = self._last_state.get("status") if self._last_state else None
         new_status = new_state.get("status")

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, type ReactNode } from 'react'
+import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
 
 interface Props {
   top: ReactNode
@@ -6,6 +6,7 @@ interface Props {
   defaultRatio?: number // 0-1, portion for top panel
   minTopPx?: number
   minBottomPx?: number
+  storageKey?: string // localStorage key to persist ratio
 }
 
 export default function ResizableSplit({
@@ -14,11 +15,28 @@ export default function ResizableSplit({
   defaultRatio = 0.6,
   minTopPx = 100,
   minBottomPx = 80,
+  storageKey = 'wt-split-ratio',
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [ratio, setRatio] = useState(defaultRatio)
+  const [ratio, setRatio] = useState(() => {
+    if (storageKey) {
+      const saved = localStorage.getItem(storageKey)
+      if (saved) {
+        const n = parseFloat(saved)
+        if (!isNaN(n) && n > 0 && n < 1) return n
+      }
+    }
+    return defaultRatio
+  })
   const [collapsed, setCollapsed] = useState<'none' | 'bottom'>('none')
   const dragging = useRef(false)
+
+  // Persist ratio
+  useEffect(() => {
+    if (storageKey && !dragging.current) {
+      localStorage.setItem(storageKey, String(ratio))
+    }
+  }, [ratio, storageKey])
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -37,8 +55,11 @@ export default function ResizableSplit({
   }, [minTopPx, minBottomPx])
 
   const onPointerUp = useCallback(() => {
+    if (dragging.current && storageKey) {
+      localStorage.setItem(storageKey, String(ratio))
+    }
     dragging.current = false
-  }, [])
+  }, [ratio, storageKey])
 
   const topHeight = collapsed === 'bottom' ? '100%' : `${ratio * 100}%`
   const bottomHeight = collapsed === 'bottom' ? '0' : `${(1 - ratio) * 100}%`

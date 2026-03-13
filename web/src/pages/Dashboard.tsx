@@ -3,10 +3,10 @@ import { useWebSocket, type WSEvent } from '../hooks/useWebSocket'
 import { useNotifications } from '../hooks/useNotifications'
 import StatusHeader from '../components/StatusHeader'
 import ChangeTable from '../components/ChangeTable'
-import LogStream from '../components/LogStream'
+import LogPanel from '../components/LogPanel'
 import CheckpointBanner from '../components/CheckpointBanner'
 import ResizableSplit from '../components/ResizableSplit'
-import type { StateData } from '../lib/api'
+import type { StateData, ChangeInfo } from '../lib/api'
 
 interface Props {
   project: string | null
@@ -16,6 +16,7 @@ export default function Dashboard({ project }: Props) {
   const [state, setState] = useState<StateData | null>(null)
   const [logLines, setLogLines] = useState<string[]>([])
   const [checkpoint, setCheckpoint] = useState(false)
+  const [selectedChange, setSelectedChange] = useState<string | null>(null)
   const { notify } = useNotifications()
 
   const onEvent = useCallback((event: WSEvent) => {
@@ -51,6 +52,10 @@ export default function Dashboard({ project }: Props) {
     )
   }
 
+  const changes = state?.changes ?? []
+  const selectedChangeInfo: ChangeInfo | null =
+    selectedChange ? changes.find((c) => c.name === selectedChange) ?? null : null
+
   return (
     <div className="flex flex-col h-full">
       <StatusHeader state={state} connected={connected} project={project} />
@@ -59,8 +64,21 @@ export default function Dashboard({ project }: Props) {
       )}
       <div className="flex-1 min-h-0">
         <ResizableSplit
-          top={<ChangeTable changes={state?.changes ?? []} project={project} />}
-          bottom={<LogStream lines={logLines} />}
+          top={
+            <ChangeTable
+              changes={changes}
+              project={project}
+              selected={selectedChange}
+              onSelect={setSelectedChange}
+            />
+          }
+          bottom={
+            <LogPanel
+              orchLines={logLines}
+              selectedChange={selectedChangeInfo}
+              project={project}
+            />
+          }
           defaultRatio={0.55}
         />
       </div>

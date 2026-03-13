@@ -6,14 +6,18 @@ import GateBar from './GateBar'
 interface Props {
   changes: ChangeInfo[]
   project: string
+  selected?: string | null
+  onSelect?: (name: string | null) => void
 }
 
 const statusColor: Record<string, string> = {
   running: 'text-green-400',
   completed: 'text-blue-400',
   failed: 'text-red-400',
+  'verify-failed': 'text-red-400',
   skipped: 'text-neutral-500',
   pending: 'text-neutral-500',
+  stalled: 'text-yellow-400',
   checkpoint: 'text-yellow-400',
 }
 
@@ -32,10 +36,11 @@ function formatTokens(n?: number): string {
   return String(n)
 }
 
-export default function ChangeTable({ changes, project }: Props) {
+export default function ChangeTable({ changes, project, selected, onSelect }: Props) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  const handleAction = async (name: string, action: 'stop' | 'skip') => {
+  const handleAction = async (e: React.MouseEvent, name: string, action: 'stop' | 'skip') => {
+    e.stopPropagation()
     setActionLoading(`${name}:${action}`)
     try {
       if (action === 'stop') await stopChange(project, name)
@@ -66,46 +71,56 @@ export default function ChangeTable({ changes, project }: Props) {
         </tr>
       </thead>
       <tbody>
-        {changes.map((c) => (
-          <tr key={c.name} className="border-b border-neutral-800/50 hover:bg-neutral-900/50">
-            <td className="px-4 py-2 font-mono text-neutral-200">{c.name}</td>
-            <td className={`px-2 py-2 font-medium ${statusColor[c.status] ?? 'text-neutral-400'}`}>
-              {c.status}
-            </td>
-            <td className="px-2 py-2 text-center text-neutral-400">{c.iteration ?? '—'}</td>
-            <td className="px-2 py-2 text-right text-neutral-400">{formatDuration(c.duration_s)}</td>
-            <td className="px-2 py-2 text-right text-neutral-400 font-mono text-xs">
-              {formatTokens(c.tokens_in)}/{formatTokens(c.tokens_out)}
-            </td>
-            <td className="px-2 py-2">
-              <div className="flex justify-center">
-                <GateBar gates={c.gates} />
-              </div>
-            </td>
-            <td className="px-4 py-2 text-right">
-              <div className="flex gap-1 justify-end">
-                {c.status === 'running' && (
-                  <button
-                    onClick={() => handleAction(c.name, 'stop')}
-                    disabled={actionLoading === `${c.name}:stop`}
-                    className="px-2 py-0.5 text-xs bg-red-900/50 text-red-300 rounded hover:bg-red-900 disabled:opacity-50"
-                  >
-                    Stop
-                  </button>
-                )}
-                {c.status === 'pending' && (
-                  <button
-                    onClick={() => handleAction(c.name, 'skip')}
-                    disabled={actionLoading === `${c.name}:skip`}
-                    className="px-2 py-0.5 text-xs bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 disabled:opacity-50"
-                  >
-                    Skip
-                  </button>
-                )}
-              </div>
-            </td>
-          </tr>
-        ))}
+        {changes.map((c) => {
+          const clickable = !!c.worktree_path
+          const isSelected = selected === c.name
+          return (
+            <tr
+              key={c.name}
+              onClick={clickable && onSelect ? () => onSelect(isSelected ? null : c.name) : undefined}
+              className={`border-b border-neutral-800/50 transition-colors ${
+                clickable ? 'cursor-pointer hover:bg-neutral-900/50' : ''
+              } ${isSelected ? 'bg-neutral-900/70 border-l-2 border-l-blue-500' : ''}`}
+            >
+              <td className="px-4 py-2 font-mono text-neutral-200">{c.name}</td>
+              <td className={`px-2 py-2 font-medium ${statusColor[c.status] ?? 'text-neutral-400'}`}>
+                {c.status}
+              </td>
+              <td className="px-2 py-2 text-center text-neutral-400">{c.iteration ?? '—'}</td>
+              <td className="px-2 py-2 text-right text-neutral-400">{formatDuration(c.duration_s)}</td>
+              <td className="px-2 py-2 text-right text-neutral-400 font-mono text-xs">
+                {formatTokens(c.tokens_in)}/{formatTokens(c.tokens_out)}
+              </td>
+              <td className="px-2 py-2">
+                <div className="flex justify-center">
+                  <GateBar gates={c.gates} />
+                </div>
+              </td>
+              <td className="px-4 py-2 text-right">
+                <div className="flex gap-1 justify-end">
+                  {c.status === 'running' && (
+                    <button
+                      onClick={(e) => handleAction(e, c.name, 'stop')}
+                      disabled={actionLoading === `${c.name}:stop`}
+                      className="px-2 py-0.5 text-xs bg-red-900/50 text-red-300 rounded hover:bg-red-900 disabled:opacity-50"
+                    >
+                      Stop
+                    </button>
+                  )}
+                  {(c.status === 'pending' || c.status === 'failed' || c.status === 'verify-failed' || c.status === 'stalled') && (
+                    <button
+                      onClick={(e) => handleAction(e, c.name, 'skip')}
+                      disabled={actionLoading === `${c.name}:skip`}
+                      className="px-2 py-0.5 text-xs bg-neutral-800 text-neutral-400 rounded hover:bg-neutral-700 disabled:opacity-50"
+                    >
+                      Skip
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )

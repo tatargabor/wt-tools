@@ -89,8 +89,8 @@ async def websocket_stream(websocket: WebSocket, project: str):
                     "data": initial_state,
                 })
 
-            # Send initial log lines
-            initial_lines = watcher.log_tailer.read_new_lines()
+            # Send initial log lines (get_tail is independent of offset tracking)
+            initial_lines = watcher.log_tailer.get_tail(500)
             if initial_lines:
                 await websocket.send_json({
                     "event": "log_lines",

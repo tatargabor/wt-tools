@@ -14,13 +14,15 @@ function formatTokens(n?: number): string {
 }
 
 export default function StatusHeader({ state, connected, project }: Props) {
-  const statusBadge = state?.status ?? 'unknown'
+  const statusBadge = state?.status ?? 'idle'
   const badgeColor: Record<string, string> = {
     running: 'bg-green-900 text-green-300',
+    planning: 'bg-cyan-900 text-cyan-300',
     checkpoint: 'bg-yellow-900 text-yellow-300',
     completed: 'bg-blue-900 text-blue-300',
     stopped: 'bg-neutral-800 text-neutral-400',
     failed: 'bg-red-900 text-red-300',
+    idle: 'bg-neutral-800 text-neutral-500',
   }
 
   return (

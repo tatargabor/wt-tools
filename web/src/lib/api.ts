@@ -17,6 +17,7 @@ export interface ProjectInfo {
   name: string
   path: string
   status?: string
+  last_updated?: string | null
 }
 
 export interface ChangeInfo {
@@ -24,7 +25,7 @@ export interface ChangeInfo {
   status: string
   iteration?: number
   ralph_pid?: number
-  worktree?: string
+  worktree_path?: string
   branch?: string
   tokens_in?: number
   tokens_out?: number
@@ -32,6 +33,7 @@ export interface ChangeInfo {
   tokens_cache_write?: number
   duration_s?: number
   gates?: Record<string, GateResult>
+  logs?: string[]
   extras?: Record<string, unknown>
 }
 
@@ -108,6 +110,28 @@ export function getWorktreeLog(project: string, branch: string, filename: string
 
 export function getWorktreeReflection(project: string, branch: string): Promise<{ content: string }> {
   return fetchJSON(`/${project}/worktrees/${branch}/reflection`)
+}
+
+export function getChangeLogs(project: string, name: string): Promise<{ logs: string[]; iteration?: number; max_iterations?: number }> {
+  return fetchJSON(`/${project}/changes/${name}/logs`)
+}
+
+export function getChangeLog(project: string, name: string, filename: string): Promise<{ filename: string; lines: string[] }> {
+  return fetchJSON(`/${project}/changes/${name}/log/${filename}`)
+}
+
+export interface SessionInfo {
+  id: string
+  size: number
+  mtime: string
+}
+
+export function getChangeSession(
+  project: string, name: string, tail = 200, sessionId?: string
+): Promise<{ lines: string[]; session_id: string | null; sessions: SessionInfo[] }> {
+  const params = new URLSearchParams({ tail: String(tail) })
+  if (sessionId) params.set('session_id', sessionId)
+  return fetchJSON(`/${project}/changes/${name}/session?${params}`)
 }
 
 export function getActivity(project: string): Promise<ActivityInfo[]> {

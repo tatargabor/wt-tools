@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -63,17 +64,50 @@ def _resolve_project(project_name: str) -> Path:
 
 
 def _state_path(project_path: Path) -> Path:
-    return project_path / "wt" / "orchestration" / "orchestration-state.json"
+    """Find orchestration state file — new location first, legacy fallback."""
+    new = project_path / "wt" / "orchestration" / "orchestration-state.json"
+    if new.exists():
+        return new
+    legacy = project_path / "orchestration-state.json"
+    if legacy.exists():
+        return legacy
+    return new  # default for non-existent (will 404 cleanly)
 
 
 def _log_path(project_path: Path) -> Path:
-    return project_path / "wt" / "orchestration" / "orchestration.log"
+    """Find orchestration log — new location first, legacy fallback."""
+    new = project_path / "wt" / "orchestration" / "orchestration.log"
+    if new.exists():
+        return new
+    legacy = project_path / "orchestration.log"
+    if legacy.exists():
+        return legacy
+    return new
 
 
 def _quick_status(project_path: Path) -> str:
     """Get quick orchestration status without full state parse."""
     sp = _state_path(project_path)
     if not sp.exists():
+        # No state file yet — check if orchestrator is starting up
+        # (sentinel.pid or recent orchestration.log indicate a running orch)
+        sentinel_pid = project_path / "sentinel.pid"
+        if sentinel_pid.exists():
+            try:
+                pid = int(sentinel_pid.read_text().strip())
+                # Check if process is actually alive
+                os.kill(pid, 0)
+                return "planning"
+            except (ValueError, OSError):
+                pass
+        orch_log = _log_path(project_path)
+        if orch_log.exists():
+            try:
+                age = time.time() - orch_log.stat().st_mtime
+                if age < 120:  # log touched in last 2 minutes
+                    return "planning"
+            except OSError:
+                pass
         return "idle"
     try:
         with open(sp) as f:
@@ -157,6 +191,17 @@ def _list_worktrees(project_path: Path) -> list[dict]:
         if reflection.exists():
             wt["has_reflection"] = True
 
+        # Last activity timestamp: prefer activity.updated_at, fall back to .claude dir mtime
+        if not wt.get("activity", {}).get("updated_at"):
+            claude_dir = wt_path / ".claude"
+            try:
+                mtime = claude_dir.stat().st_mtime if claude_dir.exists() else wt_path.stat().st_mtime
+                wt.setdefault("activity", {})["updated_at"] = datetime.fromtimestamp(
+                    mtime, tz=timezone.utc
+                ).isoformat()
+            except OSError:
+                pass
+
     return worktrees
 
 
@@ -212,17 +257,33 @@ def _with_state_lock(state_file: Path, fn):
 
 @router.get("/api/projects")
 def list_projects():
-    """List all registered projects with quick status."""
+    """List all registered projects with quick status and last_updated."""
     projects = _load_projects()
     result = []
     for p in projects:
         path = Path(p.get("path", ""))
-        result.append({
+        entry: dict = {
             "name": p.get("name", path.name),
             "path": str(path),
             "has_orchestration": _state_path(path).exists() if path.is_dir() else False,
             "status": _quick_status(path) if path.is_dir() else "error",
-        })
+            "last_updated": None,
+        }
+        # Use state file mtime if it exists, otherwise project dir mtime
+        if path.is_dir():
+            sp = _state_path(path)
+            try:
+                if sp.exists():
+                    entry["last_updated"] = datetime.fromtimestamp(
+                        sp.stat().st_mtime, tz=timezone.utc
+                    ).isoformat()
+                else:
+                    entry["last_updated"] = datetime.fromtimestamp(
+                        path.stat().st_mtime, tz=timezone.utc
+                    ).isoformat()
+            except OSError:
+                pass
+        result.append(entry)
     return result
 
 
@@ -259,9 +320,10 @@ def list_changes(project: str, status: Optional[str] = Query(None)):
     result = []
     for c in changes:
         d = c.to_dict()
-        # Enrich with loop-state if worktree exists
-        if c.worktree_path and c.status == "running":
-            loop_file = Path(c.worktree_path) / ".claude" / "loop-state.json"
+        if c.worktree_path:
+            wt_path = Path(c.worktree_path)
+            # Enrich with loop-state
+            loop_file = wt_path / ".claude" / "loop-state.json"
             if loop_file.exists():
                 try:
                     with open(loop_file) as f:
@@ -270,6 +332,13 @@ def list_changes(project: str, status: Optional[str] = Query(None)):
                     d["max_iterations"] = ls.get("max_iterations", 0)
                 except (json.JSONDecodeError, OSError):
                     pass
+            # Enrich with available log files
+            logs_dir = wt_path / ".claude" / "logs"
+            if logs_dir.is_dir():
+                d["logs"] = sorted(
+                    f.name for f in logs_dir.iterdir()
+                    if f.is_file() and f.suffix == ".log"
+                )
         result.append(d)
     return result
 
@@ -345,6 +414,273 @@ def get_worktree_reflection(project: str, branch: str):
                 raise HTTPException(404, "No reflection found")
             return {"content": refl.read_text(errors="replace")}
     raise HTTPException(404, f"Worktree not found: {branch}")
+
+
+@router.get("/api/{project}/changes/{name}/logs")
+def get_change_logs(project: str, name: str):
+    """List available log files for a change (from its worktree)."""
+    project_path = _resolve_project(project)
+    sp = _state_path(project_path)
+    if not sp.exists():
+        raise HTTPException(404, "No orchestration state found")
+    try:
+        state = load_state(str(sp))
+    except StateCorruptionError as e:
+        raise HTTPException(500, f"Corrupt state: {e.detail}")
+
+    for c in state.changes:
+        if c.name == name:
+            if not c.worktree_path:
+                return {"logs": []}
+            wt_path = Path(c.worktree_path)
+            logs_dir = wt_path / ".claude" / "logs"
+            logs = []
+            if logs_dir.is_dir():
+                logs = sorted(
+                    f.name for f in logs_dir.iterdir()
+                    if f.is_file() and f.suffix == ".log"
+                )
+            result: dict = {"logs": logs}
+            # Include iteration info
+            loop_state = wt_path / ".claude" / "loop-state.json"
+            if loop_state.exists():
+                try:
+                    with open(loop_state) as f:
+                        ls = json.load(f)
+                    result["iteration"] = ls.get("current_iteration", 0)
+                    result["max_iterations"] = ls.get("max_iterations", 0)
+                except (json.JSONDecodeError, OSError):
+                    pass
+            return result
+    raise HTTPException(404, f"Change not found: {name}")
+
+
+@router.get("/api/{project}/changes/{name}/log/{filename}")
+def get_change_log(project: str, name: str, filename: str):
+    """Read a specific log file from a change's worktree."""
+    project_path = _resolve_project(project)
+
+    if not filename.endswith(".log") or ".." in filename or "/" in filename:
+        raise HTTPException(400, "Invalid filename")
+
+    sp = _state_path(project_path)
+    if not sp.exists():
+        raise HTTPException(404, "No orchestration state found")
+    try:
+        state = load_state(str(sp))
+    except StateCorruptionError as e:
+        raise HTTPException(500, f"Corrupt state: {e.detail}")
+
+    for c in state.changes:
+        if c.name == name:
+            if not c.worktree_path:
+                raise HTTPException(404, "Change has no worktree")
+            log_file = Path(c.worktree_path) / ".claude" / "logs" / filename
+            if not log_file.exists():
+                raise HTTPException(404, f"Log file not found: {filename}")
+            try:
+                content = log_file.read_text(errors="replace")
+                return {"filename": filename, "lines": content.splitlines()[-2000:]}
+            except OSError:
+                raise HTTPException(500, "Failed to read log")
+    raise HTTPException(404, f"Change not found: {name}")
+
+
+def _sessions_dir_for_change(state, name: str, project_path: Path | None = None) -> tuple:
+    """Find the Claude sessions directory for a change. Returns (Change, Path|None).
+
+    Tries the change's worktree_path first. Falls back to project_path
+    (useful when worktree was cleaned up after failed/completed changes).
+    """
+    for c in state.changes:
+        if c.name == name:
+            # Try worktree path first
+            if c.worktree_path:
+                mangled = c.worktree_path.lstrip("/").replace("/", "-")
+                d = Path.home() / ".claude" / "projects" / f"-{mangled}"
+                if d.is_dir():
+                    return c, d
+            # Fallback: project path
+            if project_path:
+                mangled = str(project_path).lstrip("/").replace("/", "-")
+                d = Path.home() / ".claude" / "projects" / f"-{mangled}"
+                if d.is_dir():
+                    return c, d
+            return c, None
+    return None, None
+
+
+def _list_session_files(sessions_dir: Path) -> list[dict]:
+    """List JSONL session files sorted by mtime desc."""
+    files = []
+    for f in sessions_dir.iterdir():
+        if f.is_file() and f.suffix == ".jsonl":
+            try:
+                st = f.stat()
+                files.append({
+                    "id": f.stem,
+                    "size": st.st_size,
+                    "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                })
+            except OSError:
+                pass
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return files
+
+
+@router.get("/api/{project}/changes/{name}/sessions")
+def list_change_sessions(project: str, name: str):
+    """List all Claude session files for a change."""
+    project_path = _resolve_project(project)
+    sp = _state_path(project_path)
+    if not sp.exists():
+        raise HTTPException(404, "No orchestration state found")
+    try:
+        state = load_state(str(sp))
+    except StateCorruptionError as e:
+        raise HTTPException(500, f"Corrupt state: {e.detail}")
+
+    change, sessions_dir = _sessions_dir_for_change(state, name, project_path)
+    if change is None:
+        raise HTTPException(404, f"Change not found: {name}")
+    if not sessions_dir:
+        return {"sessions": []}
+    return {"sessions": _list_session_files(sessions_dir)}
+
+
+@router.get("/api/{project}/changes/{name}/session")
+def get_change_session_log(
+    project: str, name: str,
+    session_id: Optional[str] = Query(None),
+    tail: int = Query(200, ge=1, le=2000),
+):
+    """Read a Claude session log for a change (parsed from JSONL).
+
+    If session_id is omitted, returns the most recent session.
+    """
+    project_path = _resolve_project(project)
+    sp = _state_path(project_path)
+    if not sp.exists():
+        raise HTTPException(404, "No orchestration state found")
+    try:
+        state = load_state(str(sp))
+    except StateCorruptionError as e:
+        raise HTTPException(500, f"Corrupt state: {e.detail}")
+
+    change, sessions_dir = _sessions_dir_for_change(state, name, project_path)
+    if change is None:
+        raise HTTPException(404, f"Change not found: {name}")
+    if not sessions_dir:
+        return {"lines": [], "session_id": None, "sessions": []}
+
+    session_files = _list_session_files(sessions_dir)
+    if not session_files:
+        return {"lines": [], "session_id": None, "sessions": []}
+
+    # Select target file
+    if session_id:
+        target = sessions_dir / f"{session_id}.jsonl"
+        if not target.is_file():
+            raise HTTPException(404, f"Session not found: {session_id}")
+    else:
+        target = sessions_dir / f"{session_files[0]['id']}.jsonl"
+
+    lines = _parse_session_jsonl(target, tail)
+    return {
+        "lines": lines,
+        "session_id": target.stem,
+        "sessions": session_files,
+    }
+
+
+def _format_ts(ts_str: str) -> str:
+    """Format ISO timestamp to short local-ish display."""
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, AttributeError):
+        return ts_str
+
+
+def _parse_session_jsonl(path: Path, tail: int) -> list[str]:
+    """Parse Claude session JSONL into human-readable log lines."""
+    output: list[str] = []
+    first_ts: str | None = None
+    last_ts: str | None = None
+    try:
+        with open(path, "r", errors="replace") as f:
+            for raw_line in f:
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    obj = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+
+                # Track timestamps
+                ts = obj.get("timestamp")
+                if ts:
+                    if first_ts is None:
+                        first_ts = ts
+                    last_ts = ts
+
+                msg = obj.get("message", {})
+                role = msg.get("role", "")
+                obj_type = obj.get("type", "")
+
+                if role == "assistant":
+                    content = msg.get("content", [])
+                    if isinstance(content, list):
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            bt = block.get("type", "")
+                            if bt == "text" and block.get("text", "").strip():
+                                output.append(f">>> {block['text'].strip()}")
+                            elif bt == "tool_use":
+                                tool_name = block.get("name", "?")
+                                tool_input = block.get("input", {})
+                                # Compact tool display
+                                if tool_name in ("Read", "Glob", "Grep"):
+                                    arg = (tool_input.get("file_path")
+                                           or tool_input.get("pattern", ""))
+                                    output.append(f"  [{tool_name}] {arg}")
+                                elif tool_name == "Write":
+                                    output.append(
+                                        f"  [Write] {tool_input.get('file_path', '?')}"
+                                    )
+                                elif tool_name == "Edit":
+                                    output.append(
+                                        f"  [Edit] {tool_input.get('file_path', '?')}"
+                                    )
+                                elif tool_name == "Bash":
+                                    cmd = tool_input.get("command", "")
+                                    output.append(f"  [Bash] {cmd[:120]}")
+                                else:
+                                    output.append(f"  [{tool_name}]")
+                    elif isinstance(content, str) and content.strip():
+                        output.append(f">>> {content.strip()}")
+
+                elif obj_type == "result":
+                    cost = obj.get("costUSD")
+                    duration = obj.get("durationMs")
+                    if cost is not None:
+                        output.append(
+                            f"--- session end: ${cost:.4f}, "
+                            f"{(duration or 0) / 1000:.0f}s ---"
+                        )
+
+    except OSError:
+        output.append("(Failed to read session log)")
+
+    # Prepend start timestamp, append end timestamp
+    if first_ts:
+        output.insert(0, f"--- session start: {_format_ts(first_ts)} ---")
+    if last_ts and last_ts != first_ts:
+        output.append(f"--- last activity: {_format_ts(last_ts)} ---")
+
+    return output[-tail:]
 
 
 @router.get("/api/{project}/activity")

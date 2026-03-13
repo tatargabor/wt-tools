@@ -1,6 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { getWorktrees, getWorktreeLog, type WorktreeInfo } from '../lib/api'
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
+function shortTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 interface Props {
   project: string | null
 }
@@ -50,16 +65,19 @@ export default function Worktrees({ project }: Props) {
                   <span className="font-mono text-sm text-neutral-200 truncate">{wt.branch}</span>
                   <span className="text-[10px] text-neutral-600 font-mono">{wt.head?.slice(0, 7)}</span>
                 </div>
-                {(wt.iteration !== undefined || wt.activity) && (
-                  <div className="flex gap-3 text-xs text-neutral-500">
-                    {wt.iteration !== undefined && (
-                      <span>iter {wt.iteration}{wt.max_iterations ? `/${wt.max_iterations}` : ''}</span>
-                    )}
-                    {wt.logs && wt.logs.length > 0 && (
-                      <span>{wt.logs.length} logs</span>
-                    )}
-                  </div>
-                )}
+                <div className="flex gap-3 text-xs text-neutral-500">
+                  {wt.iteration !== undefined && (
+                    <span>iter {wt.iteration}{wt.max_iterations ? `/${wt.max_iterations}` : ''}</span>
+                  )}
+                  {wt.logs && wt.logs.length > 0 && (
+                    <span>{wt.logs.length} logs</span>
+                  )}
+                  {wt.activity?.updated_at && (
+                    <span className="ml-auto text-neutral-600" title={new Date(wt.activity.updated_at).toLocaleString()}>
+                      {timeAgo(wt.activity.updated_at)}
+                    </span>
+                  )}
+                </div>
                 {wt.activity?.broadcast && (
                   <p className="mt-1 text-xs text-neutral-400 truncate">{wt.activity.broadcast}</p>
                 )}
@@ -134,6 +152,11 @@ function WorktreeDetail({ project, worktree }: { project: string; worktree: Work
         {worktree.iteration !== undefined && (
           <span className="text-xs text-neutral-500">
             Iteration {worktree.iteration}{worktree.max_iterations ? ` / ${worktree.max_iterations}` : ''}
+          </span>
+        )}
+        {worktree.activity?.updated_at && (
+          <span className="text-xs text-neutral-600" title={new Date(worktree.activity.updated_at).toLocaleString()}>
+            {shortTime(worktree.activity.updated_at)}
           </span>
         )}
         <span className="text-xs text-neutral-600 font-mono truncate ml-auto">{worktree.path}</span>
