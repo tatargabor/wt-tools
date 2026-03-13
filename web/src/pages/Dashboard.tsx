@@ -13,7 +13,7 @@ import DigestView from '../components/DigestView'
 import SessionPanel from '../components/SessionPanel'
 import OrchestrationChat from '../components/OrchestrationChat'
 import useIsMobile from '../hooks/useIsMobile'
-import { getDigest } from '../lib/api'
+import { getDigest, getState } from '../lib/api'
 import type { StateData, ChangeInfo } from '../lib/api'
 
 type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit' | 'digest' | 'sessions' | 'log' | 'agent'
@@ -52,6 +52,22 @@ export default function Dashboard({ project }: Props) {
   }, [])
 
   const { connected } = useWebSocket({ project, onEvent })
+
+  // REST poll fallback — fetch state periodically in case WS watcher is down
+  useEffect(() => {
+    if (!project) return
+    let cancelled = false
+    const poll = () => {
+      getState(project)
+        .then(d => { if (!cancelled) setState(d) })
+        .catch(() => {})
+    }
+    // Initial fetch after short delay (give WS a chance first)
+    const t = setTimeout(poll, 2000)
+    // Then poll every 5s
+    const iv = setInterval(poll, 5000)
+    return () => { cancelled = true; clearTimeout(t); clearInterval(iv) }
+  }, [project])
 
   // Check if digest exists (poll until it does)
   useEffect(() => {
