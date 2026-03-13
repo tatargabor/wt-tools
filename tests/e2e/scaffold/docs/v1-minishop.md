@@ -2,6 +2,12 @@
 
 > Next.js 14+ App Router webshop with Prisma (SQLite), shadcn/ui, Tailwind CSS, NextAuth.js v5
 
+## Design
+
+**Figma Design:** https://www.figma.com/design/9PH3uS4vWjSj6cUPhTGZSt/E-commerce-web-app-design
+
+Agents should use the Figma MCP to query design tokens, component specs, and layout details during implementation. The design file contains desktop and mobile layouts for all pages.
+
 ## Starting Point
 
 There is NO application code in the scaffold. Agents create everything from scratch.
@@ -186,11 +192,11 @@ Build the product catalog -- the storefront landing page.
 - `src/lib/utils.ts` -- `cn()` helper (clsx + tailwind-merge)
 - `src/lib/prisma.ts` -- Prisma singleton client
 - `src/app/globals.css` -- Tailwind directives + shadcn CSS variables
-- `src/app/layout.tsx` -- Root layout: Inter font, globals.css, navigation header (Products, Cart, Orders, Admin)
+- `src/app/layout.tsx` -- Root layout: globals.css, navigation header. Follow Figma design for nav structure and typography.
 - `src/app/page.tsx` -- Redirect to `/products`
 - `src/app/api/health/route.ts` -- `GET` returns `{ status: "ok" }` (used by smoke checks)
-- `src/app/products/page.tsx` -- Product grid. Server Component, `prisma.product.findMany()`. Responsive grid (1 col mobile, 2 tablet, 3 desktop) using shadcn Card. Each card: image, name, description, price, stock badge.
-- `src/app/products/[id]/page.tsx` -- Product detail. Larger image, full description, price, stock, "Add to Cart" button (disabled until cart-feature).
+- `src/app/products/page.tsx` -- Product grid. Server Component, `prisma.product.findMany()`. Responsive grid using shadcn Card. Each card shows product info and stock status. Follow Figma design for layout and breakpoints.
+- `src/app/products/[id]/page.tsx` -- Product detail page. Follow Figma design for layout. "Add to Cart" button (disabled until cart-feature).
 - `src/components/product-card.tsx` -- Reusable card component.
 - `tests/products.test.tsx` -- Product list renders, detail renders, price formatting.
 
@@ -200,9 +206,9 @@ Build the product catalog -- the storefront landing page.
 - `/products` shows all 6 seeded products in a Card grid
 - `/products/[id]` shows single product detail
 - Price displayed as `€1,299.99` format
-- Stock=0: badge "Out of Stock", "Add to Cart" disabled
-- Responsive: 1 col mobile, 2 tablet, 3 desktop
-- Navigation header on all pages
+- Stock=0: "Out of Stock" indicator, "Add to Cart" disabled
+- Responsive layout matching Figma design (desktop + mobile)
+- Navigation header on all pages matching Figma design
 - `pnpm test` passes
 
 ---
@@ -221,7 +227,7 @@ Server-side shopping cart with anonymous sessions (no auth required).
   - `removeFromCart(cartItemId)` -- delete CartItem
   - `updateCartQuantity(cartItemId, quantity)` -- update or delete if <= 0
   - All revalidate `/cart`
-- `src/app/cart/page.tsx` -- Cart page. Product name, quantity +/- buttons, line total, cart total. Empty state.
+- `src/app/cart/page.tsx` -- Cart page with item list, quantity controls, totals, and empty state. Follow Figma design for layout.
 - `src/app/products/[id]/page.tsx` -- **Update:** Wire "Add to Cart" to `addToCart` action. Toast on success.
 - `src/app/layout.tsx` -- **Update:** Cart item count badge on nav.
 - `tests/cart.test.tsx` -- Add, remove, quantity update, empty cart.
@@ -251,8 +257,8 @@ Convert cart to order, manage stock, show order history.
 - `src/actions/orders.ts` -- Server Actions:
   - `placeOrder()` -- Transactional (`prisma.$transaction`): verify stock -> create Order + OrderItems (snapshot prices) -> decrement stock -> clear cart. Error if cart empty or insufficient stock. Stock check and decrement MUST be in same transaction.
   - Revalidates `/orders` and `/products`
-- `src/app/orders/page.tsx` -- Order history for current session: ID, date, status badge, total.
-- `src/app/orders/[id]/page.tsx` -- Order detail: line items, totals, status.
+- `src/app/orders/page.tsx` -- Order history for current session. Follow Figma design for layout.
+- `src/app/orders/[id]/page.tsx` -- Order detail with line items. Follow Figma design for layout.
 - `src/app/cart/page.tsx` -- **Update:** "Place Order" button. Redirect to order detail on success. Error toast on failure.
 - `tests/orders.test.tsx` -- Place order, stock decremented, history, empty cart error, insufficient stock error.
 
@@ -280,10 +286,10 @@ Admin authentication. **Only admin routes are protected** -- storefront remains 
 
 - `src/lib/auth.ts` -- NextAuth config: Credentials provider, JWT strategy, bcryptjs. Include user.id and user.role in session/JWT callbacks.
 - `src/app/api/auth/[...nextauth]/route.ts` -- NextAuth route handler
-- `src/app/admin/login/page.tsx` -- Login form (email + password)
-- `src/app/admin/register/page.tsx` -- Registration form (name, email, password). Auto-login after register.
-- `src/app/admin/page.tsx` -- Dashboard: welcome message, quick stats (product count, order count), nav links.
-- `src/app/admin/layout.tsx` -- Admin layout: sidebar nav, user info, logout button.
+- `src/app/admin/login/page.tsx` -- Login form. Follow Figma design for layout.
+- `src/app/admin/register/page.tsx` -- Registration form. Auto-login after register. Follow Figma design.
+- `src/app/admin/page.tsx` -- Dashboard with quick stats. Follow Figma design for layout.
+- `src/app/admin/layout.tsx` -- Admin layout with sidebar navigation. Follow Figma design.
 - `middleware.ts` -- Match `/admin/:path*` EXCEPT `/admin/login` and `/admin/register`. Do NOT protect storefront routes.
 - `tests/auth.test.tsx` -- Register, login success/failure, admin routes protected, storefront public.
 
@@ -308,10 +314,10 @@ Admin CRUD for products with DataTable.
 
 **Create these files:**
 
-- `src/app/admin/products/page.tsx` -- Product list with DataTable: name, price, stock, actions.
+- `src/app/admin/products/page.tsx` -- Product list with DataTable. Follow Figma design for layout.
 - `src/app/admin/products/columns.tsx` -- Column definitions (`"use client"`)
 - `src/app/admin/products/data-table.tsx` -- DataTable wrapper (`"use client"`)
-- `src/app/admin/products/new/page.tsx` -- Create product form: name (required), description, price (>0), stock (>=0), imageUrl. Validation with zod + react-hook-form.
+- `src/app/admin/products/new/page.tsx` -- Create product form with zod + react-hook-form validation. Follow Figma design.
 - `src/app/admin/products/[id]/edit/page.tsx` -- Edit form, pre-filled.
 - `src/actions/admin-products.ts` -- `createProduct`, `updateProduct`, `deleteProduct`. All require auth check. Revalidate `/admin/products` and `/products`.
 - `tests/admin-products.test.tsx` -- Create, edit, delete, validation errors.
@@ -372,16 +378,16 @@ Post-run verification. Each item must be manually checkable:
 - [ ] `/products` page shows exactly 6 product cards
 - [ ] Product prices display in EUR format (e.g., price 129999 displays as "€1,299.99")
 - [ ] Product #6 (Ergonomic Mouse) shows "Out of Stock" badge and disabled "Add to Cart"
-- [ ] Products with stock > 0 show green stock badge
-- [ ] Product detail page (`/products/[id]`) shows full info with larger image
-- [ ] Responsive layout: 1 column on mobile (< 640px), 3 columns on desktop (>= 1024px)
-- [ ] Navigation header with links to Products, Cart, Orders, Admin on every page
+- [ ] Products with stock > 0 show stock badge (style per Figma design)
+- [ ] Product detail page (`/products/[id]`) shows full info (layout per Figma design)
+- [ ] Responsive layout matches Figma desktop and mobile designs
+- [ ] Navigation header matches Figma design on every page
 
 ### Cart
 - [ ] "Add to Cart" from product detail page adds item to cart
 - [ ] Adding the same product twice increments quantity (no duplicates)
-- [ ] Cart page shows product name, quantity, line total for each item
-- [ ] +/- buttons update quantity; quantity 0 removes item
+- [ ] Cart page shows items with quantities and totals (layout per Figma design)
+- [ ] Quantity controls update quantity; quantity 0 removes item
 - [ ] Cart total equals sum of (price * quantity) for all items
 - [ ] Cart persists across page navigations (session cookie)
 - [ ] Cannot add out-of-stock product to cart

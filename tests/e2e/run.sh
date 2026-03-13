@@ -148,6 +148,13 @@ init_project() {
 
     step "Orchestration config"
     mkdir -p wt/orchestration
+
+    # Extract Figma design URL from spec if present
+    local design_file_url=""
+    if [[ -f "docs/v1-minishop.md" ]]; then
+        design_file_url=$(grep -oP 'https://www\.figma\.com/(design|make)/[^\s)]+' docs/v1-minishop.md | head -1 || true)
+    fi
+
     cat > wt/orchestration/config.yaml <<YAML
 # Orchestration config for MiniShop E2E test
 test_command: pnpm test
@@ -160,6 +167,11 @@ merge_policy: checkpoint
 checkpoint_auto_approve: true
 auto_replan: true
 YAML
+
+    if [[ -n "$design_file_url" ]]; then
+        echo "design_file: \"$design_file_url\"" >> wt/orchestration/config.yaml
+        success "Design file reference: $design_file_url"
+    fi
     success "Created wt/orchestration/config.yaml"
 
     git add -A
