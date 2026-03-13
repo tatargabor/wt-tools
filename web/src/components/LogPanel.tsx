@@ -84,7 +84,7 @@ function LogPane({ lines, colorFn, label, lineCount, live }: {
         className="flex-1 overflow-auto p-2 font-mono text-xs leading-5"
       >
         {lines.map((line, i) => (
-          <div key={i} className={colorFn(line)}>{line}</div>
+          <div key={i} className={`whitespace-pre-wrap break-all ${colorFn(line)}`}>{line}</div>
         ))}
         {lines.length === 0 && (
           <p className="text-neutral-600">No data</p>

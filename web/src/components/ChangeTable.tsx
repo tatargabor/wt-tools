@@ -4,7 +4,6 @@ import { stopChange, skipChange } from '../lib/api'
 import GateBar from './GateBar'
 import GateDetail from './GateDetail'
 import ScreenshotGallery from './ScreenshotGallery'
-import { estimateCost, formatCost } from '../lib/pricing'
 import ChangeTimeline from './ChangeTimeline'
 
 interface Props {
@@ -95,7 +94,6 @@ export default function ChangeTable({ changes, project, selected, onSelect }: Pr
           <th className="text-center px-2 py-2 font-medium">Sess</th>
           <th className="text-right px-2 py-2 font-medium">Duration</th>
           <th className="text-right px-2 py-2 font-medium">Tokens</th>
-          <th className="text-right px-2 py-2 font-medium">Cost</th>
           <th className="text-center px-2 py-2 font-medium">Gates</th>
           <th className="text-right px-4 py-2 font-medium">Actions</th>
         </tr>
@@ -122,9 +120,6 @@ export default function ChangeTable({ changes, project, selected, onSelect }: Pr
               <td className="px-2 py-2 text-right text-neutral-400">{formatDuration(changeDuration(c))}</td>
               <td className="px-2 py-2 text-right text-neutral-400 font-mono text-xs">
                 {formatTokens(c.input_tokens)}/{formatTokens(c.output_tokens)}
-              </td>
-              <td className="px-2 py-2 text-right text-neutral-400 text-xs">
-                {(c.input_tokens || c.output_tokens) ? formatCost(estimateCost(c, c.model)) : '—'}
               </td>
               <td className="px-2 py-2">
                 <div
@@ -167,7 +162,7 @@ export default function ChangeTable({ changes, project, selected, onSelect }: Pr
             </tr>
             {isGateExpanded && hasGates && (
               <tr className="border-b border-neutral-800/50 bg-neutral-950/50">
-                <td colSpan={8}>
+                <td colSpan={7}>
                   <ChangeTimeline change={c} />
                   <GateDetail change={c} />
                 </td>
@@ -175,7 +170,7 @@ export default function ChangeTable({ changes, project, selected, onSelect }: Pr
             )}
             {screenshotChange === c.name && (
               <tr className="border-b border-neutral-800/50 bg-neutral-950/50">
-                <td colSpan={8}>
+                <td colSpan={7}>
                   <ScreenshotGallery
                     project={project}
                     changeName={c.name}

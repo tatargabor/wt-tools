@@ -171,50 +171,61 @@ export default function ProgressView({ project }: Props) {
   if (!data) {
     return <div className="p-4 text-xs text-neutral-500">Loading requirements...</div>
   }
-  if (data.total_reqs === 0) {
-    return <div className="p-4 text-xs text-neutral-500">No requirements found in plans</div>
+  if (data.total_reqs === 0 && data.changes.length === 0) {
+    return <div className="p-4 text-xs text-neutral-500">No plan data found</div>
   }
 
-  const pctDone = Math.round((data.done_reqs / data.total_reqs) * 100)
+  // When no formal requirements, track by changes instead
+  const hasReqs = data.total_reqs > 0
+  const doneStatuses = new Set(['done', 'merged', 'completed', 'skip_merged'])
+  const ipStatuses = new Set(['running', 'implementing', 'verifying'])
+  const failStatuses = new Set(['failed', 'verify-failed'])
+
+  const trackTotal = hasReqs ? data.total_reqs : data.changes.length
+  const trackDone = hasReqs ? data.done_reqs : data.changes.filter(c => doneStatuses.has(c.status)).length
+  const trackIp = hasReqs
+    ? data.groups.reduce((s, g) => s + g.in_progress, 0)
+    : data.changes.filter(c => ipStatuses.has(c.status)).length
+  const trackFailed = hasReqs
+    ? data.groups.reduce((s, g) => s + g.failed, 0)
+    : data.changes.filter(c => failStatuses.has(c.status)).length
+  const pctDone = trackTotal > 0 ? Math.round((trackDone / trackTotal) * 100) : 0
 
   return (
     <div className="flex flex-col h-full">
       {/* Sub-header: progress + view toggle */}
       <div className="flex items-center gap-3 px-4 py-1.5 border-b border-neutral-800/50 shrink-0">
         <span className="text-xs font-medium text-neutral-300">
-          {data.done_reqs}/{data.total_reqs}
+          {trackDone}/{trackTotal}
         </span>
         <span className="text-[10px] text-neutral-500">{pctDone}%</span>
         <div className="flex-1 max-w-xs">
-          <ProgressBar
-            done={data.done_reqs}
-            inProgress={data.groups.reduce((s, g) => s + g.in_progress, 0)}
-            failed={data.groups.reduce((s, g) => s + g.failed, 0)}
-            total={data.total_reqs}
-          />
+          <ProgressBar done={trackDone} inProgress={trackIp} failed={trackFailed} total={trackTotal} />
         </div>
-        <div className="flex gap-1 ml-auto">
-          <button
-            onClick={() => setView('groups')}
-            className={`px-2 py-0.5 text-[10px] rounded ${view === 'groups' ? 'bg-neutral-700 text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
-          >
-            Groups
-          </button>
-          <button
-            onClick={() => setView('tree')}
-            className={`px-2 py-0.5 text-[10px] rounded ${view === 'tree' ? 'bg-neutral-700 text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
-          >
-            Dep Tree
-          </button>
-        </div>
-        <span className="text-[10px] text-neutral-600">
+        {hasReqs && (
+          <div className="flex gap-1 ml-auto">
+            <button
+              onClick={() => setView('groups')}
+              className={`px-2 py-0.5 text-[10px] rounded ${view === 'groups' ? 'bg-neutral-700 text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
+            >
+              Groups
+            </button>
+            <button
+              onClick={() => setView('tree')}
+              className={`px-2 py-0.5 text-[10px] rounded ${view === 'tree' ? 'bg-neutral-700 text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
+            >
+              Dep Tree
+            </button>
+          </div>
+        )}
+        <span className={`text-[10px] text-neutral-600 ${hasReqs ? '' : 'ml-auto'}`}>
           {data.plan_versions.length} plan{data.plan_versions.length !== 1 ? 's' : ''} / {data.changes.length} changes
         </span>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {view === 'groups' ? (
+        {hasReqs && view === 'groups' ? (
           <GroupsView data={data} />
         ) : (
           <div className="p-2">

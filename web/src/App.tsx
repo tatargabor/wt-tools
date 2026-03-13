@@ -7,7 +7,6 @@ import Home from './pages/Home'
 import ProjectSelector from './components/ProjectSelector'
 import { useProject } from './hooks/useProject'
 import type { StateData, ChangeInfo } from './lib/api'
-import { estimateCost, formatCost } from './lib/pricing'
 
 const statusDot: Record<string, string> = {
   running: 'bg-green-500',
@@ -40,31 +39,14 @@ function SidebarQuickStatus({ state }: { state: StateData | null }) {
   const changes = state.changes ?? []
   const done = changes.filter(c => ['done', 'merged', 'completed', 'skip_merged'].includes(c.status)).length
   const failed = changes.filter(c => ['failed', 'verify-failed'].includes(c.status)).length
-  const totals = changes.reduce(
-    (acc, c) => ({
-      input: acc.input + (c.input_tokens ?? 0),
-      output: acc.output + (c.output_tokens ?? 0),
-      cacheRead: acc.cacheRead + (c.cache_read_tokens ?? 0),
-      cacheCreate: acc.cacheCreate + (c.cache_create_tokens ?? 0),
-    }),
-    { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 },
-  )
-  const cost = estimateCost({
-    input_tokens: totals.input,
-    output_tokens: totals.output,
-    cache_read_tokens: totals.cacheRead,
-    cache_create_tokens: totals.cacheCreate,
-  })
-
   return (
     <div className="px-3 py-2 space-y-1 text-[10px]">
       <div className="flex items-center justify-between text-neutral-400">
         <span>{done}/{changes.length} done</span>
         {failed > 0 && <span className="text-red-400">{failed} failed</span>}
       </div>
-      <div className="flex items-center justify-between text-neutral-500">
-        <span>{formatDuration(state.active_seconds)}</span>
-        <span className="text-neutral-300 font-medium">{formatCost(cost)}</span>
+      <div className="text-neutral-500">
+        {formatDuration(state.active_seconds)}
       </div>
       {state.plan_version && (
         <div className="text-neutral-600">Plan v{state.plan_version}</div>
