@@ -53,6 +53,35 @@ ensure_config() {
     fi
 }
 
+# Ensure a project path is registered in projects.json.
+# Usage: ensure_project_registered "project-name" "/path/to/project"
+ensure_project_registered() {
+    local name="$1"
+    local path="$2"
+    [[ -z "$name" || -z "$path" ]] && return 1
+    local pfile="$CONFIG_DIR/projects.json"
+    if [[ ! -f "$pfile" ]]; then
+        mkdir -p "$CONFIG_DIR"
+        echo '{"default":null,"projects":{}}' > "$pfile"
+    fi
+    # Check if already registered (by path)
+    local existing
+    existing=$(jq -r --arg p "$path" '.projects | to_entries[] | select(.value.path == $p) | .key' "$pfile" 2>/dev/null | head -1)
+    if [[ -n "$existing" ]]; then
+        return 0  # already registered
+    fi
+    # Add it
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg n "$name" --arg p "$path" \
+        '.projects[$n] = {path: $p, addedAt: (now | todate)}' \
+        "$pfile" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$pfile"
+    else
+        rm -f "$tmp"
+    fi
+}
+
 # Read JSON value using jq or fallback
 json_get() {
     local file="$1"

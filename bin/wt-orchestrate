@@ -661,6 +661,9 @@ main() {
         CONFIG_FILE="$_root/$CONFIG_FILE"
     fi
 
+    # Auto-register project in projects.json for web dashboard
+    ensure_project_registered "$(basename "$_root")" "$_root"
+
     # Rotate log on startup
     rotate_log
 
