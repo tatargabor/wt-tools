@@ -36,6 +36,14 @@ function formatTokens(n?: number): string {
   return String(n)
 }
 
+function changeDuration(c: ChangeInfo): number | undefined {
+  if (!c.started_at) return undefined
+  const start = new Date(c.started_at).getTime()
+  if (isNaN(start)) return undefined
+  const end = c.completed_at ? new Date(c.completed_at).getTime() : Date.now()
+  return (end - start) / 1000
+}
+
 export default function ChangeTable({ changes, project, selected, onSelect }: Props) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
@@ -87,13 +95,18 @@ export default function ChangeTable({ changes, project, selected, onSelect }: Pr
                 {c.status}
               </td>
               <td className="px-2 py-2 text-center text-neutral-400">{c.iteration ?? '—'}</td>
-              <td className="px-2 py-2 text-right text-neutral-400">{formatDuration(c.duration_s)}</td>
+              <td className="px-2 py-2 text-right text-neutral-400">{formatDuration(changeDuration(c))}</td>
               <td className="px-2 py-2 text-right text-neutral-400 font-mono text-xs">
-                {formatTokens(c.tokens_in)}/{formatTokens(c.tokens_out)}
+                {formatTokens(c.input_tokens)}/{formatTokens(c.output_tokens)}
               </td>
               <td className="px-2 py-2">
                 <div className="flex justify-center">
-                  <GateBar gates={c.gates} />
+                  <GateBar
+                    test_result={c.test_result}
+                    smoke_result={c.smoke_result}
+                    review_result={c.review_result}
+                    build_result={c.build_result}
+                  />
                 </div>
               </td>
               <td className="px-4 py-2 text-right">

@@ -27,12 +27,20 @@ export interface ChangeInfo {
   ralph_pid?: number
   worktree_path?: string
   branch?: string
-  tokens_in?: number
-  tokens_out?: number
-  tokens_cache_read?: number
-  tokens_cache_write?: number
-  duration_s?: number
-  gates?: Record<string, GateResult>
+  // Token fields — match state.py field names
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_create_tokens?: number
+  tokens_used?: number
+  started_at?: string
+  completed_at?: string
+  // Gate results
+  test_result?: string
+  smoke_result?: string
+  review_result?: string
+  build_result?: string
+  gate_total_ms?: number
   logs?: string[]
   extras?: Record<string, unknown>
 }
@@ -44,17 +52,14 @@ export interface GateResult {
 }
 
 export interface StateData {
-  plan_version?: string
+  plan_version?: string | number
   status?: string
   orchestrator_pid?: number
   changes: ChangeInfo[]
   started_at?: string
-  completed?: number
-  total?: number
-  tokens_in?: number
-  tokens_out?: number
-  tokens_cache_read?: number
-  tokens_cache_write?: number
+  created_at?: string
+  active_seconds?: number
+  directives?: Record<string, unknown>
 }
 
 export interface WorktreeInfo {

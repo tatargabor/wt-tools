@@ -13,6 +13,14 @@ function formatTokens(n?: number): string {
   return String(n)
 }
 
+function formatDuration(secs?: number): string {
+  if (!secs) return ''
+  const m = Math.floor(secs / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  return `${h}h${m % 60}m`
+}
+
 export default function StatusHeader({ state, connected, project }: Props) {
   const statusBadge = state?.status ?? 'idle'
   const badgeColor: Record<string, string> = {
@@ -24,6 +32,18 @@ export default function StatusHeader({ state, connected, project }: Props) {
     failed: 'bg-red-900 text-red-300',
     idle: 'bg-neutral-800 text-neutral-500',
   }
+
+  // Aggregate tokens from changes
+  const changes = state?.changes ?? []
+  const totals = changes.reduce(
+    (acc, c) => ({
+      input: acc.input + (c.input_tokens ?? 0),
+      output: acc.output + (c.output_tokens ?? 0),
+      cacheRead: acc.cacheRead + (c.cache_read_tokens ?? 0),
+    }),
+    { input: 0, output: 0, cacheRead: 0 },
+  )
+  const done = changes.filter((c) => ['done', 'merged'].includes(c.status)).length
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 border-b border-neutral-800 bg-neutral-900/50">
@@ -39,14 +59,17 @@ export default function StatusHeader({ state, connected, project }: Props) {
         <>
           <div className="text-xs text-neutral-500">
             {state.plan_version && <span>v{state.plan_version}</span>}
+            {state.active_seconds ? (
+              <span className="ml-2">{formatDuration(state.active_seconds)}</span>
+            ) : null}
           </div>
 
           <div className="flex gap-3 ml-auto text-xs text-neutral-400">
-            <span>{state.completed ?? 0}/{state.total ?? 0} changes</span>
-            <span title="Input tokens">In: {formatTokens(state.tokens_in)}</span>
-            <span title="Output tokens">Out: {formatTokens(state.tokens_out)}</span>
-            {(state.tokens_cache_read ?? 0) > 0 && (
-              <span title="Cache read">Cache: {formatTokens(state.tokens_cache_read)}</span>
+            <span>{done}/{changes.length} changes</span>
+            <span title="Input tokens">In: {formatTokens(totals.input)}</span>
+            <span title="Output tokens">Out: {formatTokens(totals.output)}</span>
+            {totals.cacheRead > 0 && (
+              <span title="Cache read">Cache: {formatTokens(totals.cacheRead)}</span>
             )}
           </div>
         </>
