@@ -151,14 +151,23 @@ elif [[ -f "$STATE_FILE" ]]; then
     fi
 fi
 
-# Check orchestrator liveness via events.jsonl mtime
+# Check orchestrator liveness via events.jsonl mtime (or start_epoch fallback)
 check_orchestrator_liveness() {
-    [[ ! -f "$EVENTS_FILE" ]] && return 0  # No events file yet — still starting
+    local now
+    now=$(date +%s)
+
+    if [[ ! -f "$EVENTS_FILE" ]]; then
+        # No events file yet — use start_epoch to detect stuck startup
+        local since_start=$((now - start_epoch))
+        if [[ "$since_start" -ge "$SENTINEL_STUCK_TIMEOUT" ]]; then
+            sentinel_log "Orchestrator stuck: no events after ${since_start}s since launch (threshold: ${SENTINEL_STUCK_TIMEOUT}s)"
+            return 1
+        fi
+        return 0
+    fi
 
     local events_mtime
     events_mtime=$(stat -c %Y "$EVENTS_FILE" 2>/dev/null || echo 0)
-    local now
-    now=$(date +%s)
     local idle=$((now - events_mtime))
 
     if [[ "$idle" -ge "$SENTINEL_STUCK_TIMEOUT" ]]; then
