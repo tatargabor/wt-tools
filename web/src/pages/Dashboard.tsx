@@ -12,6 +12,8 @@ import AuditPanel from '../components/AuditPanel'
 import ProgressView from '../components/ProgressView'
 import type { StateData, ChangeInfo } from '../lib/api'
 
+type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit'
+
 interface Props {
   project: string | null
 }
@@ -21,10 +23,7 @@ export default function Dashboard({ project }: Props) {
   const [logLines, setLogLines] = useState<string[]>([])
   const [checkpoint, setCheckpoint] = useState(false)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
-  const [showPlan, setShowPlan] = useState(false)
-  const [showTokens, setShowTokens] = useState(false)
-  const [showAudit, setShowAudit] = useState(false)
-  const [showProgress, setShowProgress] = useState(false)
+  const [activeTab, setActiveTab] = useState<PanelTab>('changes')
   const { notify } = useNotifications()
 
   const onEvent = useCallback((event: WSEvent) => {
@@ -63,6 +62,15 @@ export default function Dashboard({ project }: Props) {
   const changes = state?.changes ?? []
   const selectedChangeInfo: ChangeInfo | null =
     selectedChange ? changes.find((c) => c.name === selectedChange) ?? null : null
+  const hasAudit = (state?.phase_audit_results?.length ?? 0) > 0
+
+  const tabs: { id: PanelTab; label: string; hidden?: boolean }[] = [
+    { id: 'changes', label: 'Changes' },
+    { id: 'plan', label: 'Plan' },
+    { id: 'tokens', label: 'Tokens' },
+    { id: 'requirements', label: 'Requirements' },
+    { id: 'audit', label: 'Audit', hidden: !hasAudit },
+  ]
 
   return (
     <div className="flex flex-col h-full">
@@ -71,69 +79,49 @@ export default function Dashboard({ project }: Props) {
         <CheckpointBanner project={project} onDismiss={() => setCheckpoint(false)} />
       )}
 
-      {/* Collapsible panels — between header and main split */}
-      <div className="flex items-center gap-3 px-4 py-1 border-b border-neutral-800/50">
-        <button
-          onClick={() => setShowPlan(p => !p)}
-          className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300"
-        >
-          <span>{showPlan ? '▾' : '▸'}</span>
-          <span>Plan</span>
-        </button>
-        <button
-          onClick={() => setShowTokens(p => !p)}
-          className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300"
-        >
-          <span>{showTokens ? '▾' : '▸'}</span>
-          <span>Tokens</span>
-        </button>
-        {(state?.phase_audit_results?.length ?? 0) > 0 && (
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 px-3 py-1 border-b border-neutral-800 bg-neutral-900/30">
+        {tabs.filter(t => !t.hidden).map(t => (
           <button
-            onClick={() => setShowAudit(p => !p)}
-            className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300"
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`px-3 py-1 text-[11px] rounded transition-colors ${
+              activeTab === t.id
+                ? 'bg-neutral-800 text-neutral-200 font-medium'
+                : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50'
+            }`}
           >
-            <span>{showAudit ? '▾' : '▸'}</span>
-            <span>Audit</span>
+            {t.label}
           </button>
-        )}
-        <button
-          onClick={() => setShowProgress(p => !p)}
-          className="flex items-center gap-1 text-[10px] text-neutral-500 hover:text-neutral-300"
-        >
-          <span>{showProgress ? '▾' : '▸'}</span>
-          <span>Requirements</span>
-        </button>
+        ))}
       </div>
-      {showPlan && (
-        <div className="border-b border-neutral-800 max-h-[250px] overflow-auto">
-          <PlanViewer project={project} />
-        </div>
-      )}
-      {showTokens && (
-        <div className="border-b border-neutral-800">
-          <TokenChart project={project} />
-        </div>
-      )}
-      {showAudit && state?.phase_audit_results && (
-        <div className="border-b border-neutral-800 max-h-[300px] overflow-auto">
-          <AuditPanel results={state.phase_audit_results} />
-        </div>
-      )}
-      {showProgress && (
-        <div className="border-b border-neutral-800 max-h-[400px] overflow-hidden">
-          <ProgressView project={project} />
-        </div>
-      )}
 
+      {/* Tab content + log split */}
       <div className="flex-1 min-h-0">
         <ResizableSplit
           top={
-            <ChangeTable
-              changes={changes}
-              project={project}
-              selected={selectedChange}
-              onSelect={setSelectedChange}
-            />
+            <div className="h-full overflow-auto">
+              {activeTab === 'changes' && (
+                <ChangeTable
+                  changes={changes}
+                  project={project}
+                  selected={selectedChange}
+                  onSelect={setSelectedChange}
+                />
+              )}
+              {activeTab === 'plan' && (
+                <PlanViewer project={project} />
+              )}
+              {activeTab === 'tokens' && (
+                <TokenChart project={project} />
+              )}
+              {activeTab === 'requirements' && (
+                <ProgressView project={project} />
+              )}
+              {activeTab === 'audit' && state?.phase_audit_results && (
+                <AuditPanel results={state.phase_audit_results} />
+              )}
+            </div>
           }
           bottom={
             <LogPanel

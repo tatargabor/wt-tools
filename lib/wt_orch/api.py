@@ -923,6 +923,131 @@ def get_plan(project: str, filename: str):
         raise HTTPException(500, f"Failed to read plan: {e}")
 
 
+@router.get("/api/{project}/requirements")
+def get_requirements(project: str):
+    """Aggregate requirements across all plan versions with live status from state.
+
+    Merges all plan JSON files to build a unified requirement map,
+    then overlays current change status from orchestration state.
+    """
+    project_path = _resolve_project(project)
+    plans_dir = project_path / "wt" / "orchestration" / "plans"
+    if not plans_dir.is_dir():
+        return {"requirements": [], "changes": [], "plan_versions": []}
+
+    # Load all plans in order
+    plan_files = sorted(
+        (f for f in plans_dir.iterdir() if f.is_file() and f.suffix == ".json"),
+        key=lambda f: f.name,
+    )
+    if not plan_files:
+        return {"requirements": [], "changes": [], "plan_versions": []}
+
+    # Build unified maps: req_id -> info, change_name -> info
+    all_reqs: dict[str, dict] = {}  # req_id -> {change, plan_version, ...}
+    all_changes: dict[str, dict] = {}  # change_name -> merged info
+    plan_versions: list[str] = []
+
+    for pf in plan_files:
+        try:
+            with open(pf) as f:
+                plan = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+        plan_versions.append(pf.name)
+        for ch in plan.get("changes", []):
+            name = ch.get("name", "")
+            if not name:
+                continue
+            # Merge change info (later plans override)
+            all_changes[name] = {
+                "name": name,
+                "complexity": ch.get("complexity", "?"),
+                "change_type": ch.get("change_type", "feature"),
+                "depends_on": ch.get("depends_on", []),
+                "requirements": ch.get("requirements", []),
+                "also_affects_reqs": ch.get("also_affects_reqs", []),
+                "scope_summary": (ch.get("scope", "") or "")[:200],
+                "plan_version": pf.name,
+                "roadmap_item": ch.get("roadmap_item", ""),
+            }
+            for req_id in ch.get("requirements", []):
+                all_reqs[req_id] = {
+                    "id": req_id,
+                    "change": name,
+                    "primary": True,
+                    "plan_version": pf.name,
+                }
+            for req_id in ch.get("also_affects_reqs", []):
+                if req_id not in all_reqs:
+                    all_reqs[req_id] = {
+                        "id": req_id,
+                        "change": name,
+                        "primary": False,
+                        "plan_version": pf.name,
+                    }
+
+    # Overlay live status from state
+    change_status: dict[str, str] = {}
+    try:
+        sp = _state_path(project_path)
+        if sp.exists():
+            state = load_state(str(sp))
+            for ch in state.changes:
+                change_status[ch.name] = ch.status
+    except Exception:
+        pass
+
+    # Enrich changes with live status
+    for name, info in all_changes.items():
+        info["status"] = change_status.get(name, "planned")
+
+    # Enrich reqs with change status
+    for req_id, info in all_reqs.items():
+        ch_name = info["change"]
+        status = change_status.get(ch_name, "planned")
+        info["status"] = status
+
+    # Group reqs by prefix (e.g. REQ-CART -> CART)
+    groups: dict[str, list[dict]] = {}
+    for req in all_reqs.values():
+        parts = req["id"].split("-")
+        # REQ-CART-006 -> CART, CART-006 -> CART
+        if len(parts) >= 3 and parts[0] == "REQ":
+            group = parts[1]
+        elif len(parts) >= 2:
+            group = parts[0]
+        else:
+            group = "OTHER"
+        groups.setdefault(group, []).append(req)
+
+    # Build group summaries
+    group_summaries = []
+    for gname, reqs in sorted(groups.items()):
+        done_statuses = {"done", "merged", "completed", "skip_merged"}
+        total = len(reqs)
+        done = sum(1 for r in reqs if r["status"] in done_statuses)
+        in_progress = sum(1 for r in reqs if r["status"] in {"running", "implementing", "verifying"})
+        failed = sum(1 for r in reqs if r["status"] in {"failed", "verify-failed"})
+        group_summaries.append({
+            "group": gname,
+            "total": total,
+            "done": done,
+            "in_progress": in_progress,
+            "failed": failed,
+            "requirements": sorted(reqs, key=lambda r: r["id"]),
+        })
+
+    return {
+        "requirements": sorted(all_reqs.values(), key=lambda r: r["id"]),
+        "changes": sorted(all_changes.values(), key=lambda c: c["name"]),
+        "groups": group_summaries,
+        "plan_versions": plan_versions,
+        "total_reqs": len(all_reqs),
+        "done_reqs": sum(1 for r in all_reqs.values() if r["status"] in {"done", "merged", "completed", "skip_merged"}),
+    }
+
+
 @router.get("/api/{project}/events")
 def get_events(project: str, type: Optional[str] = Query(None), limit: int = Query(500, ge=1, le=5000)):
     """Read orchestration state events, optionally filtered by type."""
