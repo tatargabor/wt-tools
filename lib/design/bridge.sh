@@ -205,7 +205,7 @@ fetch_design_snapshot() {
     fi
 
     local rc=0
-    python3 "$fetcher" --mcp-config "$config" "$design_ref" -o "$snapshot_file" 2>&1 | while IFS= read -r line; do
+    python3 "$fetcher" --mcp-config "$config" "$design_ref" -o "$snapshot_dir" 2>&1 | while IFS= read -r line; do
         log_info "  $line"
     done || rc=$?
 
