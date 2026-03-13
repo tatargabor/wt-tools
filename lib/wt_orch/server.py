@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
+from .chat import router as chat_router, agent_manager
 from .watcher import WatcherManager
 from .websocket import router as ws_router, connection_manager
 
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     watcher = app.state.watcher_manager
     await watcher.start(connection_manager)
     yield
+    await agent_manager.shutdown_all()
     await watcher.stop()
 
 
@@ -53,9 +55,10 @@ def create_app(web_dist_dir: str | None = None) -> FastAPI:
     # State
     app.state.watcher_manager = WatcherManager()
 
-    # API and WebSocket routes
+    # API, WebSocket, and chat routes
     app.include_router(api_router)
     app.include_router(ws_router)
+    app.include_router(chat_router)
 
     # Static SPA serving
     if web_dist_dir is None:

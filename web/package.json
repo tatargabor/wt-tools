@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@soniox/speech-to-text-web": "^1.4.0",
     "@tailwindcss/vite": "^4.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

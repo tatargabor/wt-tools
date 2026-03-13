@@ -23,33 +23,33 @@
 
 ## 3. Frontend — Orchestration Chat Component
 
-- [ ] 3.1 Create `OrchestrationChat.tsx` component with message history display (user messages right-aligned, agent messages left-aligned with markdown support)
-- [ ] 3.2 Add chat WebSocket hook (`useChatWebSocket.ts`) — connect to `/ws/{project}/chat`, send messages, receive events, auto-reconnect
-- [ ] 3.3 Add text input with Send button — Enter to send, Shift+Enter for newline, disabled during agent processing. Mobile: 44px min touch targets
-- [ ] 3.4 Implement agent output streaming — progressive text display from `assistant_text` events
-- [ ] 3.5 Add tool use display — collapsible blocks showing tool name and input/output summary for `tool_use`/`tool_result` events
-- [ ] 3.6 Add agent status indicator — thinking/responding/tool-use/idle states with animation
-- [ ] 3.7 Add connection status indicator — green/red dot for WebSocket connected/disconnected
-- [ ] 3.8 Add session controls — "New Session" button to stop subprocess and clear history
-- [ ] 3.9 Implement auto-scroll with manual scroll preservation and "Jump to bottom" button
+- [x] 3.1 Create `OrchestrationChat.tsx` component with message history display (user messages right-aligned, agent messages left-aligned with markdown support)
+- [x] 3.2 Add chat WebSocket hook (`useChatWebSocket.ts`) — connect to `/ws/{project}/chat`, send messages, receive events, auto-reconnect
+- [x] 3.3 Add text input with Send button — Enter to send, Shift+Enter for newline, disabled during agent processing. Mobile: 44px min touch targets
+- [x] 3.4 Implement agent output streaming — progressive text display from `assistant_text` events
+- [x] 3.5 Add tool use display — collapsible blocks showing tool name and input/output summary for `tool_use`/`tool_result` events
+- [x] 3.6 Add agent status indicator — thinking/responding/tool-use/idle states with animation
+- [x] 3.7 Add connection status indicator — green/red dot for WebSocket connected/disconnected
+- [x] 3.8 Add session controls — "New Session" button to stop subprocess and clear history
+- [x] 3.9 Implement auto-scroll with manual scroll preservation and "Jump to bottom" button
 
 ## 4. Frontend — Voice Input Component
 
-- [ ] 4.1 Create `VoiceInput.tsx` component with microphone toggle button (idle/recording states, 44px min touch target)
-- [ ] 4.2 Fetch Soniox API key from `GET /api/soniox-key` on mount — hide voice controls if 404
-- [ ] 4.3 Integrate Soniox Web SDK — initialize `SonioxClient` with fetched key, start/stop recording on button click
-- [ ] 4.4 Implement real-time partial transcription — stream Soniox partial result tokens into the textarea
-- [ ] 4.5 Implement final transcript — on stop, place final text in textarea as editable content
-- [ ] 4.6 Add language selector dropdown (HU / EN) with localStorage persistence, default HU. 44px touch target on mobile
-- [ ] 4.7 Add recording duration timer display (e.g., "0:12") next to mic button while recording
-- [ ] 4.8 Handle microphone permission denial — show brief error, return to idle state
-- [ ] 4.9 Handle insecure context (non-HTTPS remote access) — detect `getUserMedia` unavailable, hide voice controls, text-only fallback
+- [x] 4.1 Create `VoiceInput.tsx` component with microphone toggle button (idle/recording states, 44px min touch target)
+- [x] 4.2 Fetch Soniox API key from `GET /api/soniox-key` on mount — hide voice controls if 404
+- [x] 4.3 Integrate Soniox Web SDK — initialize `SonioxClient` with fetched key, start/stop recording on button click
+- [x] 4.4 Implement real-time partial transcription — stream Soniox partial result tokens into the textarea
+- [x] 4.5 Implement final transcript — on stop, place final text in textarea as editable content
+- [x] 4.6 Add language selector dropdown (HU / EN) with localStorage persistence, default HU. 44px touch target on mobile
+- [x] 4.7 Add recording duration timer display (e.g., "0:12") next to mic button while recording
+- [x] 4.8 Handle microphone permission denial — show brief error, return to idle state
+- [x] 4.9 Handle insecure context (non-HTTPS remote access) — detect `getUserMedia` unavailable, hide voice controls, text-only fallback
 
 ## 5. Frontend — Dashboard Integration
 
-- [ ] 5.1 Add "Orchestration" tab to Dashboard.tsx tab navigation
-- [ ] 5.2 Wire OrchestrationChat component into the tab content area with VoiceInput integrated into the input row
-- [ ] 5.3 Verify existing Vite proxy covers `/ws/{project}/chat` (already proxies `/ws` → localhost:7400)
+- [x] 5.1 Add "Orchestration" tab to Dashboard.tsx tab navigation
+- [x] 5.2 Wire OrchestrationChat component into the tab content area with VoiceInput integrated into the input row
+- [x] 5.3 Verify existing Vite proxy covers `/ws/{project}/chat` (already proxies `/ws` → localhost:7400)
 
 ## 6. Testing
 

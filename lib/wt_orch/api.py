@@ -22,6 +22,18 @@ from .state import load_state, save_state, StateCorruptionError
 
 router = APIRouter()
 
+# ─── Soniox API key ───────────────────────────────────────────────────
+
+
+@router.get("/api/soniox-key")
+async def get_soniox_key():
+    """Return Soniox API key from environment for voice input."""
+    key = os.environ.get("SONIOX_API_KEY")
+    if not key:
+        raise HTTPException(404, "Soniox API key not configured")
+    return {"api_key": key}
+
+
 # ─── Project registry ─────────────────────────────────────────────────
 
 PROJECTS_FILE = Path.home() / ".config" / "wt-tools" / "projects.json"
@@ -590,7 +602,25 @@ def _derive_session_label(session_path: Path) -> tuple[str, str]:
                 if entry.get("type") != "queue-operation":
                     continue
                 content = entry.get("content", "")
-                # Extract task line
+                first_line = content.split("\n")[0].strip().lower()
+
+                # Orchestration role patterns (match before generic fallback)
+                if "software architect" in first_line and "plan" in first_line:
+                    return "Planner", "Decompose spec into implementation plan"
+                if "technical analyst" in first_line and "digest" in first_line:
+                    return "Digest", "Parse spec into structured digest"
+                if "resolving git merge" in first_line:
+                    return "Merge fix", "Resolving git merge conflicts"
+                if "build errors" in first_line or "build failed" in first_line:
+                    return "Build fix", first_line
+                if "mcp" in first_line and ("whoami" in first_line or "health" in first_line):
+                    return "MCP check", "MCP tool health check"
+                if "smoke" in first_line and "failed" in first_line:
+                    return "Smoke fix", first_line
+                if "post-merge" in first_line and "failed" in first_line:
+                    return "Post-merge fix", first_line
+
+                # Extract task line from content
                 for text_line in content.split("\n"):
                     text_line = text_line.strip().lstrip("#").strip()
                     if not text_line:
@@ -602,6 +632,9 @@ def _derive_session_label(session_path: Path) -> tuple[str, str]:
                         return "Test fix", text_line
                     if "verify" in low:
                         return "Verify", text_line
+                    if low.startswith("**execution**"):
+                        label = text_line.lstrip("*: ").strip()[:30]
+                        return label, text_line
                     if "implement" in low or "task" in low:
                         label = text_line[:25].rstrip()
                         if len(text_line) > 25:
@@ -795,6 +828,33 @@ def _parse_session_jsonl(path: Path, tail: int) -> list[str]:
         output.append(f"--- last activity: {_format_ts(last_ts)} ---")
 
     return output[-tail:]
+
+
+@router.get("/api/{project}/sessions")
+def list_project_sessions(project: str):
+    """List all Claude session files for the project itself (not change-specific)."""
+    project_path = _resolve_project(project)
+    mangled = str(project_path).lstrip("/").replace("/", "-")
+    sessions_dir = Path.home() / ".claude" / "projects" / f"-{mangled}"
+    if not sessions_dir.is_dir():
+        return {"sessions": []}
+    return {"sessions": _list_session_files(sessions_dir)}
+
+
+@router.get("/api/{project}/sessions/{session_id}")
+def get_project_session(
+    project: str, session_id: str,
+    tail: int = Query(200, ge=1, le=2000),
+):
+    """Read a Claude session log for the project (parsed from JSONL)."""
+    project_path = _resolve_project(project)
+    mangled = str(project_path).lstrip("/").replace("/", "-")
+    sessions_dir = Path.home() / ".claude" / "projects" / f"-{mangled}"
+    target = sessions_dir / f"{session_id}.jsonl"
+    if not target.is_file():
+        raise HTTPException(404, f"Session not found: {session_id}")
+    lines = _parse_session_jsonl(target, tail)
+    return {"lines": lines, "session_id": session_id}
 
 
 @router.get("/api/{project}/activity")

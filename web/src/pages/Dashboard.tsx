@@ -11,10 +11,11 @@ import AuditPanel from '../components/AuditPanel'
 import ProgressView from '../components/ProgressView'
 import DigestView from '../components/DigestView'
 import SessionPanel from '../components/SessionPanel'
+import OrchestrationChat from '../components/OrchestrationChat'
 import useIsMobile from '../hooks/useIsMobile'
 import type { StateData, ChangeInfo } from '../lib/api'
 
-type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit' | 'digest' | 'sessions'
+type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit' | 'digest' | 'sessions' | 'orchestration'
 
 interface Props {
   project: string | null
@@ -71,6 +72,7 @@ export default function Dashboard({ project }: Props) {
     { id: 'audit', label: 'Audit', hidden: !hasAudit },
     { id: 'digest', label: 'Digest' },
     { id: 'sessions', label: 'Sessions' },
+    { id: 'orchestration', label: 'Orchestration' },
   ]
 
   return (
@@ -110,7 +112,10 @@ export default function Dashboard({ project }: Props) {
 
       {/* Tab content + log split */}
       <div className="flex-1 min-h-0 relative">
-        {isMobile ? (
+        {/* Orchestration tab takes full height — no log split needed */}
+        {activeTab === 'orchestration' ? (
+          <OrchestrationChat project={project} />
+        ) : isMobile ? (
           <>
             {/* Mobile: stacked — full-height tab content + collapsible log bottom sheet */}
             <div className={`h-full overflow-auto ${logExpanded ? 'pb-[60vh]' : 'pb-11'}`}>
