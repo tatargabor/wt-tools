@@ -3,10 +3,11 @@ import { approve, stopOrchestrator } from '../lib/api'
 
 interface Props {
   project: string
+  checkpointType: string | null
   onDismiss: () => void
 }
 
-export default function CheckpointBanner({ project, onDismiss }: Props) {
+export default function CheckpointBanner({ project, checkpointType, onDismiss }: Props) {
   const [loading, setLoading] = useState<string | null>(null)
   const [confirmStop, setConfirmStop] = useState(false)
 
@@ -37,11 +38,30 @@ export default function CheckpointBanner({ project, onDismiss }: Props) {
     setConfirmStop(false)
   }
 
+  const isMcpAuth = checkpointType === 'mcp_auth'
+
   return (
-    <div className="flex items-center gap-3 px-4 py-3 bg-yellow-900/30 border-b border-yellow-800/50">
-      <span className="text-yellow-300 text-sm font-medium flex-1">
-        Checkpoint pending — orchestration is waiting for approval
-      </span>
+    <div className={`flex items-center gap-3 px-4 py-3 border-b ${
+      isMcpAuth
+        ? 'bg-orange-900/30 border-orange-800/50'
+        : 'bg-yellow-900/30 border-yellow-800/50'
+    }`}>
+      <div className="flex-1">
+        {isMcpAuth ? (
+          <>
+            <span className="text-orange-300 text-sm font-medium block">
+              MCP Authentication Required
+            </span>
+            <span className="text-orange-400/70 text-xs">
+              Design MCP needs authentication. Run <code className="bg-neutral-800 px-1 rounded">/mcp</code> → select server → Authenticate in Claude Code, then approve.
+            </span>
+          </>
+        ) : (
+          <span className="text-yellow-300 text-sm font-medium">
+            Checkpoint pending — orchestration is waiting for approval
+          </span>
+        )}
+      </div>
       <button
         onClick={handleApprove}
         disabled={loading !== null}

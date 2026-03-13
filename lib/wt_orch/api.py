@@ -923,6 +923,57 @@ def get_plan(project: str, filename: str):
         raise HTTPException(500, f"Failed to read plan: {e}")
 
 
+@router.get("/api/{project}/digest")
+def get_digest(project: str):
+    """Return digest data: index, requirements, coverage, domains, dependencies, ambiguities."""
+    project_path = _resolve_project(project)
+    digest_dir = project_path / "wt" / "orchestration" / "digest"
+    if not digest_dir.is_dir():
+        return {"exists": False}
+
+    result: dict = {"exists": True}
+
+    # Read JSON files
+    for name in ("index", "requirements", "coverage", "dependencies", "ambiguities", "conventions", "coverage-merged"):
+        fpath = digest_dir / f"{name}.json"
+        if fpath.exists():
+            try:
+                with open(fpath) as f:
+                    result[name.replace("-", "_")] = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Read domain summaries
+    domains_dir = digest_dir / "domains"
+    if domains_dir.is_dir():
+        domains = {}
+        for df in sorted(domains_dir.iterdir()):
+            if df.is_file() and df.suffix == ".md":
+                try:
+                    domains[df.stem] = df.read_text()
+                except OSError:
+                    pass
+        result["domains"] = domains
+
+    # Read triage.md
+    triage = digest_dir / "triage.md"
+    if triage.exists():
+        try:
+            result["triage"] = triage.read_text()
+        except OSError:
+            pass
+
+    # Read data-definitions.md
+    datadef = digest_dir / "data-definitions.md"
+    if datadef.exists():
+        try:
+            result["data_definitions"] = datadef.read_text()
+        except OSError:
+            pass
+
+    return result
+
+
 @router.get("/api/{project}/requirements")
 def get_requirements(project: str):
     """Aggregate requirements across all plan versions with live status from state.
@@ -932,16 +983,46 @@ def get_requirements(project: str):
     """
     project_path = _resolve_project(project)
     plans_dir = project_path / "wt" / "orchestration" / "plans"
-    if not plans_dir.is_dir():
-        return {"requirements": [], "changes": [], "plan_versions": []}
+    has_plans_dir = plans_dir.is_dir()
 
     # Load all plans in order
     plan_files = sorted(
         (f for f in plans_dir.iterdir() if f.is_file() and f.suffix == ".json"),
         key=lambda f: f.name,
-    )
+    ) if has_plans_dir else []
+
     if not plan_files:
-        return {"requirements": [], "changes": [], "plan_versions": []}
+        # Fallback: build change list from live state even without plan files
+        try:
+            sp = _state_path(project_path)
+            if sp.exists():
+                state = load_state(str(sp))
+                if state.changes:
+                    changes_out = []
+                    for ch in state.changes:
+                        changes_out.append({
+                            "name": ch.name,
+                            "complexity": "?",
+                            "change_type": "feature",
+                            "depends_on": [],
+                            "requirements": [],
+                            "also_affects_reqs": [],
+                            "scope_summary": "",
+                            "plan_version": "",
+                            "roadmap_item": "",
+                            "status": ch.status,
+                        })
+                    return {
+                        "requirements": [],
+                        "changes": changes_out,
+                        "groups": [],
+                        "plan_versions": [],
+                        "total_reqs": 0,
+                        "done_reqs": 0,
+                    }
+        except Exception:
+            pass
+        return {"requirements": [], "changes": [], "groups": [], "plan_versions": [], "total_reqs": 0, "done_reqs": 0}
 
     # Build unified maps: req_id -> info, change_name -> info
     all_reqs: dict[str, dict] = {}  # req_id -> {change, plan_version, ...}

@@ -699,11 +699,27 @@ ${orch_mem}"
         test_infra_context="Test Infrastructure: NONE — first change must set up test framework"
     fi
 
-    # Detect design MCP (non-fatal — pipeline unchanged if absent)
+    # Detect design MCP and validate connectivity (preflight gate)
     local design_context=""
     if setup_design_bridge 2>/dev/null; then
-        design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
         log_info "Design bridge active: $DESIGN_MCP_NAME (ref: ${DESIGN_FILE_REF:-none})"
+
+        # Preflight: verify MCP is authenticated before decomposition
+        if check_design_mcp_health 2>/dev/null; then
+            design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
+            log_info "Design MCP preflight passed"
+        else
+            log_warn "Design MCP preflight failed — triggering mcp_auth checkpoint"
+            trigger_checkpoint "mcp_auth"
+
+            # After approval, retry once
+            if check_design_mcp_health 2>/dev/null; then
+                design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
+                log_info "Design MCP preflight passed after approval"
+            else
+                log_warn "Design MCP still not authenticated after approval — proceeding without design context"
+            fi
+        fi
     fi
 
     # Build decomposition prompt (tri-mode: digest vs spec vs brief)

@@ -9,9 +9,10 @@ import PlanViewer from '../components/PlanViewer'
 import TokenChart from '../components/TokenChart'
 import AuditPanel from '../components/AuditPanel'
 import ProgressView from '../components/ProgressView'
+import DigestView from '../components/DigestView'
 import type { StateData, ChangeInfo } from '../lib/api'
 
-type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit'
+type PanelTab = 'changes' | 'plan' | 'tokens' | 'requirements' | 'audit' | 'digest'
 
 interface Props {
   project: string | null
@@ -21,6 +22,7 @@ export default function Dashboard({ project }: Props) {
   const [state, setState] = useState<StateData | null>(null)
   const [logLines, setLogLines] = useState<string[]>([])
   const [checkpoint, setCheckpoint] = useState(false)
+  const [checkpointType, setCheckpointType] = useState<string | null>(null)
   const [selectedChange, setSelectedChange] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<PanelTab>('changes')
 
@@ -36,6 +38,7 @@ export default function Dashboard({ project }: Props) {
       }
       case 'checkpoint_pending':
         setCheckpoint(true)
+        setCheckpointType((event.data as { type?: string })?.type ?? null)
         break
     }
   }, [])
@@ -61,13 +64,14 @@ export default function Dashboard({ project }: Props) {
     { id: 'tokens', label: 'Tokens' },
     { id: 'requirements', label: 'Requirements' },
     { id: 'audit', label: 'Audit', hidden: !hasAudit },
+    { id: 'digest', label: 'Digest' },
   ]
 
   return (
     <div className="flex flex-col h-full">
       <StatusHeader state={state} connected={connected} project={project} />
       {checkpoint && (
-        <CheckpointBanner project={project} onDismiss={() => setCheckpoint(false)} />
+        <CheckpointBanner project={project} checkpointType={checkpointType} onDismiss={() => setCheckpoint(false)} />
       )}
 
       {/* Tab bar */}
@@ -111,6 +115,9 @@ export default function Dashboard({ project }: Props) {
               )}
               {activeTab === 'audit' && state?.phase_audit_results && (
                 <AuditPanel results={state.phase_audit_results} />
+              )}
+              {activeTab === 'digest' && (
+                <DigestView project={project} />
               )}
             </div>
           }

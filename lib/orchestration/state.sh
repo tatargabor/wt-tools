@@ -625,7 +625,10 @@ trigger_checkpoint() {
     send_notification "wt-orchestrate" "Checkpoint ($reason): $done_count/$total done, $running running. Run 'wt-orchestrate approve' to continue."
 
     # Auto-approve if directive is set (unattended/E2E mode)
-    if [[ "${CHECKPOINT_AUTO_APPROVE:-false}" == "true" ]]; then
+    # Exception: mcp_auth checkpoints require human action (browser OAuth) and cannot be auto-approved
+    if [[ "${CHECKPOINT_AUTO_APPROVE:-false}" == "true" ]] && [[ "$reason" == "mcp_auth" ]]; then
+        log_info "Checkpoint mcp_auth cannot be auto-approved (requires browser authentication)"
+    elif [[ "${CHECKPOINT_AUTO_APPROVE:-false}" == "true" ]]; then
         log_info "Checkpoint auto-approved (checkpoint_auto_approve=true)"
         with_state_lock _approve_checkpoint_locked
         return

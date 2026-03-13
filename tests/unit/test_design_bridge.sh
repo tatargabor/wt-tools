@@ -209,4 +209,86 @@ test_setup_design_bridge_no_mcp() {
 
 # ─── Run ──────────────────────────────────────────────────────────────
 
+
+# ─── check_design_mcp_health ────────────────────────────────────
+
+test_health_check_success() {
+    setup
+    mkdir -p "$_TMPDIR/.claude"
+    cat > "$_TMPDIR/.claude/settings.json" <<'JSON'
+{"mcpServers": {"figma": {"type": "http", "url": "https://mcp.figma.com/mcp"}}}
+JSON
+    setup_design_bridge
+
+    # Mock run_claude to return healthy response
+    run_claude() { echo "MCP_HEALTHY"; return 0; }
+    export -f run_claude
+    log_info() { :; }
+    log_warn() { :; }
+
+    local rc=0
+    check_design_mcp_health || rc=$?
+    assert_equals "0" "$rc" "should return 0 when MCP is healthy"
+
+    rm -f "$DESIGN_MCP_CONFIG"
+    teardown
+}
+
+test_health_check_auth_failure() {
+    setup
+    mkdir -p "$_TMPDIR/.claude"
+    cat > "$_TMPDIR/.claude/settings.json" <<'JSON'
+{"mcpServers": {"figma": {"type": "http", "url": "https://mcp.figma.com/mcp"}}}
+JSON
+    setup_design_bridge
+
+    # Mock run_claude to return auth failure
+    run_claude() { echo "MCP_AUTH_FAILED: needs authentication"; return 0; }
+    export -f run_claude
+    log_info() { :; }
+    log_warn() { :; }
+
+    local rc=0
+    check_design_mcp_health || rc=$?
+    assert_equals "1" "$rc" "should return 1 when MCP auth fails"
+
+    rm -f "$DESIGN_MCP_CONFIG"
+    teardown
+}
+
+test_health_check_timeout() {
+    setup
+    mkdir -p "$_TMPDIR/.claude"
+    cat > "$_TMPDIR/.claude/settings.json" <<'JSON'
+{"mcpServers": {"figma": {"type": "http", "url": "https://mcp.figma.com/mcp"}}}
+JSON
+    setup_design_bridge
+
+    # Mock run_claude to simulate timeout (non-zero exit)
+    run_claude() { return 124; }
+    export -f run_claude
+    log_info() { :; }
+    log_warn() { :; }
+
+    local rc=0
+    check_design_mcp_health || rc=$?
+    assert_equals "1" "$rc" "should return 1 on timeout"
+
+    rm -f "$DESIGN_MCP_CONFIG"
+    teardown
+}
+
+test_health_check_no_config() {
+    setup
+    unset DESIGN_MCP_CONFIG DESIGN_MCP_NAME
+    log_info() { :; }
+    log_warn() { :; }
+
+    local rc=0
+    check_design_mcp_health || rc=$?
+    assert_equals "1" "$rc" "should return 1 without config"
+
+    teardown
+}
+
 run_tests

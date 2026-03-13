@@ -234,10 +234,12 @@ class ProjectWatcher:
             checkpoints = new_state.get("checkpoints", [])
             changes = new_state.get("changes", [])
             done = sum(1 for c in changes if c.get("status") in ("done", "merged"))
+            last_cp = checkpoints[-1] if checkpoints else {}
             await callback(self.project_name, "checkpoint_pending", {
                 "checkpoint_id": len(checkpoints),
                 "completed": done,
                 "total": len(changes),
+                "type": last_cp.get("type", "unknown"),
             })
 
         # Detect change completion

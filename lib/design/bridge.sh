@@ -106,6 +106,35 @@ When planning changes that involve UI:
 EOF
 }
 
+# ─── Health Check ────────────────────────────────────────────────
+
+# Test MCP connectivity by running a lightweight probe via run_claude.
+# Requires DESIGN_MCP_CONFIG to be set (call setup_design_bridge first).
+# Returns 0 if MCP responds successfully, 1 if auth fails or timeout.
+check_design_mcp_health() {
+    local config="${DESIGN_MCP_CONFIG:-}"
+    local server_name="${DESIGN_MCP_NAME:-unknown}"
+    [[ -n "$config" && -f "$config" ]] || return 1
+
+    local probe_prompt="Call the $server_name MCP whoami tool to verify authentication. If authenticated, respond with exactly: MCP_HEALTHY. If not authenticated or any error, respond with exactly: MCP_AUTH_FAILED"
+
+    local output rc=0
+    output=$(RUN_CLAUDE_TIMEOUT=30 echo "$probe_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        log_warn "Design MCP health check timed out or failed (rc=$rc)"
+        return 1
+    fi
+
+    if echo "$output" | grep -q "MCP_HEALTHY"; then
+        log_info "Design MCP health check passed: $server_name"
+        return 0
+    else
+        log_warn "Design MCP not authenticated: $server_name"
+        return 1
+    fi
+}
+
 # ─── Convenience ──────────────────────────────────────────────────────
 
 # One-call setup: detect, load config, export DESIGN_MCP_CONFIG.

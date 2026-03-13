@@ -198,6 +198,44 @@ export function getScreenshots(project: string, name: string): Promise<{ smoke: 
   return fetchJSON(`/${project}/changes/${name}/screenshots`)
 }
 
+// --- Digest ---
+
+export interface DigestReq {
+  id: string
+  title: string
+  source: string
+  source_section?: string
+  domain: string
+  brief: string
+}
+
+export interface DigestData {
+  exists: boolean
+  index?: {
+    spec_base_dir: string
+    source_hash: string
+    file_count: number
+    timestamp: string
+    files?: string[]
+    execution_hints?: {
+      suggested_implementation_order?: string[]
+      seed_data_requirements?: string[]
+      verification_sections?: string[]
+    }
+  }
+  requirements?: DigestReq[] | [{ requirements: DigestReq[] }]
+  coverage?: { coverage?: Record<string, { change: string; status: string }>; uncovered?: string[] }
+  dependencies?: { dependencies?: { from: string; to: string; type: string }[] }
+  ambiguities?: { id: string; question: string; options?: string[] }[]
+  domains?: Record<string, string>
+  triage?: string
+  data_definitions?: string
+}
+
+export function getDigest(project: string): Promise<DigestData> {
+  return fetchJSON(`/${project}/digest`)
+}
+
 // --- Plans ---
 
 export interface PlanFile {
