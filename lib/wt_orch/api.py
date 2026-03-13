@@ -914,16 +914,18 @@ def get_change_screenshots(project: str, name: str):
                 sd = project_path / smoke_dir
                 if sd.is_dir():
                     result["smoke"] = sorted(
-                        {"path": f"{smoke_dir}/{f.relative_to(sd)}", "name": f.name}
-                        for f in sd.rglob("*.png")
+                        ({"path": f"{smoke_dir}/{f.relative_to(sd)}", "name": f.name}
+                         for f in sd.rglob("*.png")),
+                        key=lambda x: x["name"],
                     )
             e2e_dir = getattr(c, "e2e_screenshot_dir", None) or c.extras.get("e2e_screenshot_dir")
             if e2e_dir:
                 ed = project_path / e2e_dir
                 if ed.is_dir():
                     result["e2e"] = sorted(
-                        {"path": f"{e2e_dir}/{f.relative_to(ed)}", "name": f.name}
-                        for f in ed.rglob("*.png")
+                        ({"path": f"{e2e_dir}/{f.relative_to(ed)}", "name": f.name}
+                         for f in ed.rglob("*.png")),
+                        key=lambda x: x["name"],
                     )
             return result
     raise HTTPException(404, f"Change not found: {name}")
