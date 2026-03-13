@@ -291,18 +291,19 @@ def _enrich_changes(data: dict, project_path: Path):
     """Add session_count and log file lists to change dicts."""
     for c in data.get("changes", []):
         wt_path = c.get("worktree_path")
-        # Session count
+        # Session count (only for changes that have/had a worktree)
         sessions_dir = None
         if wt_path:
             mangled = wt_path.lstrip("/").replace("/", "-")
             d = Path.home() / ".claude" / "projects" / f"-{mangled}"
             if d.is_dir():
                 sessions_dir = d
-        if not sessions_dir:
-            mangled = str(project_path).lstrip("/").replace("/", "-")
-            d = Path.home() / ".claude" / "projects" / f"-{mangled}"
-            if d.is_dir():
-                sessions_dir = d
+            elif c.get("status") in ("done", "merged", "failed", "verify-failed"):
+                # Worktree cleaned up, fall back to project path
+                mangled = str(project_path).lstrip("/").replace("/", "-")
+                d = Path.home() / ".claude" / "projects" / f"-{mangled}"
+                if d.is_dir():
+                    sessions_dir = d
         if sessions_dir:
             try:
                 c["session_count"] = sum(

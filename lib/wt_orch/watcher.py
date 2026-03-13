@@ -202,19 +202,18 @@ class ProjectWatcher:
                     except OSError:
                         pass
 
-            # Count Claude JSONL sessions for this change
+            # Count Claude JSONL sessions for this change (only with worktree)
             sessions_dir = None
             if wt_path:
                 mangled = wt_path.lstrip("/").replace("/", "-")
                 d = Path.home() / ".claude" / "projects" / f"-{mangled}"
                 if d.is_dir():
                     sessions_dir = d
-            if not sessions_dir:
-                # Fallback: project path
-                mangled = str(self.project_path).lstrip("/").replace("/", "-")
-                d = Path.home() / ".claude" / "projects" / f"-{mangled}"
-                if d.is_dir():
-                    sessions_dir = d
+                elif c.get("status") in ("done", "merged", "failed", "verify-failed"):
+                    mangled = str(self.project_path).lstrip("/").replace("/", "-")
+                    d = Path.home() / ".claude" / "projects" / f"-{mangled}"
+                    if d.is_dir():
+                        sessions_dir = d
             if sessions_dir:
                 try:
                     c["session_count"] = sum(
