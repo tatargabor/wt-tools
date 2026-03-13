@@ -701,21 +701,46 @@ ${orch_mem}"
 
     # Detect design MCP and validate connectivity (preflight gate)
     local design_context=""
+    # Snapshot dir: same directory as STATE_FILENAME (project root for orchestration files)
+    local _snapshot_dir
+    _snapshot_dir="$(dirname "${STATE_FILENAME:-orchestration-state.json}")"
+    export DESIGN_SNAPSHOT_DIR="$_snapshot_dir"
+
     if setup_design_bridge 2>/dev/null; then
         log_info "Design bridge active: $DESIGN_MCP_NAME (ref: ${DESIGN_FILE_REF:-none})"
 
         # Preflight: verify MCP is authenticated before decomposition
         if check_design_mcp_health 2>/dev/null; then
-            design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
             log_info "Design MCP preflight passed"
+
+            # Fetch design snapshot (re-fetch on replan cycles)
+            local _snap_force=""
+            [[ -n "${_REPLAN_CYCLE:-}" ]] && _snap_force="force"
+            if fetch_design_snapshot "$_snap_force" 2>/dev/null; then
+                log_info "Design snapshot available"
+            else
+                log_warn "Design snapshot fetch failed — using generic design context"
+            fi
+
+            design_context=$(design_prompt_section "$DESIGN_MCP_NAME" "$_snapshot_dir")
         else
             log_warn "Design MCP preflight failed — triggering mcp_auth checkpoint"
             trigger_checkpoint "mcp_auth"
 
             # After approval, retry once
             if check_design_mcp_health 2>/dev/null; then
-                design_context=$(design_prompt_section "$DESIGN_MCP_NAME")
                 log_info "Design MCP preflight passed after approval"
+
+                # Also fetch snapshot after successful retry
+                local _snap_force=""
+                [[ -n "${_REPLAN_CYCLE:-}" ]] && _snap_force="force"
+                if fetch_design_snapshot "$_snap_force" 2>/dev/null; then
+                    log_info "Design snapshot available"
+                else
+                    log_warn "Design snapshot fetch failed — using generic design context"
+                fi
+
+                design_context=$(design_prompt_section "$DESIGN_MCP_NAME" "$_snapshot_dir")
             else
                 log_warn "Design MCP still not authenticated after approval — proceeding without design context"
             fi

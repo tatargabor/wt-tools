@@ -75,12 +75,41 @@ load_design_file_ref() {
 # ─── Prompt Enrichment ────────────────────────────────────────────────
 
 # Generate a design-aware prompt section for planner/verifier prompts.
-# Args: $1 = server name (e.g., "figma")
+# Args: $1 = server name (e.g., "figma"), $2 = optional snapshot dir
 # Uses DESIGN_FILE_REF env var if set.
+# When a cached snapshot exists at $2/design-snapshot.md, returns its content
+# instead of generic instructions.
 design_prompt_section() {
     local server_name="$1"
+    local snapshot_dir="${2:-${DESIGN_SNAPSHOT_DIR:-.}}"
+    local snapshot_file="$snapshot_dir/design-snapshot.md"
     local design_file_ref="${DESIGN_FILE_REF:-}"
 
+    # Prefer cached snapshot if available
+    if [[ -f "$snapshot_file" && -s "$snapshot_file" ]]; then
+        cat <<EOF
+## Design Context (Snapshot)
+
+The following design snapshot was extracted from the $server_name design tool.
+Use this data for planning — map changes to specific frames, use exact token values,
+and follow the component hierarchy. The $server_name MCP is also available for live
+queries during implementation.
+
+EOF
+        cat "$snapshot_file"
+
+        cat <<'EOF'
+
+When planning changes that involve UI:
+- Reference specific frames and components from the snapshot above
+- Use exact design token values (colors, spacing, typography)
+- If a required frame/page is MISSING from the snapshot, flag it as an ambiguity with type "design_gap"
+- Include design frame references in change scope descriptions
+EOF
+        return 0
+    fi
+
+    # Fallback: generic instructions (no snapshot available)
     cat <<EOF
 ## Design Context
 
@@ -133,6 +162,108 @@ check_design_mcp_health() {
         log_warn "Design MCP not authenticated: $server_name"
         return 1
     fi
+}
+
+# ─── Design Snapshot ─────────────────────────────────────────────────
+
+# Fetch full design content from MCP and save as structured markdown.
+# Args: $1 = optional "force" to re-fetch even if cached
+# Requires: DESIGN_MCP_CONFIG, DESIGN_FILE_REF, DESIGN_SNAPSHOT_DIR (or pwd)
+# Returns 0 if snapshot saved, 1 on failure/skip.
+fetch_design_snapshot() {
+    local force="${1:-}"
+    local config="${DESIGN_MCP_CONFIG:-}"
+    local server_name="${DESIGN_MCP_NAME:-unknown}"
+    local design_ref="${DESIGN_FILE_REF:-}"
+    local snapshot_dir="${DESIGN_SNAPSHOT_DIR:-.}"
+    local snapshot_file="$snapshot_dir/design-snapshot.md"
+
+    [[ -n "$config" && -f "$config" ]] || return 1
+
+    if [[ -z "$design_ref" ]]; then
+        log_warn "No design file reference — skipping snapshot"
+        return 1
+    fi
+
+    # Cache check: skip if snapshot exists and not forcing
+    if [[ "$force" != "force" && -f "$snapshot_file" && -s "$snapshot_file" ]]; then
+        log_info "Using cached design snapshot"
+        return 0
+    fi
+
+    log_info "Fetching design snapshot from $server_name MCP..."
+
+    local snapshot_prompt
+    snapshot_prompt=$(cat <<PROMPT
+You have a $server_name design MCP available. Extract the COMPLETE design from this file:
+$design_ref
+
+Call these MCP tools IN ORDER:
+
+1. get_metadata — get the full page/frame structure (all pages, frames, layer names, dimensions)
+2. get_variable_defs — get all design tokens (colors, typography, spacing, shadows)
+3. get_design_context — get component structure and hierarchy
+4. get_screenshot for 2-3 key frames (e.g., homepage, main product page) — describe what you see
+
+Then compile ALL results into this EXACT markdown format:
+
+# Design Snapshot
+
+## Pages & Frames
+| Page | Frame | Dimensions | Description |
+|------|-------|------------|-------------|
+(one row per frame)
+
+## Design Tokens
+### Colors
+(list all color variables with hex values)
+### Typography
+(font families, sizes, weights)
+### Spacing
+(spacing scale values)
+### Shadows
+(shadow definitions)
+
+## Component Hierarchy
+### [Frame Name]
+- Component tree with nesting, properties, variants
+(repeat for each major frame)
+
+## Layout Breakpoints
+- Desktop: dimensions
+- Mobile: dimensions
+(list all responsive variants found)
+
+## Visual Descriptions
+### [Frame Name]
+(textual description of visual layout from screenshots — positioning, visual weight, key elements)
+
+IMPORTANT:
+- Include ALL pages and frames, not just a sample
+- For Design Tokens, list actual values not just "defined"
+- If a tool returns no data, note "No data available" in that section
+- Keep component trees concise but complete (max depth 4 levels)
+- Output ONLY the markdown, no explanations before or after
+PROMPT
+)
+
+    local output rc=0
+    output=$(RUN_CLAUDE_TIMEOUT=120 echo "$snapshot_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        log_warn "Design snapshot fetch timed out or failed (rc=$rc)"
+        return 1
+    fi
+
+    if [[ -z "$output" ]]; then
+        log_warn "Design snapshot fetch returned empty output"
+        return 1
+    fi
+
+    # Save snapshot
+    printf '%s\n' "$output" > "$snapshot_file"
+    log_info "Design snapshot saved ($(wc -c < "$snapshot_file") bytes)"
+    return 0
 }
 
 # ─── Convenience ──────────────────────────────────────────────────────
