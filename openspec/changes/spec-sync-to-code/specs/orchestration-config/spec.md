@@ -1,8 +1,5 @@
-# orchestration-config Specification
+## MODIFIED Requirements
 
-## Purpose
-Configuration system for orchestration directives. Supports YAML config files with directive precedence chain (CLI flags > config file > document directives > defaults).
-## Requirements
 ### Requirement: Standalone orchestration config file
 The system SHALL support orchestration directives in `wt/orchestration/config.yaml` as the primary location, with backward-compatible fallback to `.claude/orchestration.yaml`.
 
@@ -34,7 +31,7 @@ The system SHALL support orchestration directives in `wt/orchestration/config.ya
   - `summarize_model`: one of "opus", "sonnet", "haiku" (default: "haiku") — model for spec summarization
   - `smoke_command`: string (default: empty) — command to run as smoke test after merge
   - `smoke_timeout`: integer in seconds (default: 60) — timeout for smoke command
-  - `post_merge_command`: string (default: empty) — custom command to run after dep install, before build verify (e.g., `pnpm db:generate`)
+  - `post_merge_command`: string (default: empty) — custom command to run after dep install, before build verify
   - `review_before_merge`: boolean (default: false) — whether to run code review in verify gate
   - `max_verify_retries`: integer (default: 1) — max retries for failed verify gate
   - `test_timeout`: integer in seconds (default: 300) — timeout for test command
@@ -44,36 +41,3 @@ The system SHALL support orchestration directives in `wt/orchestration/config.ya
 #### Scenario: Config file absent
 - **WHEN** neither config file exists
 - **THEN** the system SHALL proceed without error using other sources or defaults
-
-### Requirement: Directive precedence chain
-The system SHALL resolve directive values through a precedence chain where higher sources override lower ones.
-
-#### Scenario: Precedence order
-- **WHEN** directives are resolved
-- **THEN** the precedence SHALL be (highest to lowest):
-  1. CLI flags (e.g., `--max-parallel 3`)
-  2. `.claude/orchestration.yaml`
-  3. `## Orchestrator Directives` section in the input document (brief or spec)
-  4. Built-in defaults
-
-#### Scenario: Partial override
-- **WHEN** a higher-precedence source defines only some directives
-- **THEN** unspecified directives SHALL fall through to the next source in the chain
-
-### Requirement: YAML parsing robustness
-The system SHALL handle YAML parsing errors gracefully.
-
-#### Scenario: Malformed YAML
-- **WHEN** `.claude/orchestration.yaml` exists but contains invalid YAML
-- **THEN** the system SHALL log a warning: "Could not parse .claude/orchestration.yaml: <error>"
-- **AND** continue with the next precedence source
-
-#### Scenario: Unknown keys
-- **WHEN** the config file contains unrecognized keys
-- **THEN** the system SHALL log a warning for each: "Unknown directive '<key>', ignoring"
-- **AND** process recognized keys normally
-
-#### Scenario: Invalid values
-- **WHEN** a directive value fails validation (e.g., `max_parallel: -1`)
-- **THEN** the system SHALL log a warning and use the default for that directive
-

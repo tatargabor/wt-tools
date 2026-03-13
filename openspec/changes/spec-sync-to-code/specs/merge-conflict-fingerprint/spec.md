@@ -1,4 +1,5 @@
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Conflict fingerprint deduplication
 **STATUS: ASPIRATIONAL** — This feature is designed but not yet implemented in the orchestrator. The spec is retained as a backlog item for future implementation.
 

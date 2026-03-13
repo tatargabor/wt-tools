@@ -55,9 +55,3 @@ The recall hook SHALL complete within its 15-second timeout even if wt-memory re
 - **WHEN** wt-memory recall takes >10 seconds
 - **THEN** the hook exits silently (killed by Claude Code timeout)
 
-### Requirement: Memory count guard
-The recall hook SHALL skip execution if the project has zero memories.
-
-#### Scenario: No memories exist
-- **WHEN** `wt-memory status --json` reports count 0
-- **THEN** the hook SHALL exit 0 immediately with no output

@@ -1,0 +1,127 @@
+# merge-worktree Specification
+
+## Purpose
+Merge worktree branches to target with multi-layer automatic conflict resolution (generated files, JSON deep merge, LLM resolution).
+
+## Requirements
+### Requirement: Merge worktree branch to target
+The `wt-merge` command SHALL merge a worktree's branch into a target branch with multi-layer automatic conflict resolution.
+
+#### Scenario: Basic merge
+- **WHEN** user runs `wt-merge <change-id>`
+- **THEN** the system SHALL resolve the project and worktree path
+- **AND** determine the source branch from the worktree HEAD
+- **AND** auto-detect the target branch (main or master)
+- **AND** fetch, checkout target, pull latest, then merge the source branch
+
+#### Scenario: Squash merge
+- **WHEN** user runs `wt-merge <change-id> --squash`
+- **THEN** the system SHALL squash all commits into one merge commit
+
+#### Scenario: Custom target branch
+- **WHEN** user runs `wt-merge <change-id> --to develop`
+- **THEN** the system SHALL merge into the `develop` branch instead of main/master
+
+#### Scenario: No push after merge
+- **WHEN** user runs `wt-merge <change-id> --no-push`
+- **THEN** the system SHALL NOT push to origin after merge
+
+#### Scenario: Keep source branch
+- **WHEN** user runs `wt-merge <change-id> --no-delete`
+- **THEN** the source branch SHALL NOT be deleted after merge
+
+### Requirement: Multi-layer conflict resolution
+The merge command SHALL attempt conflict resolution in a specific order, escalating from cheapest to most expensive.
+
+#### Scenario: Resolution order
+- **WHEN** a merge produces conflicts
+- **THEN** the system SHALL attempt resolution in this order:
+  1. Auto-resolve generated/build files (accept "ours")
+  2. Programmatic package.json deep merge (jq-based)
+  3. Programmatic JSON file deep merge (translation/config files)
+  4. LLM-based conflict resolution (only with `--llm-resolve` flag)
+- **AND** after each step, check if conflicts remain before proceeding to the next
+
+### Requirement: Generated file auto-resolution
+The system SHALL auto-resolve conflicts in generated/build files by accepting the target branch version ("ours").
+
+#### Scenario: Generated file patterns
+- **WHEN** a conflicted file matches a generated file pattern (tsconfig.tsbuildinfo, lock files, dist/**, build/**, .next/**, .claude/reflection.md)
+- **THEN** the conflict SHALL be resolved with `git checkout --ours` and staged
+
+#### Scenario: Partial mode with LLM resolve
+- **WHEN** `--llm-resolve` is active and conflicts include both generated and non-generated files
+- **THEN** generated files SHALL be auto-resolved even though non-generated conflicts remain
+
+### Requirement: Programmatic package.json deep merge
+The system SHALL resolve package.json conflicts using jq-based recursive deep merge.
+
+#### Scenario: Additive dependency conflict
+- **WHEN** both branches add different dependencies to package.json
+- **THEN** the deep merge SHALL keep entries from both sides
+- **AND** for scalar conflicts, prefer the source branch (feature being merged)
+
+#### Scenario: Invalid JSON
+- **WHEN** either branch's package.json is not valid JSON
+- **THEN** the programmatic merge SHALL skip and fall through to the next resolution layer
+
+### Requirement: Programmatic JSON file deep merge
+The system SHALL resolve conflicts in non-package.json JSON files (translation files, config files) using the same jq deep merge strategy.
+
+#### Scenario: Translation file conflict
+- **WHEN** a `.json` file (not package.json) has merge conflicts
+- **THEN** the system SHALL attempt jq deep merge with the same additive strategy
+
+### Requirement: LLM-based conflict resolution
+When `--llm-resolve` flag is active, the system SHALL use Claude to resolve remaining conflicts.
+
+#### Scenario: LLM prompt construction
+- **WHEN** LLM resolution is attempted
+- **THEN** the system SHALL extract only conflict hunks with 3 lines of context (not entire files) to minimize prompt size
+- **AND** include additive pattern guidance in the prompt
+
+#### Scenario: Model escalation
+- **WHEN** total conflict lines exceed 200
+- **THEN** the system SHALL use opus directly (skip sonnet)
+- **WHEN** total conflict lines are 200 or fewer
+- **THEN** the system SHALL try sonnet first, escalate to opus on failure
+
+#### Scenario: LLM output parsing
+- **WHEN** LLM returns resolved files
+- **THEN** the system SHALL parse `--- FILE: <path> ---` headers and write each file's content
+- **AND** verify no conflict markers remain after resolution
+
+### Requirement: Pre-merge state management
+The system SHALL handle uncommitted changes in both worktree and main repo before merging.
+
+#### Scenario: Uncommitted non-generated changes in worktree
+- **WHEN** the worktree has uncommitted changes in non-generated files
+- **THEN** the system SHALL auto-commit them with message "chore: auto-commit remaining changes before merge"
+
+#### Scenario: Uncommitted generated changes in worktree
+- **WHEN** the worktree has uncommitted changes only in generated files
+- **THEN** the system SHALL auto-stash them
+
+#### Scenario: Uncommitted changes in main repo
+- **WHEN** the main repo has uncommitted tracked changes
+- **THEN** the system SHALL stash them before merge and restore after
+
+### Requirement: Untracked file handling
+The system SHALL handle untracked files that block merge.
+
+#### Scenario: Untracked files would be overwritten
+- **WHEN** git merge fails because untracked working tree files would be overwritten
+- **THEN** the system SHALL remove the blocking untracked files
+- **AND** retry the merge
+
+### Requirement: Post-merge cleanup
+The system SHALL push and clean up after successful merge.
+
+#### Scenario: Push to origin
+- **WHEN** merge succeeds and `--no-push` is not set
+- **THEN** the system SHALL push the target branch to origin
+
+#### Scenario: Delete source branch
+- **WHEN** merge succeeds and `--no-delete` is not set
+- **THEN** the system SHALL delete the source branch (force-delete for squash case)
+- **AND** if branch is still checked out in worktree, inform user to run `wt-close`

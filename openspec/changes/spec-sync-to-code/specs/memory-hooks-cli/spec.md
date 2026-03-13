@@ -1,8 +1,3 @@
-# memory-hooks-cli Specification (ARCHIVED)
-
-## Purpose
-**ARCHIVED** — The 5-layer hook system in `settings.json` (deployed by `wt-deploy-hooks` via `wt-project init`) now handles all memory operations. The `wt-memory-hooks install` command is deprecated. `check` and `remove` still work for cleaning up legacy inline hooks.
-
 ## REMOVED Requirements
 
 ### Requirement: wt-memory-hooks install command

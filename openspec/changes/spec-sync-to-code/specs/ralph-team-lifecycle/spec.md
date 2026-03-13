@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Inter-iteration team cleanup
 The Ralph engine SHALL instruct Claude to clean up teams (TeamDelete) before finishing each iteration. The prompt MUST include explicit cleanup instructions.
@@ -17,4 +17,3 @@ The team instructions SHALL include a preamble at each iteration start that chec
 #### Scenario: Previous iteration left orphan team
 - **WHEN** a new iteration starts and `~/.claude/teams/` contains team files from a previous Ralph iteration
 - **THEN** the prompt instructs Claude to delete any leftover teams before starting new work
-

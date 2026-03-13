@@ -31,30 +31,21 @@ The system SHALL support multiple code editors for opening worktrees with Claude
 - **AND** if not configured, shows "auto (detected: <name>)"
 
 ### Requirement: Editor-Specific Worktree Opening
-The system SHALL open worktrees in the configured editor with appropriate Claude Code setup.
+The system SHALL open worktrees in the configured editor and display a Claude Code startup tip.
 
 #### Scenario: Open worktree in Zed (Linux)
 - **WHEN** Zed is the configured editor
 - **AND** the platform is Linux
 - **AND** user runs `wt-work <change-id>`
 - **THEN** Zed opens the worktree directory
-- **AND** Claude Code terminal is launched via Ctrl+Shift+L keystroke using xdotool
-- **AND** the system SHALL verify the Zed window appeared before sending the keystroke
-- **AND** the system SHALL retry keystroke delivery up to 2 times if no claude process is detected within 5 seconds
+- **AND** user is informed to press Ctrl+Shift+L to start Claude Code
 
 #### Scenario: Open worktree in Zed (macOS)
 - **WHEN** Zed is the configured editor
 - **AND** the platform is macOS
 - **AND** user runs `wt-work <change-id>`
 - **THEN** Zed opens the worktree directory
-- **AND** Claude Code terminal is launched via Ctrl+Shift+L keystroke using osascript
-
-#### Scenario: Open worktree in Zed (no automation tool)
-- **WHEN** Zed is the configured editor
-- **AND** neither xdotool nor osascript is available
-- **AND** user runs `wt-work <change-id>`
-- **THEN** Zed opens the worktree directory
-- **AND** user is informed to press Ctrl+Shift+L manually to start Claude Code
+- **AND** user is informed to press Ctrl+Shift+L to start Claude Code
 
 #### Scenario: Open worktree in VS Code
 - **WHEN** VS Code is the configured editor
@@ -79,57 +70,26 @@ The system SHALL open worktrees in the configured editor with appropriate Claude
 - **THEN** an error is shown with installation instructions
 - **AND** alternative detected editors are suggested
 
-#### Scenario: Skip Claude launch if already running
-- **WHEN** `wt-work` detects a claude process already running in the worktree CWD
-- **THEN** the keystroke SHALL NOT be sent
-- **AND** the existing editor window SHALL be focused instead
+#### Scenario: Auto-create worktree if missing
+- **WHEN** user runs `wt-work <change-id>` and no worktree exists for that change
+- **AND** `--no-create` flag is NOT set
+- **THEN** the system SHALL create the worktree automatically before opening
+
+#### Scenario: Main branch opening
+- **WHEN** user runs `wt-work` with the main branch name as change-id
+- **THEN** the system SHALL open the main repo directory instead of a worktree
 
 ### Requirement: Editor-Specific Window Focus
-The system SHALL focus the correct editor window for a worktree using platform-appropriate mechanisms.
+The system SHALL focus the editor window for a worktree by delegating to the editor's CLI.
 
-#### Scenario: Focus editor window on Linux
-- **WHEN** the platform is Linux
-- **AND** user triggers focus for a worktree (via GUI or `wt-focus <change-id>`)
-- **THEN** the system SHALL filter windows by the editor's WM_CLASS using `xdotool search --class`
-- **AND** the system SHALL match window titles precisely: exact match or the editor's folder+file pattern (e.g. "basename — filename")
-- **AND** the system SHALL NOT match windows from other applications (e.g. Chrome tabs containing the worktree name)
-- **AND** the system SHALL NOT match other worktree windows whose names start with the same prefix (e.g. "wt-tools-wt-o_test" when searching for "wt-tools")
-
-#### Scenario: Focus from GUI uses platform abstraction
-- **WHEN** user double-clicks a running worktree in the Control Center
-- **OR** user selects "Focus" from the context menu
-- **THEN** the system uses the Python platform layer (`gui/platform/`) to find and focus the window
-- **AND** the system SHALL NOT shell out to `wt-focus` from the GUI
-
-#### Scenario: Focus editor window on macOS
-- **WHEN** the platform is macOS
-- **AND** user triggers focus for a worktree (via GUI or `wt-focus <change-id>`)
-- **THEN** AppleScript activates the editor application
-- **AND** raises the specific window whose title contains the worktree folder name
-
-#### Scenario: Focus from CLI on macOS
-- **WHEN** user runs `wt-focus <change-id>` on macOS
-- **THEN** the script uses `osascript` with AppleScript to find and focus the editor window
-- **AND** the script SHALL NOT require `xdotool`
+#### Scenario: Focus editor window via CLI
+- **WHEN** user runs `wt-focus <change-id>`
+- **THEN** the system SHALL call the configured editor's CLI open command for the worktree path
+- **AND** the editor SHALL focus the existing window if already open, or open a new one
 
 #### Scenario: No matching window found
 - **WHEN** no editor window matches the worktree folder name
 - **THEN** the system SHALL open a new editor window for the worktree
-- **AND** the system SHALL NOT focus unrelated windows
-
-#### Scenario: Accessibility permission denied on macOS
-- **WHEN** the system cannot control windows due to missing Accessibility permissions
-- **THEN** the error is surfaced to the user with guidance to enable permissions
-
-#### Scenario: Unknown editor WM_CLASS on Linux
-- **WHEN** the configured editor's WM_CLASS is not in the known mapping
-- **AND** `app_name` is provided
-- **THEN** the system SHALL fall back to substring title matching (current behavior)
-- **AND** the system SHALL still return the first match
-
-#### Scenario: No app_name provided on Linux
-- **WHEN** `find_window_by_title()` is called without `app_name`
-- **THEN** the system SHALL use the current substring matching behavior via `xdotool search --name`
 
 ### Requirement: Editor Window Close
 The system SHALL close the editor window for a worktree using platform-appropriate mechanisms.

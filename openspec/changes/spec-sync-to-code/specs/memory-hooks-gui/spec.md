@@ -1,8 +1,3 @@
-# memory-hooks-gui Specification (ARCHIVED)
-
-## Purpose
-**ARCHIVED** — The "Install/Reinstall Memory Hooks" GUI actions have been removed. The 5-layer hook system in `settings.json` is automatically deployed by `wt-project init` and requires no GUI interaction.
-
 ## REMOVED Requirements
 
 ### Requirement: Install Memory Hooks action in Memory submenu

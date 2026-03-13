@@ -1,4 +1,5 @@
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Agent-assisted merge conflict resolution
 **STATUS: ASPIRATIONAL** — This feature is designed but not yet implemented in the orchestrator. The spec is retained as a backlog item. Currently, merge conflicts are handled by the multi-layer auto-resolution in `wt-merge` (generated files, package.json, JSON deep merge, LLM resolution).
 
