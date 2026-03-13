@@ -803,10 +803,10 @@ $(cat "$domain_file")
             done
         fi
 
-        # Requirements
+        # Requirements — compact for decompose (strip source/source_section to reduce prompt size)
         if [[ -f "$DIGEST_DIR/requirements.json" ]]; then
             local reqs_content
-            reqs_content=$(cat "$DIGEST_DIR/requirements.json")
+            reqs_content=$(jq '{requirements: [.requirements[] | {id, title, domain, brief}]}' "$DIGEST_DIR/requirements.json")
             local req_count
             req_count=$(echo "$reqs_content" | jq '.requirements | length')
             digest_content+="## Requirements ($req_count total)
@@ -984,7 +984,7 @@ $req_entries"
     if [[ -n "${DESIGN_MCP_CONFIG:-}" && -f "${DESIGN_MCP_CONFIG:-}" ]]; then
         _mcp_args=(--mcp-config "$DESIGN_MCP_CONFIG")
     fi
-    claude_output=$(export RUN_CLAUDE_TIMEOUT=1800; echo "$prompt" | run_claude --model "$(model_id opus)" "${_mcp_args[@]}") || {
+    claude_output=$(export RUN_CLAUDE_TIMEOUT=600; echo "$prompt" | run_claude --model "$(model_id opus)" --max-turns 1 "${_mcp_args[@]}") || {
         rm -f "$_hb_marker"
         kill "$_heartbeat_pid" 2>/dev/null; wait "$_heartbeat_pid" 2>/dev/null || true
         error "Claude decomposition failed. Check your Claude CLI setup."
