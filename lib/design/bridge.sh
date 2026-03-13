@@ -248,7 +248,7 @@ PROMPT
 )
 
     local output rc=0
-    output=$(RUN_CLAUDE_TIMEOUT=120 echo "$snapshot_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
+    output=$(RUN_CLAUDE_TIMEOUT=600 echo "$snapshot_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
 
     if [[ $rc -ne 0 ]]; then
         log_warn "Design snapshot fetch timed out or failed (rc=$rc)"
