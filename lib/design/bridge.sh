@@ -148,7 +148,7 @@ check_design_mcp_health() {
     local probe_prompt="Call the $server_name MCP whoami tool to verify authentication. If authenticated, respond with exactly: MCP_HEALTHY. If not authenticated or any error, respond with exactly: MCP_AUTH_FAILED"
 
     local output rc=0
-    output=$(RUN_CLAUDE_TIMEOUT=30 echo "$probe_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
+    output=$(export RUN_CLAUDE_TIMEOUT=30; echo "$probe_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
 
     if [[ $rc -ne 0 ]]; then
         log_warn "Design MCP health check timed out or failed (rc=$rc)"
@@ -248,7 +248,7 @@ PROMPT
 )
 
     local output rc=0
-    output=$(RUN_CLAUDE_TIMEOUT=600 echo "$snapshot_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
+    output=$(export RUN_CLAUDE_TIMEOUT=600; echo "$snapshot_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
 
     if [[ $rc -ne 0 ]]; then
         log_warn "Design snapshot fetch timed out or failed (rc=$rc)"
