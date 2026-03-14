@@ -351,12 +351,16 @@ Files classified as **execution** → store as optional execution_hints (suggest
 
 ## CRITICAL: Output Size Limit
 
-Your JSON output MUST fit within a single response. For large specs:
-- Keep requirement briefs to ONE sentence (not two)
-- Domain summaries: 2-3 sentences max
-- Omit ambiguities that don't affect implementation (focus on top 10-15 most impactful)
-- Keep dependency list to direct functional dependencies only (skip weak references)
-- If you have >80 requirements, reduce granularity: merge closely related CRUD operations into single requirements
+Your ENTIRE JSON response MUST fit in a SINGLE message — you will NOT get a second turn.
+Strict limits:
+- MAX 50 requirements total. If your initial count exceeds 50, merge aggressively:
+  group related CRUD operations, combine similar UI behaviors, roll detailed sub-features into parent features.
+- Requirement briefs: ONE short sentence only
+- Domain summaries: 1-2 sentences max
+- MAX 10 ambiguities (only critical ones that block implementation)
+- MAX 30 dependencies (only hard functional dependencies, skip informational references)
+- Omit execution_hints entirely (use empty object: {})
+- Do NOT split your response across messages. Everything in ONE JSON block.
 
 ## Output Format
 
@@ -418,7 +422,7 @@ DIGEST_PROMPT_EOF
 call_digest_api() {
     local prompt="$1"
     local output
-    output=$(export RUN_CLAUDE_TIMEOUT=600; echo "$prompt" | run_claude --model "$(model_id opus)" --max-turns 3) || {
+    output=$(export RUN_CLAUDE_TIMEOUT=600; echo "$prompt" | run_claude --model "$(model_id opus)" --max-turns 1) || {
         log_error "Digest API call failed"
         return 1
     }
