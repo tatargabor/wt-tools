@@ -727,8 +727,8 @@ def run_phase_end_e2e(
 
     # Store results in state
     e2e_output_truncated = e2e_output[:8000]
-    with locked_state(state_file) as data:
-        results = data.get("phase_e2e_results", [])
+    with locked_state(state_file) as state:
+        results = state.extras.get("phase_e2e_results", [])
         results.append({
             "cycle": cycle,
             "result": e2e_result,
@@ -738,7 +738,7 @@ def run_phase_end_e2e(
             "screenshot_count": screenshot_count,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
-        data["phase_e2e_results"] = results
+        state.extras["phase_e2e_results"] = results
 
     if event_bus:
         event_bus.emit(
@@ -1456,16 +1456,14 @@ def handle_change_done(
     update_change_field(state_file, change_name, "completed_at", datetime.now(timezone.utc).isoformat())
 
     # Increment changes since checkpoint
-    with locked_state(state_file) as data:
-        count = data.get("changes_since_checkpoint", 0)
-        data["changes_since_checkpoint"] = count + 1
+    with locked_state(state_file) as state:
+        state.changes_since_checkpoint += 1
 
     # Queue merge based on policy
     if merge_policy in ("eager", "checkpoint"):
-        with locked_state(state_file) as data:
-            queue = data.get("merge_queue", [])
-            queue.append(change_name)
-            data["merge_queue"] = queue
+        with locked_state(state_file) as state:
+            if change_name not in state.merge_queue:
+                state.merge_queue.append(change_name)
         logger.info("%s added to merge queue (policy: %s)", change_name, merge_policy)
 
 
