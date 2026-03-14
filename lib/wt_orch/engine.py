@@ -300,15 +300,25 @@ def monitor_loop(
         if state.status in ("stopped", "done"):
             _generate_report_safe(state_file)
             break
-        if state.status in ("paused", "checkpoint"):
+        if state.status == "paused":
             continue
 
-        # Poll active changes (running + verifying)
+        # Poll active changes (running + verifying) — must run even
+        # during checkpoint so dead Ralph processes are detected and
+        # verify/merge can complete.
         poll_e2e_cmd = d.e2e_command if d.e2e_mode != "phase_end" else ""
         _poll_active_changes(state_file, d, poll_e2e_cmd, event_bus)
 
         # Safety net: check suspended changes
         _poll_suspended_changes(state_file, d, poll_e2e_cmd, event_bus)
+
+        # During checkpoint, skip dispatch and advancement but still
+        # allow completion detection and merge queue retries.
+        if state.status == "checkpoint":
+            _retry_merge_queue_safe(state_file, event_bus)
+            if _check_completion(state_file, d, event_bus):
+                break
+            continue
 
         # Token budget enforcement
         if d.token_budget > 0:
