@@ -205,6 +205,11 @@ YAML
     if [[ -n "$design_file_url" ]]; then
         echo "design_file: \"$design_file_url\"" >> wt/orchestration/config.yaml
         success "Design file reference: $design_file_url"
+    else
+        if jq -e '.mcpServers.figma' .claude/settings.json &>/dev/null 2>&1; then
+            warn "Figma MCP is registered but no design_file URL found in spec"
+            warn "Add a Figma URL to the spec for design token injection"
+        fi
     fi
     success "Created wt/orchestration/config.yaml"
 
