@@ -115,15 +115,56 @@ The orchestrator automatically:
 
 ## Token Budget
 
-Watch token usage in the state file (`tokens_used` per change). If a single change exceeds ~500K tokens without progress (no new commits, cycling on the same error), it's likely stuck. The orchestrator has built-in retry limits (`max_verify_retries: 2`) but may need intervention if the scope is fundamentally too large.
+Watch `tokens_used` per change in the state file. Expected ranges:
+- **S complexity**: 300K–600K tokens
+- **M complexity**: 600K–1M tokens
+- **L complexity**: 1M+ (avoid — split into smaller changes)
 
-## Known Issues
+If a change exceeds ~500K without progress (no new commits, cycling same error), it's stuck. The orchestrator has built-in retry limits (`max_verify_retries: 2`).
 
-Document bugs found during each run in a findings section. Include:
-- Root cause (framework vs app)
-- Fix commit hash
-- Whether it was deployed to the running test
-- Severity: did it block progress or just cause noise?
+Token tracking may show zero while the agent is still running — only trust the count after the Ralph loop has completed.
+
+## Expected Patterns (Not Bugs)
+
+These look like failures but are normal and auto-resolve:
+
+- **Post-merge Prisma client errors** — first 2–3 merges may fail build on main because schema changes don't trigger `prisma generate`. Add `npx prisma generate` to `post_merge_command` in config.yaml. The auto-fix mechanism resolves this without intervention.
+- **Watchdog "no progress" warnings during artifact creation** — newly dispatched changes take 1-2 min before the first loop-state.json appears. The watchdog has a grace period for this.
+- **Stale `.next/` cache** — `rm -rf .next` before build fixes this. Not a framework issue.
+
+## Known Framework Limitations
+
+- **Dependency cascade deadlock**: If a dependency fails, dependent changes may stay `pending` forever instead of being marked `failed`. Workaround: manually set dependent changes to `failed` or `pending` with cleared deps.
+- **Digest re-generation fragility**: In later replan cycles (N>2), digest JSON parsing can fail. The spec digest should ideally be frozen once validated.
+
+## Performance Baseline
+
+From 6 E2E runs (4 MiniShop, 2 CraftBrew):
+
+| Metric | Good Run | Typical |
+|---|---|---|
+| Wall clock (6 changes) | 1h 45m | 2h |
+| Changes merged | 6/6 | 6/7 |
+| Sentinel interventions | 0 | 1 |
+| Total tokens | 2.7M | 4M |
+| Verify retries | 5 | 10+ |
+
+Compare each run against these baselines. Track: wall clock, merged/failed ratio, total tokens, interventions needed.
+
+## Run Findings Template
+
+Document bugs found during each run:
+
+```markdown
+## Run N Findings
+
+### Bug 1: [short description]
+- **Type**: framework / app
+- **Severity**: blocking / noise
+- **Root cause**: ...
+- **Fix**: [commit hash] — deployed to running test? yes/no
+- **Recurrence**: new / seen in run N-1
+```
 
 ## Architecture Quick Reference
 
