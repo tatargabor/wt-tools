@@ -382,10 +382,12 @@ ${orch_mem}"
 
     if setup_design_bridge 2>/dev/null; then
         log_info "Design bridge active: $DESIGN_MCP_NAME (ref: ${DESIGN_FILE_REF:-none})"
+        emit_event "DESIGN_PREFLIGHT" "" "{\"phase\":\"start\",\"mcp\":\"$DESIGN_MCP_NAME\"}" 2>/dev/null || true
 
         # Preflight: verify MCP is authenticated before decomposition
         if check_design_mcp_health 2>/dev/null; then
             log_info "Design MCP preflight passed"
+            emit_event "DESIGN_PREFLIGHT" "" "{\"phase\":\"health_ok\"}" 2>/dev/null || true
 
             # Fetch design snapshot (re-fetch on replan cycles)
             local _snap_force=""

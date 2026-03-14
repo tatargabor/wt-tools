@@ -197,6 +197,11 @@ fetch_design_snapshot() {
 
     log_info "Fetching design snapshot from $server_name MCP..."
 
+    # Emit heartbeat so sentinel knows we're alive during long MCP calls
+    if type -t emit_event &>/dev/null; then
+        emit_event "DESIGN_PREFLIGHT" "" "{\"phase\":\"snapshot_fetch\",\"server\":\"$server_name\"}" 2>/dev/null || true
+    fi
+
     # Locate the fetcher script
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts"
@@ -207,9 +212,18 @@ fetch_design_snapshot() {
         return 1
     fi
 
+    # Run fetcher with periodic heartbeat to prevent sentinel stuck detection.
+    # The fetcher makes 4 sequential MCP calls (~4-5 min total).
+    # We emit heartbeat events every 60s so sentinel sees activity.
     local rc=0
+    local _hb_count=0
     python3 "$fetcher" --mcp-config "$config" "$design_ref" -o "$snapshot_dir" 2>&1 | while IFS= read -r line; do
         log_info "  $line"
+        # Emit heartbeat on each step progress line (contains [N/4])
+        if [[ "$line" == *"/"*"]"* ]] && type -t emit_event &>/dev/null; then
+            _hb_count=$((_hb_count + 1))
+            emit_event "DESIGN_HEARTBEAT" "" "{\"step\":$_hb_count,\"detail\":\"$(echo "$line" | head -c 80)\"}" 2>/dev/null || true
+        fi
     done || rc=$?
 
     if [[ $rc -ne 0 ]]; then
