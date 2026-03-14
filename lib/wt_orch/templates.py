@@ -65,6 +65,15 @@ def render_proposal(
 
 {scope}
 
+## Security Checklist
+
+Before completing implementation, verify:
+- [ ] Every data mutation (update/delete) by client-provided ID includes ownership check (session/user ID in WHERE clause)
+- [ ] Protected routes have middleware that redirects unauthenticated users
+- [ ] Server Action parameters are validated (type, range, sign — reject negatives, empty strings, oversized inputs)
+- [ ] All database queries are scoped by session/user ID, not just create operations
+- [ ] Session cookies are httpOnly + sameSite=lax or strict
+
 ## Capabilities
 
 ### New Capabilities
@@ -138,7 +147,9 @@ Output format:
   ISSUE: [severity] description
   FILE: path/to/file
   LINE: approximate line number
+  FIX: concrete code fix (e.g., "add sessionId to where clause: `where: { id: cartItemId, sessionId: getSessionId() }`")
 
+For CRITICAL and HIGH issues, the FIX field is REQUIRED — provide the exact code change needed.
 Only flag real problems — not style preferences."""
 
 
@@ -242,6 +253,13 @@ _PLANNING_RULES = """Rules:
 - Skip already-active changes listed above
 - Every change scope MUST include specific test requirements (happy path, error cases, security boundaries)
 - For security-related changes: include tenant isolation tests, auth guard tests
+
+Security design patterns — include these in scope when applicable:
+- IDOR prevention: every data mutation (update, delete) by user-provided ID MUST include ownership check (e.g., WHERE id=$id AND sessionId=$session). NEVER trust client-provided IDs alone.
+- Auth middleware: protected routes MUST have middleware/guard that redirects unauthenticated users BEFORE the page component renders. Explicitly name the middleware file in scope (e.g., "Create src/middleware.ts with route matcher for /admin/*").
+- Input validation: Server Actions callable from browser — validate ALL parameters (type, range, sign). Negative quantities, empty strings, oversized inputs must be rejected.
+- Session isolation: multi-user features MUST scope ALL queries by session/user ID, not just create operations. Include this constraint explicitly in scope for every Server Action.
+- CSRF/cookie security: session cookies MUST be httpOnly + sameSite=lax/strict. State-changing actions must not use GET requests.
 - If no test infrastructure exists, the FIRST change MUST be "test-infrastructure-setup" setting up the test framework, config, helpers, and an example test. ALL other changes MUST depend on it.
 - If test infrastructure exists, follow existing test patterns (framework and naming conventions noted above)
 - NEVER create a standalone "e2e-consolidation", "playwright-e2e", or "e2e-tests" change that only writes E2E tests. This anti-pattern overloads one agent with all cross-feature tests and wastes tokens. Each feature change MUST include its OWN E2E tests inline.

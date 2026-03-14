@@ -84,6 +84,55 @@ class ReviewResult:
     output: str
 
 
+def _extract_review_fixes(review_output: str) -> str:
+    """Extract structured FILE+LINE+FIX blocks from review output.
+
+    Parses the review format:
+        ISSUE: [CRITICAL] description
+        FILE: path/to/file
+        LINE: ~42
+        FIX: concrete code fix
+
+    Returns a concise fix list for the retry prompt.
+    """
+    fixes = []
+    current_file = ""
+    current_line = ""
+    current_issue = ""
+    current_fix = ""
+
+    for line in review_output.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("ISSUE:"):
+            # Save previous block if exists
+            if current_file and (current_fix or current_issue):
+                fixes.append(
+                    f"- {current_file}:{current_line} — {current_issue}\n"
+                    f"  FIX: {current_fix}" if current_fix else
+                    f"- {current_file}:{current_line} — {current_issue}"
+                )
+            current_issue = stripped[6:].strip()
+            current_file = ""
+            current_line = ""
+            current_fix = ""
+        elif stripped.startswith("FILE:"):
+            current_file = stripped[5:].strip().strip("`")
+        elif stripped.startswith("LINE:"):
+            current_line = stripped[5:].strip().lstrip("~")
+        elif stripped.startswith("FIX:") or stripped.startswith("Fix:"):
+            current_fix = stripped[4:].strip()
+
+    # Don't forget last block
+    if current_file and (current_fix or current_issue):
+        fixes.append(
+            f"- {current_file}:{current_line} — {current_issue}\n"
+            f"  FIX: {current_fix}" if current_fix else
+            f"- {current_file}:{current_line} — {current_issue}"
+        )
+
+    return "\n".join(fixes)
+
+
 @dataclass
 class ScopeCheckResult:
     """Result of implementation scope check."""
@@ -1315,27 +1364,35 @@ def handle_change_done(
         if rr.has_critical:
             update_change_field(state_file, change_name, "review_result", "critical")
             update_change_field(state_file, change_name, "review_output", rr.output[:2000])
-            if verify_retry_count < max_verify_retries:
+            # Review gets +1 extra retry beyond the shared limit because it runs
+            # last — build/test retries may have consumed the budget already
+            review_retry_limit = max_verify_retries + 1
+            if verify_retry_count < review_retry_limit:
                 verify_retry_count += 1
                 update_change_field(state_file, change_name, "verify_retry_count", verify_retry_count)
                 update_change_field(state_file, change_name, "status", "verify-failed")
-                # Extract flagged REQ-IDs
+
+                # Extract concrete fix instructions from review output
+                fix_instructions = _extract_review_fixes(rr.output)
                 flagged_reqs = ", ".join(sorted(set(re.findall(r"REQ-[A-Z0-9]+-\d+", rr.output))))
+
+                parts = ["CRITICAL CODE REVIEW FAILURE. You MUST fix these security/quality issues.\n"]
+
+                if fix_instructions:
+                    parts.append("=== REQUIRED FIXES (apply each one) ===")
+                    parts.append(fix_instructions)
+                    parts.append("=== END REQUIRED FIXES ===\n")
+
                 if flagged_reqs:
-                    retry_prompt = (
-                        f"CRITICAL CODE REVIEW FAILURE. You MUST fix these issues before anything else.\n\n"
-                        f"Requirements with no implementation evidence: {flagged_reqs}\n\n"
-                        f"=== REVIEW FEEDBACK (fix ALL issues below) ===\n{rr.output[:1500]}\n"
-                        f"=== END REVIEW FEEDBACK ===\n\n"
-                        f"Do NOT work on new features. Only fix the issues listed above."
-                    )
-                else:
-                    retry_prompt = (
-                        f"CRITICAL CODE REVIEW FAILURE. You MUST fix these issues before anything else.\n\n"
-                        f"=== REVIEW FEEDBACK (fix ALL issues below) ===\n{rr.output[:1500]}\n"
-                        f"=== END REVIEW FEEDBACK ===\n\n"
-                        f"Do NOT work on new features. Only fix the issues listed above."
-                    )
+                    parts.append(f"Requirements with no implementation evidence: {flagged_reqs}\n")
+
+                parts.append(f"Full review output:\n{rr.output[:1500]}\n")
+                parts.append(
+                    "INSTRUCTIONS: Open each FILE listed above, go to the LINE, and apply the FIX. "
+                    "Commit after fixing. Do NOT work on new features — only fix the issues above."
+                )
+
+                retry_prompt = "\n".join(parts)
                 update_change_field(state_file, change_name, "retry_context", retry_prompt)
                 _snapshot_retry_tokens(state_file, change_name, wt_path)
                 from .dispatcher import resume_change
