@@ -1,618 +1,118 @@
 #!/usr/bin/env bash
 # lib/orchestration/dispatcher.sh — Change lifecycle: dispatch, resume, pause
 # Dependencies: config.sh, utils.sh, state.sh, events.sh, builder.sh
+#
+# Python implementation: lib/wt_orch/dispatcher.py
+# This file contains thin wrappers that delegate to wt-orch-core dispatch *
+# and cmd_start/cmd_pause/cmd_resume which remain in bash (signal traps, monitor_loop).
+
+# ─── Worktree Preparation (delegated to Python) ─────────────────────
 
 sync_worktree_with_main() {
+    # Migrated to: wt_orch/dispatcher.py sync_worktree_with_main()
     local wt_path="$1"
     local change_name="$2"
-
-    # Determine the main branch name
-    local main_branch=""
-    if git -C "$wt_path" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
-        main_branch="main"
-    elif git -C "$wt_path" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
-        main_branch="master"
-    else
-        log_warn "Sync: could not find main/master branch for $change_name"
-        return 1
-    fi
-
-    # Check if worktree is already up to date with main
-    local wt_branch
-    wt_branch=$(git -C "$wt_path" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    local main_head wt_merge_base
-    main_head=$(git -C "$wt_path" rev-parse "$main_branch" 2>/dev/null)
-    wt_merge_base=$(git -C "$wt_path" merge-base "$wt_branch" "$main_branch" 2>/dev/null)
-
-    if [[ "$main_head" == "$wt_merge_base" ]]; then
-        log_info "Sync: $change_name already up to date with $main_branch"
-        return 0
-    fi
-
-    local behind_count
-    behind_count=$(git -C "$wt_path" rev-list --count "$wt_merge_base..$main_head" 2>/dev/null || echo "?")
-    log_info "Sync: $change_name is $behind_count commit(s) behind $main_branch — merging"
-
-    # Merge main into the worktree branch
-    local merge_rc=0
-    local merge_output=""
-    merge_output=$(git -C "$wt_path" merge "$main_branch" -m "Merge $main_branch into $wt_branch (auto-sync)" 2>&1) || merge_rc=$?
-
-    if [[ $merge_rc -eq 0 ]]; then
-        log_info "Sync: successfully merged $main_branch into $change_name"
-        return 0
-    fi
-
-    # Try auto-resolving generated file conflicts (lock files, build artifacts)
-    local conflicted_files
-    conflicted_files=$(git -C "$wt_path" diff --name-only --diff-filter=U 2>/dev/null || true)
-
-    if [[ -n "$conflicted_files" ]]; then
-        # Check if all conflicts are in generated files
-        local has_non_generated=false
-        while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
-            local basename
-            basename=$(basename "$file")
-            case "$basename" in
-                *.tsbuildinfo|package-lock.json|yarn.lock|pnpm-lock.yaml) ;;
-                *) has_non_generated=true; break ;;
-            esac
-        done <<< "$conflicted_files"
-
-        if ! $has_non_generated; then
-            # All conflicts in generated files — accept ours and continue
-            while IFS= read -r file; do
-                [[ -z "$file" ]] && continue
-                git -C "$wt_path" checkout --ours "$file" 2>/dev/null
-                git -C "$wt_path" add "$file" 2>/dev/null
-            done <<< "$conflicted_files"
-            git -C "$wt_path" commit --no-edit 2>/dev/null
-            log_info "Sync: auto-resolved generated file conflicts for $change_name"
-            return 0
-        fi
-    fi
-
-    # Real conflicts — abort merge
-    git -C "$wt_path" merge --abort 2>/dev/null || true
-    log_warn "Sync: merge conflicts for $change_name — cannot auto-sync with $main_branch"
-    return 1
+    local result
+    result=$(wt-orch-core dispatch sync-worktree --wt-path "$wt_path" --change "$change_name" 2>&1)
+    local rc=$?
+    [[ $rc -eq 0 ]] && log_info "Sync: $change_name $(echo "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("message","ok"))' 2>/dev/null || echo 'ok')"
+    [[ $rc -ne 0 ]] && log_warn "Sync failed for $change_name"
+    return $rc
 }
 
-# ─── Worktree Bootstrap ──────────────────────────────────────────────
-
-# Bootstrap a worktree: copy missing .env files + install deps if needed.
-# Safe to call on already-bootstrapped worktrees (idempotent).
 bootstrap_worktree() {
+    # Migrated to: wt_orch/dispatcher.py bootstrap_worktree()
     local project_path="$1"
     local wt_path="$2"
-
-    [[ -d "$wt_path" ]] || return 0
-
-    # Copy .env files
-    local copied=0
-    for envfile in .env .env.local .env.development .env.development.local; do
-        if [[ -f "$project_path/$envfile" && ! -f "$wt_path/$envfile" ]]; then
-            cp "$project_path/$envfile" "$wt_path/$envfile"
-            copied=$((copied + 1))
-        fi
-    done
-    [[ $copied -gt 0 ]] && log_info "Bootstrap: copied $copied env file(s) to $wt_path"
-
-    # Install dependencies
-    if [[ -f "$wt_path/package.json" && ! -d "$wt_path/node_modules" ]]; then
-        local pm=""
-        [[ -f "$wt_path/pnpm-lock.yaml" ]] && pm="pnpm"
-        [[ -f "$wt_path/yarn.lock" ]] && pm="yarn"
-        [[ -f "$wt_path/bun.lockb" || -f "$wt_path/bun.lock" ]] && pm="bun"
-        [[ -f "$wt_path/package-lock.json" ]] && pm="npm"
-
-        if [[ -n "$pm" ]] && command -v "$pm" &>/dev/null; then
-            log_info "Bootstrap: installing deps with $pm in $wt_path"
-            (cd "$wt_path" && "$pm" install --frozen-lockfile 2>/dev/null || "$pm" install 2>/dev/null) || \
-                log_warn "Bootstrap: dep install failed in $wt_path (non-fatal)"
-        fi
-    fi
+    wt-orch-core dispatch bootstrap --project-path "$project_path" --wt-path "$wt_path" 2>/dev/null
 }
 
-# ─── Context Pruning ─────────────────────────────────────────────────
-
-# Remove orchestrator-level commands/skills from worktree .claude/ directory.
-# Agent workers don't need orchestrate, sentinel, or manual commands.
-# Preserves: .claude/rules/, .claude/skills/, CLAUDE.md, loop*.md
 prune_worktree_context() {
+    # Migrated to: wt_orch/dispatcher.py prune_worktree_context()
     local wt_path="$1"
-    [[ -d "$wt_path/.claude" ]] || return 0
-
-    local pruned=0
-    local cmd_dir="$wt_path/.claude/commands/wt"
-    if [[ -d "$cmd_dir" ]]; then
-        for pattern in orchestrate sentinel manual; do
-            for f in "$cmd_dir"/${pattern}*.md; do
-                [[ -f "$f" ]] || continue
-                # Use git rm for tracked files to avoid "uncommitted changes" on merge
-                if git -C "$wt_path" ls-files --error-unmatch "$f" &>/dev/null; then
-                    git -C "$wt_path" rm -q "$f" 2>/dev/null || rm -f "$f"
-                else
-                    rm -f "$f"
-                fi
-                pruned=$((pruned + 1))
-            done
-        done
-    fi
-
-    if [[ "$pruned" -gt 0 ]]; then
-        log_info "Pruned $pruned orchestrator command(s) from worktree"
-        # Commit the pruning so worktree stays clean for merge
-        git -C "$wt_path" commit -m "chore: prune orchestrator commands from worktree" --no-verify 2>/dev/null || true
-    fi
-    return 0
+    wt-orch-core dispatch prune-context --wt-path "$wt_path" 2>/dev/null
 }
 
-# ─── Model Routing ───────────────────────────────────────────────────
+# ─── Model Routing (delegated to Python) ─────────────────────────────
 
-# Resolve effective model for a change.
-# Three-tier priority: explicit per-change model > complexity-based routing > default_model
-# Args: change_name, default_model, model_routing (off|complexity)
 resolve_change_model() {
+    # Migrated to: wt_orch/dispatcher.py resolve_change_model()
     local change_name="$1"
     local default_model="${2:-opus}"
     local model_routing="${3:-off}"
-
-    # Doc-named changes can use sonnet (mechanical text work, no code)
-    local is_doc_change=false
-    if [[ "$change_name" == doc-* || "$change_name" == *-doc-* || "$change_name" == *-docs || "$change_name" == *-docs-* ]]; then
-        is_doc_change=true
-    fi
-
-    # 1. Per-change explicit model from plan (highest priority)
-    local explicit_model
-    explicit_model=$(jq -r --arg n "$change_name" \
-        '.changes[] | select(.name == $n) | .model // empty' "$STATE_FILENAME")
-    if [[ -n "$explicit_model" && "$explicit_model" != "null" ]]; then
-        # Guard: sonnet only allowed for doc-named changes
-        if [[ "$explicit_model" == "sonnet" && "$is_doc_change" == "false" ]]; then
-            log_warn "Overriding planner model=sonnet → opus for code change '$change_name'"
-            echo "opus"
-        else
-            echo "$explicit_model"
-        fi
-        return
-    fi
-
-    # 2. Complexity-based routing (when model_routing=complexity)
-    if [[ "$model_routing" == "complexity" ]]; then
-        local complexity change_type
-        complexity=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .complexity // "M"' "$STATE_FILENAME")
-        change_type=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .change_type // "feature"' "$STATE_FILENAME")
-
-        # S-complexity non-feature changes route to sonnet
-        if [[ "$complexity" == "S" && "$change_type" != "feature" ]]; then
-            log_info "Model routing: $change_name → sonnet (S-complexity, type=$change_type)"
-            echo "sonnet"
-            return
-        fi
-        # Doc changes always sonnet
-        if [[ "$is_doc_change" == "true" ]]; then
-            echo "sonnet"
-            return
-        fi
-    fi
-
-    # 3. Default model from directive
-    if [[ "$is_doc_change" == "true" ]]; then
-        echo "sonnet"
-        return
-    fi
-
-    echo "$default_model"
+    wt-orch-core dispatch resolve-model \
+        --state "$STATE_FILENAME" \
+        --change "$change_name" \
+        --default-model "$default_model" \
+        --model-routing "$model_routing"
 }
 
-# ─── Recovery ────────────────────────────────────────────────────────
+# ─── Recovery (delegated to Python) ──────────────────────────────────
 
 recover_orphaned_changes() {
-    local recovered=0
-    local change_names
-    change_names=$(jq -r '.changes[] | select(.status == "running" or .status == "verifying" or .status == "stalled") | .name' "$STATE_FILENAME" 2>/dev/null || true)
-
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-
-        local wt_path ralph_pid
-        wt_path=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
-        ralph_pid=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-
-        # Skip if worktree still exists — existing resume logic handles it
-        if [[ -n "$wt_path" && -d "$wt_path" ]]; then
-            continue
-        fi
-
-        # Skip if Ralph PID is still alive — process is running somewhere
-        if [[ -n "$ralph_pid" && "$ralph_pid" != "0" && "$ralph_pid" != "null" ]]; then
-            if wt-orch-core process check-pid --pid "$ralph_pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
-                log_warn "Change $name has live process PID $ralph_pid, skipping recovery"
-                warn "Change $name has live process PID $ralph_pid, skipping recovery"
-                continue
-            fi
-        fi
-
-        # Orphaned: no worktree, no live PID — reset to pending
-        log_info "Recovering orphaned change: $name (was $(get_change_status "$name"))"
-        info "Recovering orphaned change: $name"
-        update_change_field "$name" "status" '"pending"'
-        update_change_field "$name" "worktree_path" 'null'
-        update_change_field "$name" "ralph_pid" 'null'
-        update_change_field "$name" "verify_retry_count" '0'
-        update_change_field "$name" "failure_reason" 'null'
-        emit_event "CHANGE_RECOVERED" "$name" "{\"reason\":\"orphaned_after_crash\"}"
-        recovered=$((recovered + 1))
-    done <<< "$change_names"
-
-    if [[ "$recovered" -gt 0 ]]; then
-        log_info "Recovered $recovered orphaned change(s)"
-        info "Recovered $recovered orphaned change(s)"
-    fi
+    # Migrated to: wt_orch/dispatcher.py recover_orphaned_changes()
+    wt-orch-core dispatch recover-orphans --state "$STATE_FILENAME" 2>/dev/null
 }
 
-# ─── Dispatch ────────────────────────────────────────────────────────
+redispatch_change() {
+    # Migrated to: wt_orch/dispatcher.py redispatch_change()
+    local change_name="$1"
+    local failure_pattern="${2:-stuck}"
+    wt-orch-core dispatch redispatch \
+        --state "$STATE_FILENAME" \
+        --change "$change_name" \
+        --failure-pattern "$failure_pattern" \
+        --max-redispatch "${MAX_REDISPATCH:-2}"
+}
+
+retry_failed_builds() {
+    # Migrated to: wt_orch/dispatcher.py retry_failed_builds()
+    local max_retries="${1:-2}"
+    wt-orch-core dispatch retry-builds \
+        --state "$STATE_FILENAME" \
+        --max-retries "$max_retries"
+}
+
+# ─── Core Dispatch (delegated to Python) ─────────────────────────────
 
 dispatch_change() {
+    # Migrated to: wt_orch/dispatcher.py dispatch_change()
     local change_name="$1"
-    local scope
-    scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope' "$STATE_FILENAME")
-    local roadmap_item
-    roadmap_item=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .roadmap_item' "$STATE_FILENAME")
-
-    log_info "Dispatching change: $change_name"
-    info "Dispatching: $change_name"
-    emit_event "DISPATCH" "$change_name" "{\"scope\":$(printf '%s' "$scope" | jq -Rs .)}"
-
-    # Reset token counters for fresh dispatch.
-    # On restart, stale tokens_used_prev from a previous run would inflate the
-    # watchdog's budget calculation (tokens_used = tokens_used_prev + current).
-    # resume_change() intentionally preserves cumulative tokens; only dispatch resets.
-    update_change_field "$change_name" "tokens_used_prev" "0"
-    update_change_field "$change_name" "tokens_used" "0"
-    update_change_field "$change_name" "input_tokens" "0"
-    update_change_field "$change_name" "output_tokens" "0"
-    update_change_field "$change_name" "cache_read_tokens" "0"
-    update_change_field "$change_name" "cache_create_tokens" "0"
-    update_change_field "$change_name" "input_tokens_prev" "0"
-    update_change_field "$change_name" "output_tokens_prev" "0"
-    update_change_field "$change_name" "cache_read_tokens_prev" "0"
-    update_change_field "$change_name" "cache_create_tokens_prev" "0"
-
-    # Create worktree
-    local project_path
-    project_path=$(pwd)
-    local wt_path
-    wt_path="${project_path}-${change_name}"
-
-    if [[ -d "$wt_path" ]]; then
-        info "Worktree already exists: $wt_path"
-        # Clean up stale loop state from previous run so wt-loop start
-        # doesn't refuse with "Loop already running".
-        local old_loop_state="$wt_path/.claude/loop-state.json"
-        if [[ -f "$old_loop_state" ]]; then
-            local old_pid
-            old_pid=$(jq -r '.terminal_pid // 0' "$old_loop_state" 2>/dev/null)
-            if [[ "$old_pid" -gt 0 ]] && ! kill -0 "$old_pid" 2>/dev/null; then
-                log_info "Removing stale loop-state.json (PID $old_pid dead) for $change_name"
-                rm -f "$old_loop_state"
-            fi
-        fi
-    else
-        # Clean up stale branch from previous failed run (worktree gone but branch remains)
-        if git rev-parse --verify "change/$change_name" &>/dev/null; then
-            log_info "Removing stale branch change/$change_name before worktree creation"
-            git branch -D "change/$change_name" 2>/dev/null || true
-        fi
-        local wt_new_output
-        wt_new_output=$(wt-new "$change_name" --skip-open 2>&1) || {
-            error "Failed to create worktree for $change_name"
-            log_error "wt-new output: $wt_new_output"
-            update_change_field "$change_name" "status" '"failed"'
-            return 1
-        }
-    fi
-
-    # Find actual worktree path
-    wt_path=$(find_existing_worktree "$(pwd)" "$change_name" 2>/dev/null || echo "${project_path}-${change_name}")
-
-    # Bootstrap existing worktrees that missed wt-new bootstrap
-    bootstrap_worktree "$project_path" "$wt_path"
-
-    # Prune orchestrator-level context from worktree (agent doesn't need to orchestrate itself)
-    if [[ "${CONTEXT_PRUNING:-true}" == "true" ]]; then
-        prune_worktree_context "$wt_path"
-    fi
-
-    # Recall change-specific memories for proposal enrichment
-    local dispatch_memory=""
-    dispatch_memory=$(orch_recall "$scope" 3 "phase:execution" || true)
-    dispatch_memory="${dispatch_memory:0:1000}"
-
-    # Build cross-cutting context from project-knowledge.yaml
-    local pk_context=""
-    local pk_file
-    pk_file=$(find_project_knowledge_file 2>/dev/null || true)
-    if [[ -n "$pk_file" && -f "$pk_file" ]] && command -v yq &>/dev/null; then
-        # Check if change touches any known feature
-        local feature_touches=""
-        local feature_names
-        feature_names=$(yq -r '.features | keys[]? // empty' "$pk_file" 2>/dev/null || true)
-        if [[ -n "$feature_names" ]]; then
-            while IFS= read -r fname; do
-                [[ -z "$fname" ]] && continue
-                # Match feature name against change scope
-                if echo "$scope" | grep -qi "$fname"; then
-                    local touches
-                    touches=$(yq -r ".features.\"$fname\".touches[]? // empty" "$pk_file" 2>/dev/null || true)
-                    local ref_impl
-                    ref_impl=$(yq -r ".features.\"$fname\".reference_impl // false" "$pk_file" 2>/dev/null || true)
-                    if [[ -n "$touches" ]]; then
-                        feature_touches+="Feature '$fname' touches: $touches"$'\n'
-                    fi
-                    if [[ "$ref_impl" == "true" ]]; then
-                        feature_touches+="Feature '$fname' has a reference implementation — follow existing patterns."$'\n'
-                    fi
-                fi
-            done <<< "$feature_names"
-        fi
-
-        # Cross-cutting files context
-        local cc_files
-        cc_files=$(yq -r '.cross_cutting_files[]? | "- \(.path): \(.description // "")"' "$pk_file" 2>/dev/null || true)
-        if [[ -n "$cc_files" || -n "$feature_touches" ]]; then
-            pk_context="## Project Knowledge"$'\n'
-            [[ -n "$feature_touches" ]] && pk_context+="$feature_touches"$'\n'
-            [[ -n "$cc_files" ]] && pk_context+="Cross-cutting files (coordinate with other changes):"$'\n'"$cc_files"$'\n'
-        fi
-    fi
-
-    # Build sibling status summary
-    local sibling_context=""
-    local siblings
-    siblings=$(jq -r '.changes[] | select(.status == "running" or .status == "dispatched" or .status == "verifying") | "\(.name): \(.scope[:80])"' "$STATE_FILENAME" 2>/dev/null || true)
-    if [[ -n "$siblings" ]]; then
-        sibling_context="## Active Sibling Changes (avoid conflicts)"$'\n'"$siblings"$'\n'
-    fi
-
-    # Create change directory + proposal in worktree
-    (
-        cd "$wt_path" || exit 1
-
-        # Initialize OpenSpec change if not exists
-        if [[ ! -d "openspec/changes/$change_name" ]]; then
-            local _opsx_err
-            if ! _opsx_err=$(openspec new change "$change_name" 2>&1); then
-                log_error "openspec new change failed for $change_name: $_opsx_err"
-            fi
-            if [[ ! -d "openspec/changes/$change_name" ]]; then
-                log_error "openspec change directory not created for $change_name"
-            fi
-        fi
-
-        # Pre-create proposal.md from scope
-        local proposal_path="openspec/changes/$change_name/proposal.md"
-        if [[ ! -f "$proposal_path" ]]; then
-            # Generate core proposal via Python template (replaces 3 heredocs)
-            local _spec_ref=""
-            [[ "${INPUT_MODE:-}" == "digest" && -n "${INPUT_PATH:-}" ]] && _spec_ref="$INPUT_PATH"
-            jq -n \
-                --arg change_name "$change_name" \
-                --arg scope "$scope" \
-                --arg roadmap_item "$roadmap_item" \
-                --arg memory_ctx "${dispatch_memory:-}" \
-                --arg spec_ref "$_spec_ref" \
-                '{change_name: $change_name, scope: $scope, roadmap_item: $roadmap_item, memory_ctx: $memory_ctx, spec_ref: $spec_ref}' \
-            | wt-orch-core template proposal --input-file - > "$proposal_path"
-
-            # Append additional context sections (simple appends, no heredoc risk)
-            if [[ -n "$pk_context" ]]; then
-                echo "" >> "$proposal_path"
-                echo "$pk_context" >> "$proposal_path"
-            fi
-            if [[ -n "$sibling_context" ]]; then
-                echo "" >> "$proposal_path"
-                echo "$sibling_context" >> "$proposal_path"
-            fi
-
-            # Design context: inject frame-filtered snapshot content into proposal
-            local design_dispatch_ctx=""
-            design_dispatch_ctx=$(design_context_for_dispatch "$scope" "${DESIGN_SNAPSHOT_DIR:-.}" 2>/dev/null || true)
-            if [[ -n "$design_dispatch_ctx" ]]; then
-                echo "" >> "$proposal_path"
-                echo "$design_dispatch_ctx" >> "$proposal_path"
-            else
-                # Fallback: if planner provided a design_ref, use single-line reference
-                local design_ref
-                design_ref=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .design_ref // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                if [[ -n "$design_ref" ]]; then
-                    echo "" >> "$proposal_path"
-                    echo "## Design Reference" >> "$proposal_path"
-                    echo "Query the design tool for this frame/page: \`$design_ref\`" >> "$proposal_path"
-                fi
-            fi
-
-            # Digest mode: add spec context references and requirement IDs to proposal
-            if [[ "${INPUT_MODE:-}" == "digest" ]]; then
-                local digest_dir="$project_path/$DIGEST_DIR"
-
-                # Add Source Specifications section (spec files copied to worktree)
-                local spec_files_list
-                spec_files_list=$(jq -r --arg n "$change_name" \
-                    '.changes[] | select(.name == $n) | .spec_files[]? // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                if [[ -n "$spec_files_list" ]]; then
-                    echo "" >> "$proposal_path"
-                    echo "## Source Specifications" >> "$proposal_path"
-                    echo "Read these for detailed requirements:" >> "$proposal_path"
-                    while IFS= read -r sf; do
-                        [[ -z "$sf" ]] && continue
-                        echo "- \`.claude/spec-context/$sf\`" >> "$proposal_path"
-                    done <<< "$spec_files_list"
-                fi
-
-                # Add Requirements section
-                local change_reqs
-                change_reqs=$(jq -r --arg n "$change_name" \
-                    '.changes[] | select(.name == $n) | .requirements[]? // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                if [[ -n "$change_reqs" && -f "$digest_dir/requirements.json" ]]; then
-                    echo "" >> "$proposal_path"
-                    echo "## Requirements" >> "$proposal_path"
-                    echo "This change covers:" >> "$proposal_path"
-                    while IFS= read -r rid; do
-                        [[ -z "$rid" ]] && continue
-                        local rtitle rbrief
-                        rtitle=$(jq -r --arg id "$rid" '.requirements[] | select(.id == $id) | .title // ""' "$digest_dir/requirements.json" 2>/dev/null || true)
-                        rbrief=$(jq -r --arg id "$rid" '.requirements[] | select(.id == $id) | .brief // ""' "$digest_dir/requirements.json" 2>/dev/null || true)
-                        echo "- $rid: $rtitle — $rbrief" >> "$proposal_path"
-                    done <<< "$change_reqs"
-                fi
-
-                # Add Cross-Cutting Requirements section
-                local also_affects
-                also_affects=$(jq -r --arg n "$change_name" \
-                    '.changes[] | select(.name == $n) | .also_affects_reqs[]? // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                if [[ -n "$also_affects" && -f "$digest_dir/requirements.json" ]]; then
-                    echo "" >> "$proposal_path"
-                    echo "## Cross-Cutting Requirements" >> "$proposal_path"
-                    echo "These requirements are owned by other changes — incorporate their constraints, do not re-implement from scratch:" >> "$proposal_path"
-                    while IFS= read -r rid; do
-                        [[ -z "$rid" ]] && continue
-                        local rtitle rbrief
-                        rtitle=$(jq -r --arg id "$rid" '.requirements[] | select(.id == $id) | .title // ""' "$digest_dir/requirements.json" 2>/dev/null || true)
-                        rbrief=$(jq -r --arg id "$rid" '.requirements[] | select(.id == $id) | .brief // ""' "$digest_dir/requirements.json" 2>/dev/null || true)
-                        echo "- $rid: $rtitle — $rbrief" >> "$proposal_path"
-                    done <<< "$also_affects"
-                fi
-            fi
-
-            log_info "Pre-created proposal.md for $change_name"
-        fi
-
-        # Digest mode: copy spec files to worktree .claude/spec-context/
-        if [[ "${INPUT_MODE:-}" == "digest" ]]; then
-            local digest_dir="$project_path/$DIGEST_DIR"
-            if [[ -f "$digest_dir/index.json" ]]; then
-                local spec_base_dir
-                spec_base_dir=$(jq -r '.spec_base_dir' "$digest_dir/index.json")
-
-                # Copy change-specific spec files
-                local spec_files_json
-                spec_files_json=$(jq -r --arg n "$change_name" \
-                    '.changes[] | select(.name == $n) | .spec_files[]? // empty' "$STATE_FILENAME" 2>/dev/null || true)
-                if [[ -n "$spec_files_json" ]]; then
-                    mkdir -p ".claude/spec-context"
-                    while IFS= read -r sf; do
-                        [[ -z "$sf" ]] && continue
-                        local src_file="$spec_base_dir/$sf"
-                        if [[ -f "$src_file" ]]; then
-                            local target_dir=".claude/spec-context/$(dirname "$sf")"
-                            mkdir -p "$target_dir"
-                            cp "$src_file" "$target_dir/"
-                        else
-                            log_warn "Spec file not found: $src_file"
-                        fi
-                    done <<< "$spec_files_json"
-                fi
-
-                # Copy conventions.json and data-definitions.md to every worktree
-                if [[ -f "$digest_dir/conventions.json" ]]; then
-                    mkdir -p ".claude/spec-context"
-                    cp "$digest_dir/conventions.json" ".claude/spec-context/"
-                fi
-                if [[ -f "$digest_dir/data-definitions.md" ]]; then
-                    mkdir -p ".claude/spec-context"
-                    cp "$digest_dir/data-definitions.md" ".claude/spec-context/"
-                fi
-
-                # Add .claude/spec-context/ to .gitignore
-                if [[ -f ".gitignore" ]]; then
-                    if ! grep -qxF '.claude/spec-context/' ".gitignore" 2>/dev/null; then
-                        echo '.claude/spec-context/' >> ".gitignore"
-                    fi
-                else
-                    echo '.claude/spec-context/' > ".gitignore"
-                fi
-            fi
-        fi
-
-        # Inject retry_context into proposal for redispatched changes
-        local retry_ctx
-        retry_ctx=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_context // empty' "$STATE_FILENAME")
-        if [[ -n "$retry_ctx" && "$retry_ctx" != "null" ]]; then
-            local proposal_path="openspec/changes/$change_name/proposal.md"
-            if [[ -f "$proposal_path" ]]; then
-                printf '\n%s\n' "$retry_ctx" >> "$proposal_path"
-                log_info "Injected retry_context into proposal for $change_name"
-            fi
-            # Clear retry_context after injection
-            update_change_field "$change_name" "retry_context" "null"
-        fi
-
-        # Check artifact readiness — if tasks.md exists, agent can go straight to apply
-        local tasks_path="openspec/changes/$change_name/tasks.md"
-        if [[ -f "$tasks_path" ]]; then
-            log_info "Artifacts ready for $change_name — starting apply"
-        else
-            log_info "No tasks.md for $change_name — first iteration will create artifacts"
-        fi
-    ) || {
-        error "Failed to setup change in worktree"
-        update_change_field "$change_name" "status" '"failed"'
-        return 1
-    }
-
-    # Update state
-    update_change_field "$change_name" "status" '"dispatched"'
-    update_change_field "$change_name" "worktree_path" "\"$wt_path\""
-    update_change_field "$change_name" "started_at" "\"$(date -Iseconds)\""
-
-    # Update coverage status → dispatched
-    update_coverage_status "$change_name" "dispatched" 2>/dev/null || true
-
-    # Pre-dispatch hook
-    if ! run_hook "pre_dispatch" "$change_name" "dispatched" "$wt_path"; then
-        log_warn "pre_dispatch hook blocked $change_name"
-        update_change_field "$change_name" "status" '"pending"'
-        return 1
-    fi
-
-    # Dispatch via backend (default: wt-loop)
-    local impl_model
-    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
-    dispatch_via_wt_loop "$change_name" "$impl_model" "$wt_path" "$scope"
+    local args=(
+        --state "$STATE_FILENAME"
+        --change "$change_name"
+        --default-model "${DEFAULT_IMPL_MODEL:-opus}"
+        --model-routing "${MODEL_ROUTING:-off}"
+    )
+    [[ "${TEAM_MODE:-false}" == "true" ]] && args+=(--team)
+    [[ "${CONTEXT_PRUNING:-true}" == "false" ]] && args+=(--no-prune)
+    [[ -n "${INPUT_MODE:-}" ]] && args+=(--input-mode "$INPUT_MODE")
+    [[ -n "${INPUT_PATH:-}" ]] && args+=(--input-path "$INPUT_PATH")
+    [[ -n "${DIGEST_DIR:-}" ]] && args+=(--digest-dir "$DIGEST_DIR")
+    wt-orch-core dispatch dispatch-change "${args[@]}"
 }
 
-# Dispatch backend: wt-loop (default)
-# Interface: receives change name, model, worktree path, scope; starts agent, sets PID + status
 dispatch_via_wt_loop() {
+    # Migrated to: wt_orch/dispatcher.py dispatch_via_wt_loop()
+    # Note: This is called internally by dispatch_change() in Python.
+    # Kept for backward compat if called directly from bash.
     local change_name="$1"
     local impl_model="$2"
     local wt_path="$3"
     local scope="$4"
 
     local task_desc="Implement $change_name: ${scope:0:200}"
-
-    # Token budget disabled — iteration limit (--max) provides the safety net.
-    local token_budget_flag=""
-
-    # Team mode flag (from config directive)
     local team_flag=""
-    if [[ "${TEAM_MODE:-false}" == "true" ]]; then
-        team_flag="--team"
-    fi
+    [[ "${TEAM_MODE:-false}" == "true" ]] && team_flag="--team"
 
-    log_info "Dispatch $change_name with model=$impl_model (default=$DEFAULT_IMPL_MODEL) budget=unlimited (iter limit: --max 30) team=${TEAM_MODE:-false}"
+    log_info "Dispatch $change_name with model=$impl_model"
 
     (
         cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model "$impl_model" --change "$change_name" $token_budget_flag $team_flag
+        wt-loop start "$task_desc" --max 30 --done openspec --label "$change_name" --model "$impl_model" --change "$change_name" $team_flag
     ) &
     wait $! 2>/dev/null || true
 
-    # Verify wt-loop actually started by checking for loop-state.json
     local loop_state="$wt_path/.claude/loop-state.json"
     local retries=0
     while [[ ! -f "$loop_state" && $retries -lt 10 ]]; do
@@ -621,9 +121,7 @@ dispatch_via_wt_loop() {
     done
 
     if [[ ! -f "$loop_state" ]]; then
-        error "wt-loop failed to start for $change_name (no loop-state.json after ${retries}s)"
-        log_error "wt-loop failed to start for $change_name"
-        emit_event "ERROR" "$change_name" '{"error":"wt-loop failed to start"}'
+        error "wt-loop failed to start for $change_name"
         update_change_field "$change_name" "status" '"failed"'
         return 1
     fi
@@ -632,369 +130,59 @@ dispatch_via_wt_loop() {
     terminal_pid=$(jq -r '.terminal_pid // empty' "$loop_state" 2>/dev/null)
     update_change_field "$change_name" "ralph_pid" "${terminal_pid:-0}"
     update_change_field "$change_name" "status" '"running"'
-    log_info "Ralph started for $change_name in $wt_path (terminal PID ${terminal_pid:-unknown})"
-
-    # Update coverage status → running
-    update_coverage_status "$change_name" "running" 2>/dev/null || true
-}
-
-# Resume changes that were running when the orchestrator was interrupted.
-# Called on restart before dispatch_ready_changes() so stopped changes
-# get picked up without manual intervention.
-resume_stopped_changes() {
-    local stopped_changes
-    stopped_changes=$(jq -r '.changes[] | select(.status == "stopped") | .name' "$STATE_FILENAME" 2>/dev/null || true)
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        local wt_path
-        wt_path=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
-        if [[ -n "$wt_path" && -d "$wt_path" ]]; then
-            log_info "Resuming stopped change: $name"
-            info "Resuming stopped change: $name"
-            resume_change "$name" || true
-        else
-            log_info "Resetting stopped change $name to pending (worktree missing)"
-            info "Resetting stopped change $name to pending (worktree missing)"
-            update_change_field "$name" "status" '"pending"'
-        fi
-    done <<< "$stopped_changes"
 }
 
 dispatch_ready_changes() {
+    # Migrated to: wt_orch/dispatcher.py dispatch_ready_changes()
     local max_parallel="$1"
-
-    local running
-    running=$(count_changes_by_status "running")
-    running=$((running + $(count_changes_by_status "dispatched")))
-
-    # Get pending changes in topological order.
-    # Use STATE_FILENAME (not PLAN_FILENAME) because after replan the state
-    # carries forward changes from previous cycles that may not be in the
-    # current plan file.  topological_sort only needs {name, depends_on}.
-    local order
-    order=$(topological_sort "$STATE_FILENAME" 2>/dev/null || true)
-
-    # Read current phase for milestone gating (default 999 = no gating)
-    local current_phase
-    current_phase=$(jq -r '.current_phase // 999' "$STATE_FILENAME" 2>/dev/null)
-
-    # Collect ready-to-dispatch changes, then sort by complexity (L first)
-    local ready_names=()
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-
-        local status
-        status=$(get_change_status "$name")
-        [[ "$status" != "pending" ]] && continue
-
-        # Phase gate: skip changes in future phases
-        local change_phase
-        change_phase=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .phase // 1' "$STATE_FILENAME" 2>/dev/null)
-        if [[ "$change_phase" -gt "$current_phase" ]]; then
-            continue
-        fi
-
-        if deps_satisfied "$name"; then
-            ready_names+=("$name")
-        fi
-    done <<< "$order"
-
-    # Sort ready changes: L > M > S (larger first to reduce tail latency)
-    if [[ ${#ready_names[@]} -gt 1 ]]; then
-        local sorted_names=()
-        for priority in L M S; do
-            for name in "${ready_names[@]}"; do
-                local complexity
-                complexity=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .complexity // "M"' "$STATE_FILENAME" 2>/dev/null)
-                if [[ "$complexity" == "$priority" ]]; then
-                    sorted_names+=("$name")
-                fi
-            done
-        done
-        ready_names=("${sorted_names[@]}")
-    fi
-
-    # Dispatch in priority order
-    for name in "${ready_names[@]}"; do
-        [[ "$running" -ge "$max_parallel" ]] && break
-        dispatch_change "$name"
-        running=$((running + 1))
-    done
+    local args=(
+        --state "$STATE_FILENAME"
+        --max-parallel "$max_parallel"
+        --default-model "${DEFAULT_IMPL_MODEL:-opus}"
+        --model-routing "${MODEL_ROUTING:-off}"
+    )
+    [[ "${TEAM_MODE:-false}" == "true" ]] && args+=(--team)
+    [[ "${CONTEXT_PRUNING:-true}" == "false" ]] && args+=(--no-prune)
+    [[ -n "${INPUT_MODE:-}" ]] && args+=(--input-mode "$INPUT_MODE")
+    [[ -n "${INPUT_PATH:-}" ]] && args+=(--input-path "$INPUT_PATH")
+    [[ -n "${DIGEST_DIR:-}" ]] && args+=(--digest-dir "$DIGEST_DIR")
+    wt-orch-core dispatch dispatch-ready "${args[@]}"
 }
 
+# ─── Lifecycle (delegated to Python) ─────────────────────────────────
+
 pause_change() {
+    # Migrated to: wt_orch/dispatcher.py pause_change()
     local change_name="$1"
-    local wt_path
-    wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
-
-    if [[ -z "$wt_path" ]]; then
-        warn "No worktree found for $change_name"
-        return 1
-    fi
-
-    local pid_file="$wt_path/.claude/ralph-terminal.pid"
-    if [[ -f "$pid_file" ]]; then
-        local pid
-        pid=$(cat "$pid_file")
-        if wt-orch-core process check-pid --pid "$pid" --expect-cmd "wt-loop" >/dev/null 2>&1; then
-            kill -TERM "$pid" 2>/dev/null || true
-            info "Sent SIGTERM to Ralph (PID $pid) for $change_name"
-            log_info "Paused $change_name (SIGTERM to PID $pid)"
-        fi
-    fi
-
-    update_change_field "$change_name" "status" '"paused"'
+    wt-orch-core dispatch pause \
+        --state "$STATE_FILENAME" \
+        --change "$change_name"
 }
 
 resume_change() {
+    # Migrated to: wt_orch/dispatcher.py resume_change()
     local change_name="$1"
-    local wt_path
-    wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
-
-    if [[ -z "$wt_path" || ! -d "$wt_path" ]]; then
-        error "Worktree not found for $change_name"
-        return 1
-    fi
-
-    info "Resuming: $change_name"
-    log_info "Resuming $change_name in $wt_path"
-
-    # Store progress baseline for watchdog: only evaluate iterations after this point
-    local loop_state_file="$wt_path/.claude/loop-state.json"
-    if [[ -f "$loop_state_file" ]]; then
-        local iter_count
-        iter_count=$(jq '[.iterations // [] | length] | .[0]' "$loop_state_file" 2>/dev/null || echo 0)
-        safe_jq_update "$STATE_FILENAME" --arg n "$change_name" --argjson b "$iter_count" \
-            '(.changes[] | select(.name == $n) | .watchdog.progress_baseline) = $b'
-        log_info "Set watchdog progress_baseline=$iter_count for $change_name"
-    fi
-
-    # Snapshot cumulative tokens before new loop resets total_tokens to 0.
-    # tokens_used already = tokens_used_prev + current_loop_tokens, so just carry it forward.
-    local cumulative_tokens
-    cumulative_tokens=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME")
-    update_change_field "$change_name" "tokens_used_prev" "$cumulative_tokens"
-    # Snapshot per-type tokens for retry accumulation
-    local cum_in cum_out cum_cr cum_cc
-    cum_in=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .input_tokens // 0' "$STATE_FILENAME")
-    cum_out=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .output_tokens // 0' "$STATE_FILENAME")
-    cum_cr=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .cache_read_tokens // 0' "$STATE_FILENAME")
-    cum_cc=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .cache_create_tokens // 0' "$STATE_FILENAME")
-    update_change_field "$change_name" "input_tokens_prev" "$cum_in"
-    update_change_field "$change_name" "output_tokens_prev" "$cum_out"
-    update_change_field "$change_name" "cache_read_tokens_prev" "$cum_cr"
-    update_change_field "$change_name" "cache_create_tokens_prev" "$cum_cc"
-
-    local scope
-    scope=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .scope // empty' "$STATE_FILENAME")
-
-    # Read retry_context from state (stored via --argjson, jq -r gives raw text directly)
-    local retry_ctx
-    retry_ctx=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .retry_context // empty' "$STATE_FILENAME")
-
-    local task_desc
-    local done_criteria="openspec"
-    local max_iter=30
-    if [[ -n "$retry_ctx" ]]; then
-        task_desc="$retry_ctx"
-        log_info "Resuming $change_name with retry context (${#retry_ctx} chars)"
-        # Clear retry_context to prevent stale context on future resumes
-        update_change_field "$change_name" "retry_context" "null"
-
-        # Differentiate merge-conflict retry from build/test retry
-        local is_merge_retry
-        is_merge_retry=$(jq -r --arg n "$change_name" \
-            '.changes[] | select(.name == $n) | .merge_rebase_pending // false' "$STATE_FILENAME")
-        if [[ "$is_merge_retry" == "true" ]]; then
-            # Merge retries: agent resolves conflicts, done when branch merges cleanly
-            done_criteria="merge"
-            max_iter=5
-        else
-            # Build/test fix retries: done when build passes
-            done_criteria="build"
-            max_iter=3
-        fi
-    else
-        task_desc="Continue $change_name: ${scope:0:200}"
-    fi
-    local impl_model
-    impl_model=$(resolve_change_model "$change_name" "$DEFAULT_IMPL_MODEL" "${MODEL_ROUTING:-off}")
-    # Team mode flag (from config directive)
-    local team_flag=""
-    if [[ "${TEAM_MODE:-false}" == "true" ]]; then
-        team_flag="--team"
-    fi
-    log_info "Resume $change_name with model=$impl_model (done=$done_criteria, max=$max_iter) team=${TEAM_MODE:-false}"
-    (
-        cd "$wt_path" || exit 1
-        wt-loop start "$task_desc" --max "$max_iter" --done "$done_criteria" --label "$change_name" --model "$impl_model" --change "$change_name" $team_flag
-    ) &
-    wait $! 2>/dev/null || true
-
-    # Verify wt-loop started via loop-state.json
-    local loop_state="$wt_path/.claude/loop-state.json"
-    local retries=0
-    while [[ ! -f "$loop_state" && $retries -lt 10 ]]; do
-        sleep 1
-        retries=$((retries + 1))
-    done
-
-    if [[ ! -f "$loop_state" ]]; then
-        error "wt-loop failed to resume for $change_name"
-        log_error "wt-loop failed to resume for $change_name"
-        emit_event "ERROR" "$change_name" '{"error":"wt-loop failed to resume"}'
-        update_change_field "$change_name" "status" '"failed"'
-        return 1
-    fi
-
-    local terminal_pid
-    terminal_pid=$(jq -r '.terminal_pid // empty' "$loop_state" 2>/dev/null)
-    update_change_field "$change_name" "ralph_pid" "${terminal_pid:-0}"
-    update_change_field "$change_name" "status" '"running"'
+    local args=(
+        --state "$STATE_FILENAME"
+        --change "$change_name"
+        --default-model "${DEFAULT_IMPL_MODEL:-opus}"
+        --model-routing "${MODEL_ROUTING:-off}"
+    )
+    [[ "${TEAM_MODE:-false}" == "true" ]] && args+=(--team)
+    wt-orch-core dispatch resume "${args[@]}"
 }
 
-# Resume stalled changes after a cooldown period.
-# Stalled changes get a 5-minute cooldown before resume attempt.
-# This handles transient failures like API rate limits.
+resume_stopped_changes() {
+    # Migrated to: wt_orch/dispatcher.py resume_stopped_changes()
+    wt-orch-core dispatch resume-stopped --state "$STATE_FILENAME" 2>/dev/null
+}
+
 resume_stalled_changes() {
-    local now
-    now=$(date +%s)
-    local stalled
-    stalled=$(jq -r '.changes[] | select(.status == "stalled") | .name' "$STATE_FILENAME" 2>/dev/null || true)
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        local stalled_at
-        stalled_at=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .stalled_at // 0' "$STATE_FILENAME")
-        local cooldown=$((now - stalled_at))
-        if [[ "$cooldown" -ge 300 ]]; then
-            log_info "Resuming stalled change $name after ${cooldown}s cooldown"
-            resume_change "$name" || true
-        fi
-    done <<< "$stalled"
+    # Migrated to: wt_orch/dispatcher.py resume_stalled_changes()
+    wt-orch-core dispatch resume-stalled --state "$STATE_FILENAME" 2>/dev/null
 }
 
-# Redispatch a stuck change to a fresh worktree.
-# Kills Ralph, salvages partial work, builds retry_context, cleans up worktree,
-# resets watchdog state, sets status to pending for natural re-dispatch.
-redispatch_change() {
-    local change_name="$1"
-    local failure_pattern="${2:-stuck}"  # spinning|stuck|timeout
-
-    local wt_path
-    wt_path=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .worktree_path // empty' "$STATE_FILENAME")
-    local tokens_used
-    tokens_used=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .tokens_used // 0' "$STATE_FILENAME")
-    local redispatch_count
-    redispatch_count=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .redispatch_count // 0' "$STATE_FILENAME")
-
-    log_info "Redispatching $change_name (attempt $((redispatch_count + 1))/${MAX_REDISPATCH:-2}, pattern=$failure_pattern)"
-
-    # 1. Kill Ralph PID (identity-verified safe kill)
-    local ralph_pid
-    ralph_pid=$(jq -r --arg n "$change_name" '.changes[] | select(.name == $n) | .ralph_pid // 0' "$STATE_FILENAME")
-    if [[ "$ralph_pid" -gt 0 ]]; then
-        local kill_result
-        kill_result=$(wt-orch-core process safe-kill --pid "$ralph_pid" --expect-cmd "wt-loop" --timeout 5 2>/dev/null) || true
-        log_info "Redispatch: safe-kill PID $ralph_pid for $change_name: $kill_result"
-    fi
-
-    # 2. Salvage partial work (captures diff + file list in state)
-    _watchdog_salvage_partial_work "$change_name"
-
-    # 3. Build retry_context from failure info
-    local partial_files
-    partial_files=$(jq -r --arg n "$change_name" \
-        '.changes[] | select(.name == $n) | .partial_diff_files // [] | join(", ")' "$STATE_FILENAME" 2>/dev/null || true)
-    local iter_count=0
-    if [[ -n "$wt_path" && -f "$wt_path/.claude/loop-state.json" ]]; then
-        iter_count=$(jq '[.iterations // [] | length] | .[0]' "$wt_path/.claude/loop-state.json" 2>/dev/null || echo 0)
-    fi
-
-    local retry_prompt
-    retry_prompt="## Previous Attempt Failed (redispatch ${redispatch_count}/$((redispatch_count + 1)))
-
-Failure pattern: $failure_pattern
-Iterations completed: $iter_count
-Tokens used: $tokens_used
-
-Files modified in failed attempt: $partial_files
-
-Start fresh — do not repeat the same approach that led to $failure_pattern."
-
-    update_change_field "$change_name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
-
-    # 4. Increment redispatch_count
-    local new_count=$((redispatch_count + 1))
-    update_change_field "$change_name" "redispatch_count" "$new_count"
-
-    # 5. Emit event
-    emit_event "WATCHDOG_REDISPATCH" "$change_name" \
-        "{\"redispatch_count\":$new_count,\"failure_pattern\":\"$failure_pattern\",\"tokens_used\":$tokens_used,\"iterations\":$iter_count}"
-
-    # 6. Clean up old worktree
-    if [[ -n "$wt_path" && -d "$wt_path" ]]; then
-        local branch_name
-        branch_name=$(git -C "$wt_path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-        git worktree remove --force "$wt_path" 2>/dev/null || {
-            log_warn "Redispatch: git worktree remove failed for $wt_path, trying rm"
-            rm -rf "$wt_path"
-        }
-        if [[ -n "$branch_name" && "$branch_name" != "HEAD" ]]; then
-            git branch -D "$branch_name" 2>/dev/null || true
-        fi
-        log_info "Redispatch: cleaned up worktree $wt_path"
-    fi
-
-    # 7. Reset watchdog sub-object
-    safe_jq_update "$STATE_FILENAME" --arg n "$change_name" \
-        '(.changes[] | select(.name == $n) | .watchdog) = {
-            last_activity_epoch: (now | floor),
-            action_hash_ring: [],
-            consecutive_same_hash: 0,
-            escalation_level: 0
-        }'
-
-    # 8. Clear worktree-specific fields and set status to pending
-    update_change_field "$change_name" "worktree_path" "null"
-    update_change_field "$change_name" "ralph_pid" "null"
-    update_change_field "$change_name" "status" '"pending"'
-
-    send_notification "wt-orchestrate" \
-        "Redispatching '$change_name' ($failure_pattern, attempt $new_count/${MAX_REDISPATCH:-2})" "normal"
-    log_info "Redispatch complete for $change_name — status set to pending"
-}
-
-# Retry failed builds: give build failures a chance to self-repair
-# before triggering a full replan cycle.
-retry_failed_builds() {
-    local max_retries="${1:-2}"
-    local failed_builds
-    failed_builds=$(jq -r '.changes[] | select(.status == "failed" and .build_result == "fail") | .name' "$STATE_FILENAME" 2>/dev/null || true)
-    while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        local gate_retry_count
-        gate_retry_count=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .gate_retry_count // 0' "$STATE_FILENAME")
-        if [[ "$gate_retry_count" -ge "$max_retries" ]]; then
-            continue  # already exhausted retries
-        fi
-        gate_retry_count=$((gate_retry_count + 1))
-        update_change_field "$name" "gate_retry_count" "$gate_retry_count"
-        log_info "Retrying failed build for $name (attempt $gate_retry_count/$max_retries)"
-        info "Retrying build failure: $name ($gate_retry_count/$max_retries)"
-
-        # Set retry context with build output
-        local build_output
-        build_output=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .build_output // ""' "$STATE_FILENAME")
-        local scope
-        scope=$(jq -r --arg n "$name" '.changes[] | select(.name == $n) | .scope // ""' "$STATE_FILENAME")
-        local retry_prompt="Build failed. Fix the build error.\n\nBuild output:\n${build_output:0:2000}\n\nOriginal scope: $scope"
-        update_change_field "$name" "retry_context" "$(printf '%s' "$retry_prompt" | jq -Rs .)"
-        update_change_field "$name" "status" '"pending"'
-        resume_change "$name" || true
-    done <<< "$failed_builds"
-}
-
-# ─── Command Handlers ────────────────────────────────────────────────
+# ─── Command Handlers (remain in bash — signal traps, monitor_loop) ──
 
 cmd_start() {
     # In automated mode, auto-defer untriaged ambiguities instead of pausing
@@ -1435,4 +623,3 @@ cmd_resume() {
 }
 
 # ─── Monitor Loop ────────────────────────────────────────────────────
-

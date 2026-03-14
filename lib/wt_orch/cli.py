@@ -472,6 +472,130 @@ def cmd_report(args):
         sys.exit(0)
 
 
+def cmd_dispatch(args):
+    """Dispatch dispatcher subcommands.
+
+    Migrated from: lib/orchestration/dispatcher.sh
+    """
+    from .dispatcher import (
+        bootstrap_worktree,
+        dispatch_change,
+        dispatch_ready_changes,
+        dispatch_via_wt_loop,
+        pause_change,
+        recover_orphaned_changes,
+        redispatch_change,
+        resolve_change_model,
+        resume_change,
+        resume_stalled_changes,
+        resume_stopped_changes,
+        retry_failed_builds,
+        prune_worktree_context,
+        sync_worktree_with_main,
+    )
+
+    event_bus = _make_event_bus(args.state) if hasattr(args, "state") and args.state else None
+
+    if args.dispatch_cmd == "sync-worktree":
+        result = sync_worktree_with_main(args.wt_path, args.change)
+        json.dump({"ok": result.ok, "message": result.message, "behind_count": result.behind_count, "auto_resolved": result.auto_resolved}, sys.stdout)
+        print()
+        sys.exit(0 if result.ok else 1)
+
+    elif args.dispatch_cmd == "bootstrap":
+        copied = bootstrap_worktree(args.project_path, args.wt_path)
+        print(copied)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "prune-context":
+        pruned = prune_worktree_context(args.wt_path)
+        print(pruned)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "resolve-model":
+        from .state import load_state
+        state = load_state(args.state)
+        for c in state.changes:
+            if c.name == args.change:
+                model = resolve_change_model(c, args.default_model, args.model_routing)
+                print(model)
+                sys.exit(0)
+        print(f"Change not found: {args.change}", file=sys.stderr)
+        sys.exit(1)
+
+    elif args.dispatch_cmd == "dispatch-change":
+        ok = dispatch_change(
+            args.state, args.change,
+            default_model=args.default_model or "opus",
+            model_routing=args.model_routing or "off",
+            team_mode=args.team,
+            context_pruning=not args.no_prune,
+            event_bus=event_bus,
+            input_mode=args.input_mode or "",
+            input_path=args.input_path or "",
+            digest_dir=args.digest_dir or "",
+        )
+        sys.exit(0 if ok else 1)
+
+    elif args.dispatch_cmd == "dispatch-ready":
+        count = dispatch_ready_changes(
+            args.state, args.max_parallel,
+            default_model=args.default_model or "opus",
+            model_routing=args.model_routing or "off",
+            team_mode=args.team,
+            context_pruning=not args.no_prune,
+            event_bus=event_bus,
+            input_mode=args.input_mode or "",
+            input_path=args.input_path or "",
+            digest_dir=args.digest_dir or "",
+        )
+        print(count)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "pause":
+        ok = pause_change(args.state, args.change, event_bus=event_bus)
+        sys.exit(0 if ok else 1)
+
+    elif args.dispatch_cmd == "resume":
+        ok = resume_change(
+            args.state, args.change,
+            default_model=args.default_model or "opus",
+            model_routing=args.model_routing or "off",
+            team_mode=args.team,
+            event_bus=event_bus,
+        )
+        sys.exit(0 if ok else 1)
+
+    elif args.dispatch_cmd == "resume-stopped":
+        count = resume_stopped_changes(args.state, event_bus=event_bus)
+        print(count)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "resume-stalled":
+        count = resume_stalled_changes(args.state, event_bus=event_bus)
+        print(count)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "recover-orphans":
+        count = recover_orphaned_changes(args.state, event_bus=event_bus)
+        print(count)
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "redispatch":
+        redispatch_change(
+            args.state, args.change,
+            failure_pattern=args.failure_pattern or "stuck",
+            event_bus=event_bus,
+            max_redispatch=args.max_redispatch,
+        )
+        sys.exit(0)
+
+    elif args.dispatch_cmd == "retry-builds":
+        count = retry_failed_builds(args.state, max_retries=args.max_retries, event_bus=event_bus)
+        print(count)
+        sys.exit(0)
+
+
 def cmd_serve(args):
     """Start the web dashboard server."""
     import os
@@ -698,6 +822,79 @@ def main():
     evt_parser.add_argument("--last", type=int, default=None, help="Only last N events")
     evt_parser.add_argument("--json", action="store_true", help="Output as JSON array")
 
+    # --- dispatch ---
+    disp_parser = subparsers.add_parser("dispatch", help="Dispatcher operations")
+    disp_sub = disp_parser.add_subparsers(dest="dispatch_cmd", required=True)
+
+    d_sync = disp_sub.add_parser("sync-worktree", help="Sync worktree with main branch")
+    d_sync.add_argument("--wt-path", required=True, help="Worktree path")
+    d_sync.add_argument("--change", required=True, help="Change name")
+
+    d_boot = disp_sub.add_parser("bootstrap", help="Bootstrap worktree environment")
+    d_boot.add_argument("--project-path", required=True, help="Project root path")
+    d_boot.add_argument("--wt-path", required=True, help="Worktree path")
+
+    d_prune = disp_sub.add_parser("prune-context", help="Prune orchestrator context from worktree")
+    d_prune.add_argument("--wt-path", required=True, help="Worktree path")
+
+    d_model = disp_sub.add_parser("resolve-model", help="Resolve implementation model")
+    d_model.add_argument("--state", required=True, help="State file path")
+    d_model.add_argument("--change", required=True, help="Change name")
+    d_model.add_argument("--default-model", default="opus", help="Default model")
+    d_model.add_argument("--model-routing", default="off", help="Routing mode")
+
+    d_disp = disp_sub.add_parser("dispatch-change", help="Dispatch a single change")
+    d_disp.add_argument("--state", required=True, help="State file path")
+    d_disp.add_argument("--change", required=True, help="Change name")
+    d_disp.add_argument("--default-model", default="opus", help="Default model")
+    d_disp.add_argument("--model-routing", default="off", help="Routing mode")
+    d_disp.add_argument("--team", action="store_true", help="Enable team mode")
+    d_disp.add_argument("--no-prune", action="store_true", help="Skip context pruning")
+    d_disp.add_argument("--input-mode", default="", help="Input mode (spec/brief/digest)")
+    d_disp.add_argument("--input-path", default="", help="Input file path")
+    d_disp.add_argument("--digest-dir", default="", help="Digest directory")
+
+    d_ready = disp_sub.add_parser("dispatch-ready", help="Dispatch all ready changes")
+    d_ready.add_argument("--state", required=True, help="State file path")
+    d_ready.add_argument("--max-parallel", type=int, required=True, help="Max parallel changes")
+    d_ready.add_argument("--default-model", default="opus", help="Default model")
+    d_ready.add_argument("--model-routing", default="off", help="Routing mode")
+    d_ready.add_argument("--team", action="store_true", help="Enable team mode")
+    d_ready.add_argument("--no-prune", action="store_true", help="Skip context pruning")
+    d_ready.add_argument("--input-mode", default="", help="Input mode")
+    d_ready.add_argument("--input-path", default="", help="Input file path")
+    d_ready.add_argument("--digest-dir", default="", help="Digest directory")
+
+    d_pause = disp_sub.add_parser("pause", help="Pause a running change")
+    d_pause.add_argument("--state", required=True, help="State file path")
+    d_pause.add_argument("--change", required=True, help="Change name")
+
+    d_resume = disp_sub.add_parser("resume", help="Resume a paused/stopped change")
+    d_resume.add_argument("--state", required=True, help="State file path")
+    d_resume.add_argument("--change", required=True, help="Change name")
+    d_resume.add_argument("--default-model", default="opus", help="Default model")
+    d_resume.add_argument("--model-routing", default="off", help="Routing mode")
+    d_resume.add_argument("--team", action="store_true", help="Enable team mode")
+
+    d_rstopped = disp_sub.add_parser("resume-stopped", help="Resume all stopped changes")
+    d_rstopped.add_argument("--state", required=True, help="State file path")
+
+    d_rstalled = disp_sub.add_parser("resume-stalled", help="Resume stalled changes after cooldown")
+    d_rstalled.add_argument("--state", required=True, help="State file path")
+
+    d_recover = disp_sub.add_parser("recover-orphans", help="Recover orphaned changes")
+    d_recover.add_argument("--state", required=True, help="State file path")
+
+    d_redisp = disp_sub.add_parser("redispatch", help="Redispatch a stuck change")
+    d_redisp.add_argument("--state", required=True, help="State file path")
+    d_redisp.add_argument("--change", required=True, help="Change name")
+    d_redisp.add_argument("--failure-pattern", default="stuck", help="Failure pattern")
+    d_redisp.add_argument("--max-redispatch", type=int, default=2, help="Max redispatch attempts")
+
+    d_retry = disp_sub.add_parser("retry-builds", help="Retry failed builds")
+    d_retry.add_argument("--state", required=True, help="State file path")
+    d_retry.add_argument("--max-retries", type=int, default=2, help="Max retry attempts")
+
     # --- serve ---
     serve_parser = subparsers.add_parser("serve", help="Start the web dashboard server")
     serve_parser.add_argument("--port", type=int, default=None, help="Port (default: 7400, env: WT_WEB_PORT)")
@@ -719,6 +916,8 @@ def main():
         cmd_report(args)
     elif args.command == "events":
         cmd_events(args)
+    elif args.command == "dispatch":
+        cmd_dispatch(args)
     elif args.command == "serve":
         cmd_serve(args)
 
