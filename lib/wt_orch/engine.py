@@ -221,6 +221,7 @@ def monitor_loop(
     *,
     poll_interval: int = DEFAULT_POLL_INTERVAL,
     event_bus: Any = None,
+    checkpoint_auto_approve: bool = False,
 ) -> None:
     """Run the main orchestration monitoring loop.
 
@@ -247,6 +248,10 @@ def monitor_loop(
         raw = json.loads(directives_json)
 
     d = parse_directives(raw)
+
+    # Apply CLI overrides
+    if checkpoint_auto_approve:
+        d.checkpoint_auto_approve = True
 
     # Persist timing info and orchestrator PID
     start_epoch = int(time.time())

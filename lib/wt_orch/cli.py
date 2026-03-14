@@ -991,6 +991,9 @@ def cmd_engine(args):
             else:
                 raw = json.loads(args.directives)
             directives = parse_directives(raw)
+            # Apply CLI flag overrides
+            if getattr(args, "checkpoint_auto_approve", False):
+                directives.checkpoint_auto_approve = True
         except Exception:
             pass
 
@@ -1010,6 +1013,7 @@ def cmd_engine(args):
             args.state,
             poll_interval=args.poll_interval,
             event_bus=event_bus,
+            checkpoint_auto_approve=getattr(args, "checkpoint_auto_approve", False),
         )
         sys.exit(0)
 
