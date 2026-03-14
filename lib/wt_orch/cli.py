@@ -453,6 +453,48 @@ def cmd_plan(args):
         print()
         sys.exit(0)
 
+    elif args.plan_cmd == "run":
+        from .planner import run_planning_pipeline, plan_via_agent
+        import os as _os
+
+        plan_method = getattr(args, "method", "api")
+
+        if plan_method == "agent":
+            ok = plan_via_agent(
+                spec_path=args.input_path,
+                plan_filename=args.output or "orchestration-plan.json",
+                phase_hint=getattr(args, "phase_hint", "") or "",
+            )
+            if ok:
+                print(json.dumps({"status": "ok", "method": "agent"}))
+                sys.exit(0)
+            else:
+                print(json.dumps({"status": "error", "method": "agent"}), file=sys.stderr)
+                sys.exit(1)
+        else:
+            try:
+                plan_data = run_planning_pipeline(
+                    input_mode=args.input_mode,
+                    input_path=args.input_path,
+                    state_path=getattr(args, "state_file", "") or "",
+                    model=getattr(args, "model", "opus") or "opus",
+                    team_mode=getattr(args, "team", False),
+                    replan_cycle=getattr(args, "replan_cycle", None),
+                )
+                output_path = args.output or "orchestration-plan.json"
+                with open(output_path, "w") as f:
+                    json.dump(plan_data, f, indent=2)
+                print(json.dumps({
+                    "status": "ok",
+                    "method": "api",
+                    "changes": len(plan_data.get("changes", [])),
+                    "output": output_path,
+                }))
+                sys.exit(0)
+            except RuntimeError as e:
+                print(json.dumps({"status": "error", "error": str(e)}), file=sys.stderr)
+                sys.exit(1)
+
 
 def cmd_report(args):
     """Dispatch report subcommands.
@@ -975,33 +1017,40 @@ def cmd_engine(args):
 def cmd_digest(args):
     """Dispatch digest subcommands."""
     from .digest import (
-        call_digest_api,
         check_coverage_gaps,
         check_digest_freshness,
-        parse_digest_response,
+        final_coverage_check,
+        generate_triage_md,
+        merge_planner_resolutions,
+        merge_triage_to_ambiguities,
+        parse_triage_md,
+        populate_coverage,
+        run_digest,
         scan_spec_directory,
-        stabilize_ids,
+        update_coverage_status,
         validate_digest,
-        write_digest_output,
-        build_digest_prompt,
     )
 
     if args.digest_cmd == "run":
-        scan = scan_spec_directory(args.spec)
-        prompt = build_digest_prompt(args.spec, scan)
-        raw = call_digest_api(prompt, model=args.model)
-        digest = parse_digest_response(raw)
-        errors = validate_digest(digest)
-        if errors:
-            for e in errors:
-                print(f"WARNING: {e}", file=sys.stderr)
-        digest = stabilize_ids(digest)
-        if args.dry_run:
-            import dataclasses
-            print(json.dumps(dataclasses.asdict(digest), indent=2))
-        else:
-            write_digest_output(digest, scan)
-            print(json.dumps({"status": "ok", "file_count": scan.file_count, "req_count": len(digest.requirements)}))
+        result = run_digest(
+            args.spec,
+            model=args.model,
+            dry_run=args.dry_run,
+            digest_dir=getattr(args, "dir", "wt/orchestration/digest"),
+        )
+        if result.validation_warnings:
+            for w in result.validation_warnings:
+                print(f"WARNING: {w}", file=sys.stderr)
+        if not result.ok:
+            print(json.dumps({"status": "error", "error": result.error}))
+            sys.exit(1)
+        print(json.dumps({
+            "status": "ok",
+            "file_count": result.file_count,
+            "req_count": result.req_count,
+            "domain_count": result.domain_count,
+            "source_hash": result.source_hash,
+        }))
         sys.exit(0)
 
     elif args.digest_cmd == "validate":
@@ -1023,6 +1072,120 @@ def cmd_digest(args):
     elif args.digest_cmd == "freshness":
         result = check_digest_freshness(args.spec, args.dir)
         print(json.dumps({"freshness": result}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "scan":
+        scan = scan_spec_directory(args.spec)
+        print(json.dumps({
+            "file_count": scan.file_count,
+            "source_hash": scan.source_hash,
+            "master_file": scan.master_file or None,
+            "spec_base_dir": scan.spec_base_dir,
+            "files": scan.files,
+        }))
+        sys.exit(0)
+
+    elif args.digest_cmd == "build-prompt":
+        from .digest import build_digest_prompt
+        scan = scan_spec_directory(args.spec)
+        prompt = build_digest_prompt(args.spec, scan)
+        print(prompt)
+        sys.exit(0)
+
+    elif args.digest_cmd == "populate-coverage":
+        from pathlib import Path
+        plan_path = Path(args.plan_file)
+        if not plan_path.is_file():
+            print(json.dumps({"error": f"Plan file not found: {args.plan_file}"}))
+            sys.exit(1)
+        plan_data = json.loads(plan_path.read_text())
+        coverage = populate_coverage(plan_data, args.dir)
+        print(json.dumps({"status": "ok", "mapped_count": len(coverage)}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "update-coverage":
+        update_coverage_status(args.change, args.status, args.dir)
+        print(json.dumps({"status": "ok"}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "final-coverage":
+        summary = final_coverage_check(args.dir)
+        print(json.dumps({"summary": summary}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "generate-triage":
+        from pathlib import Path
+        amb_path = Path(args.amb_file)
+        if not amb_path.is_file():
+            print(json.dumps({"error": "Ambiguities file not found"}))
+            sys.exit(1)
+        amb_data = json.loads(amb_path.read_text())
+        ambiguities = amb_data.get("ambiguities", [])
+        existing = args.existing_triage if hasattr(args, "existing_triage") and args.existing_triage else None
+        generate_triage_md(ambiguities, args.output, existing)
+        print(json.dumps({"status": "ok"}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "parse-triage":
+        decisions = parse_triage_md(args.triage_file)
+        print(json.dumps(decisions))
+        sys.exit(0)
+
+    elif args.digest_cmd == "merge-triage":
+        decisions = json.loads(args.decisions)
+        merge_triage_to_ambiguities(args.amb_file, decisions, args.resolved_by)
+        print(json.dumps({"status": "ok"}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "merge-planner-resolutions":
+        merge_planner_resolutions(args.amb_file, args.plan_file)
+        print(json.dumps({"status": "ok"}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "parse-response":
+        from .digest import parse_digest_response
+        import dataclasses
+        raw = sys.stdin.read()
+        try:
+            digest = parse_digest_response(raw)
+            print(json.dumps(dataclasses.asdict(digest)))
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
+    elif args.digest_cmd == "validate-raw":
+        raw = sys.stdin.read()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            print("Invalid JSON", file=sys.stderr)
+            sys.exit(1)
+        errors = validate_digest(data)
+        if errors:
+            for e in errors:
+                print(f"WARNING: {e}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
+    elif args.digest_cmd == "stabilize-ids":
+        from .digest import stabilize_ids as _stabilize, _dict_to_digest_result
+        import dataclasses
+        raw = sys.stdin.read()
+        data = json.loads(raw)
+        digest = _dict_to_digest_result(data)
+        stabilized = _stabilize(digest)
+        print(json.dumps(dataclasses.asdict(stabilized)))
+        sys.exit(0)
+
+    elif args.digest_cmd == "write-output":
+        from .digest import write_digest_output, _dict_to_digest_result
+        raw = sys.stdin.read()
+        data = json.loads(raw)
+        digest = _dict_to_digest_result(data)
+        scan = scan_spec_directory(args.spec)
+        write_digest_output(digest, scan)
+        print(json.dumps({"status": "ok"}))
         sys.exit(0)
 
 
@@ -1095,6 +1258,23 @@ def cmd_audit(args):
             input_path=args.input_path,
         )
         print(json.dumps(prompt_data, indent=2))
+        sys.exit(0)
+
+    elif args.audit_cmd == "parse":
+        from .auditor import parse_audit_result
+        from pathlib import Path
+        raw = Path(args.raw_file).read_text(encoding="utf-8")
+        result = parse_audit_result(raw)
+        gap_data = [
+            {"description": g.description, "severity": g.severity,
+             "spec_reference": g.spec_reference, "suggested_scope": g.suggested_scope}
+            for g in result.gaps
+        ]
+        print(json.dumps({
+            "audit_result": result.audit_result,
+            "gaps": gap_data,
+            "summary": result.summary,
+        }))
         sys.exit(0)
 
 
@@ -1302,6 +1482,17 @@ def main():
 
     pl_replan = plan_sub.add_parser("replan-context", help="Collect replan context")
     pl_replan.add_argument("--state-file", required=True, help="State file path")
+
+    pl_run = plan_sub.add_parser("run", help="Run full planning pipeline")
+    pl_run.add_argument("--input-mode", required=True, help="Input mode (spec/brief/digest)")
+    pl_run.add_argument("--input-path", required=True, help="Input file/dir path")
+    pl_run.add_argument("--output", default="orchestration-plan.json", help="Output plan file")
+    pl_run.add_argument("--state-file", default="", help="State file (for replan)")
+    pl_run.add_argument("--model", default="opus", help="Model for decomposition")
+    pl_run.add_argument("--method", default="api", help="Planning method (api/agent)")
+    pl_run.add_argument("--team", action="store_true", help="Team mode")
+    pl_run.add_argument("--phase-hint", default="", help="Phase to focus on")
+    pl_run.add_argument("--replan-cycle", type=int, default=None, help="Replan cycle number")
 
     # --- report ---
     rpt_parser = subparsers.add_parser("report", help="HTML report generation")
@@ -1531,6 +1722,7 @@ def main():
     dig_run.add_argument("--spec", required=True, help="Spec directory or file path")
     dig_run.add_argument("--dry-run", action="store_true", help="Print without writing")
     dig_run.add_argument("--model", default="opus", help="Model for digest")
+    dig_run.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
 
     dig_val = dig_sub.add_parser("validate", help="Validate existing digest")
     dig_val.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
@@ -1541,6 +1733,48 @@ def main():
     dig_fresh = dig_sub.add_parser("freshness", help="Check digest freshness")
     dig_fresh.add_argument("--spec", required=True, help="Spec directory or file path")
     dig_fresh.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_scan = dig_sub.add_parser("scan", help="Scan spec directory")
+    dig_scan.add_argument("--spec", required=True, help="Spec directory or file path")
+
+    dig_bp = dig_sub.add_parser("build-prompt", help="Build digest prompt from spec")
+    dig_bp.add_argument("--spec", required=True, help="Spec directory or file path")
+
+    dig_pcov = dig_sub.add_parser("populate-coverage", help="Map requirements to plan changes")
+    dig_pcov.add_argument("--plan-file", required=True, help="Plan file path")
+    dig_pcov.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_ucov = dig_sub.add_parser("update-coverage", help="Update coverage status for a change")
+    dig_ucov.add_argument("--change", required=True, help="Change name")
+    dig_ucov.add_argument("--status", required=True, help="New status")
+    dig_ucov.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_fcov = dig_sub.add_parser("final-coverage", help="Final coverage check summary")
+    dig_fcov.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_gtriage = dig_sub.add_parser("generate-triage", help="Generate triage.md from ambiguities")
+    dig_gtriage.add_argument("--amb-file", required=True, help="Ambiguities JSON file")
+    dig_gtriage.add_argument("--output", required=True, help="Output triage.md path")
+    dig_gtriage.add_argument("--existing-triage", default="", help="Existing triage.md to preserve decisions")
+
+    dig_ptriage = dig_sub.add_parser("parse-triage", help="Parse triage.md decisions")
+    dig_ptriage.add_argument("--triage-file", required=True, help="Triage.md file path")
+
+    dig_mtriage = dig_sub.add_parser("merge-triage", help="Merge triage decisions into ambiguities")
+    dig_mtriage.add_argument("--amb-file", required=True, help="Ambiguities JSON file")
+    dig_mtriage.add_argument("--decisions", required=True, help="Triage decisions JSON string")
+    dig_mtriage.add_argument("--resolved-by", default="triage", help="Resolution source")
+
+    dig_mplan = dig_sub.add_parser("merge-planner-resolutions", help="Merge planner resolutions into ambiguities")
+    dig_mplan.add_argument("--amb-file", required=True, help="Ambiguities JSON file")
+    dig_mplan.add_argument("--plan-file", required=True, help="Plan file path")
+
+    dig_sub.add_parser("parse-response", help="Parse raw digest LLM response (stdin)")
+    dig_sub.add_parser("validate-raw", help="Validate raw digest JSON (stdin)")
+    dig_sub.add_parser("stabilize-ids", help="Stabilize requirement IDs (stdin)")
+
+    dig_wo = dig_sub.add_parser("write-output", help="Write digest output files (stdin JSON)")
+    dig_wo.add_argument("--spec", required=True, help="Spec directory or file path")
 
     # --- watchdog ---
     wd_parser = subparsers.add_parser("watchdog", help="Watchdog operations")
@@ -1569,6 +1803,9 @@ def main():
     aud_prompt.add_argument("--state", required=True, help="State file path")
     aud_prompt.add_argument("--input-mode", default="spec", help="Input mode")
     aud_prompt.add_argument("--input-path", default="", help="Input file path")
+
+    aud_parse = aud_sub.add_parser("parse", help="Parse raw audit result file")
+    aud_parse.add_argument("--raw-file", required=True, help="Path to raw audit output")
 
     # --- build ---
     bld_parser = subparsers.add_parser("build", help="Build health operations")

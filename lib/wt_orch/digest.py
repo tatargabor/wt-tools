@@ -109,8 +109,16 @@ def scan_spec_directory(spec_path: str | Path) -> ScanResult:
     master_file = ""
     if path.is_dir():
         for f in files:
+            rel = f.relative_to(path)
+            # Only root-level files
+            if len(rel.parts) > 1:
+                continue
             if f.name in _MASTER_NAMES:
-                master_file = str(f.relative_to(path))
+                master_file = str(rel)
+                break
+            # v*-*.md pattern (e.g., v1-craftbrew.md)
+            if re.match(r"^v\d+-.*\.md$", f.name):
+                master_file = str(rel)
                 break
 
     # Compute combined SHA256
@@ -1017,6 +1025,115 @@ def check_digest_freshness(
         return "error"
 
     return "fresh" if stored_hash == current_scan.source_hash else "stale"
+
+
+# ─── Orchestration Entry Point ───────────────────────────────────
+# Migrated from: digest.sh:cmd_digest()
+
+
+@dataclass
+class DigestRunResult:
+    """Result from run_digest() orchestration."""
+
+    ok: bool
+    file_count: int = 0
+    req_count: int = 0
+    domain_count: int = 0
+    source_hash: str = ""
+    error: str = ""
+    validation_warnings: list[str] = field(default_factory=list)
+
+
+def run_digest(
+    spec_path: str,
+    *,
+    digest_dir: str = DIGEST_DIR,
+    model: str = "opus",
+    dry_run: bool = False,
+) -> DigestRunResult:
+    """Run the full digest pipeline: scan → prompt → API call → parse → validate → write.
+
+    Migrated from: digest.sh:cmd_digest()
+
+    Args:
+        spec_path: Path to spec directory or single file.
+        digest_dir: Output directory for digest files.
+        model: Model name for Claude API call.
+        dry_run: If True, parse and validate but don't write files.
+
+    Returns:
+        DigestRunResult with status and counts.
+    """
+    # 1. Scan spec files
+    try:
+        scan = scan_spec_directory(spec_path)
+    except FileNotFoundError as e:
+        return DigestRunResult(ok=False, error=str(e))
+
+    logger.info(
+        "Scanned %d spec file(s), hash=%s", scan.file_count, scan.source_hash
+    )
+    if scan.master_file:
+        logger.info("Master file: %s", scan.master_file)
+
+    # 2. Build prompt
+    prompt = build_digest_prompt(spec_path, scan)
+
+    # 3. Call Claude API
+    logger.info("Calling Claude for digest generation...")
+    try:
+        raw_response = call_digest_api(prompt, model=model)
+    except RuntimeError as e:
+        return DigestRunResult(ok=False, error=str(e))
+
+    # Save raw response for debugging
+    debug_path = Path(".claude/digest-last-response.txt")
+    debug_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        debug_path.write_text(raw_response, encoding="utf-8")
+    except OSError:
+        pass
+
+    # 4. Parse response
+    try:
+        digest = parse_digest_response(raw_response)
+    except ValueError as e:
+        return DigestRunResult(ok=False, error=str(e))
+
+    # 5. Stabilize IDs (if existing digest present)
+    if not dry_run:
+        digest = stabilize_ids(digest, digest_dir)
+
+    # 6. Validate
+    warnings = validate_digest(digest)
+
+    # 7. Write output or return dry-run result
+    if dry_run:
+        return DigestRunResult(
+            ok=True,
+            file_count=scan.file_count,
+            req_count=len(digest.requirements),
+            domain_count=len(digest.domains),
+            source_hash=scan.source_hash,
+            validation_warnings=warnings,
+        )
+
+    write_digest_output(digest, scan, digest_dir)
+
+    logger.info(
+        "Digest complete: %d requirements across %d domain(s)",
+        len(digest.requirements),
+        len(digest.domains),
+    )
+
+    return DigestRunResult(
+        ok=True,
+        file_count=scan.file_count,
+        req_count=len(digest.requirements),
+        domain_count=len(digest.domains),
+        source_hash=scan.source_hash,
+        validation_warnings=warnings,
+    )
 
 
 # ─── Helpers ─────────────────────────────────────────────────────

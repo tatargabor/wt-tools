@@ -1032,16 +1032,19 @@ def run_planning_pipeline(
             logger.warning("Digest is stale — consider re-running wt-orchestrate digest")
 
     # 2. Triage gate
-    triage_status = check_triage_gate(input_path if input_mode == "digest" else "")
-    if triage_status.blocking_count > 0:
-        auto_defer = os.environ.get("TRIAGE_AUTO_DEFER", "false") == "true"
-        if auto_defer:
-            logger.info("Triage: auto-deferring %d blocking ambiguities", triage_status.blocking_count)
-        else:
-            raise RuntimeError(
-                f"Triage gate: {triage_status.blocking_count} unresolved ambiguities block planning. "
-                f"Edit triage.md or set TRIAGE_AUTO_DEFER=true."
-            )
+    digest_dir = input_path if input_mode == "digest" else ""
+    if digest_dir:
+        triage_status = check_triage_gate(digest_dir)
+        if triage_status.status in ("needs_triage", "has_untriaged", "has_fixes"):
+            auto_defer = os.environ.get("TRIAGE_AUTO_DEFER", "false") == "true"
+            if auto_defer:
+                logger.info("Triage: auto-deferring %d ambiguities", triage_status.count)
+                check_triage_gate(digest_dir, auto_defer=True)
+            else:
+                raise RuntimeError(
+                    f"Triage gate: {triage_status.count} unresolved ambiguities block planning. "
+                    f"Status: {triage_status.status}. Edit triage.md or set TRIAGE_AUTO_DEFER=true."
+                )
 
     # 3. Design bridge (detect design MCP, fetch snapshot)
     design_context = _fetch_design_context()
@@ -1090,8 +1093,8 @@ def run_planning_pipeline(
         json.dump(plan_data, f, indent=2)
 
     validation = validate_plan(plan_file_tmp)
-    if not validation.valid:
-        logger.warning("Plan validation warnings: %s", validation.errors)
+    if not validation.ok:
+        logger.warning("Plan validation issues: %s", validation.errors)
 
     # 9. Enrich metadata
     plan_data = enrich_plan_metadata(
@@ -1104,6 +1107,111 @@ def run_planning_pipeline(
     )
 
     return plan_data
+
+
+def plan_via_agent(
+    spec_path: str,
+    plan_filename: str,
+    phase_hint: str = "",
+) -> bool:
+    """Agent-based planning via worktree + Ralph loop.
+
+    Creates a planning worktree, dispatches Ralph with the decomposition
+    skill, waits for completion, extracts orchestration-plan.json.
+
+    Args:
+        spec_path: Path to the spec input file.
+        plan_filename: Path to write the resulting plan.
+        phase_hint: Optional phase to focus on.
+
+    Returns:
+        True if plan was successfully extracted and validated.
+    """
+    from .subprocess_utils import run_command
+
+    # Determine planning worktree name
+    plan_version = 1
+    if os.path.isfile(plan_filename):
+        try:
+            with open(plan_filename) as f:
+                plan_version = json.load(f).get("plan_version", 0) + 1
+        except (json.JSONDecodeError, OSError):
+            pass
+    wt_name = f"wt-planning-v{plan_version}"
+
+    logger.info("plan_via_agent: starting (spec=%s, phase_hint=%s)", spec_path, phase_hint)
+
+    # Create planning worktree
+    result = run_command(["wt-new", wt_name], timeout=30)
+    wt_path = result.stdout.strip() if result.exit_code == 0 else ""
+
+    if not wt_path or not Path(wt_path).is_dir():
+        # Try finding it
+        find_result = run_command(
+            ["git", "worktree", "list", "--porcelain"], timeout=10
+        )
+        for line in find_result.stdout.splitlines():
+            if line.startswith("worktree ") and wt_name in line:
+                wt_path = line.replace("worktree ", "").strip()
+                break
+        if not wt_path or not Path(wt_path).is_dir():
+            logger.error("plan_via_agent: worktree path not found for %s", wt_name)
+            return False
+
+    logger.info("plan_via_agent: worktree at %s", wt_path)
+
+    # Build task description
+    task_desc = f"Decompose the specification at '{spec_path}' into an orchestration execution plan."
+    if phase_hint:
+        task_desc += f" Focus on phase: {phase_hint}."
+    task_desc += " Use the /wt:decompose skill. Write the result to orchestration-plan.json in the project root."
+
+    # Dispatch Ralph loop
+    env = dict(os.environ)
+    env["SPEC_PATH"] = spec_path
+    if phase_hint:
+        env["PHASE_HINT"] = phase_hint
+
+    loop_result = run_command(
+        ["wt-loop", "start", task_desc, "--max", "10", "--model", "opus",
+         "--label", wt_name, "--change", wt_name],
+        timeout=1800,
+        cwd=wt_path,
+        env=env,
+    )
+
+    # Check if plan was produced
+    agent_plan = Path(wt_path) / "orchestration-plan.json"
+    if not agent_plan.is_file():
+        logger.error("plan_via_agent: no plan produced (loop rc=%d)", loop_result.exit_code)
+        run_command(["wt-close", wt_name, "--force"], timeout=30)
+        return False
+
+    # Validate
+    validation = validate_plan(str(agent_plan))
+    if not validation.ok:
+        logger.error("plan_via_agent: plan failed validation: %s", validation.errors)
+        run_command(["wt-close", wt_name, "--force"], timeout=30)
+        return False
+
+    # Extract plan
+    import shutil
+    shutil.copy2(str(agent_plan), plan_filename)
+    logger.info("plan_via_agent: plan extracted from %s", agent_plan)
+
+    # Add agent metadata
+    try:
+        with open(plan_filename) as f:
+            plan_data = json.load(f)
+        plan_data["planning_worktree"] = wt_name
+        with open(plan_filename, "w") as f:
+            json.dump(plan_data, f, indent=2)
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    # Cleanup
+    run_command(["wt-close", wt_name, "--force"], timeout=30)
+    return True
 
 
 def _fetch_design_context() -> str:
