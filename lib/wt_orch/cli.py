@@ -338,6 +338,24 @@ def cmd_events(args):
         print(bus.format_table(events))
 
 
+def cmd_report(args):
+    """Dispatch report subcommands.
+
+    Migrated from: lib/orchestration/reporter.sh generate_report()
+    """
+    from .reporter import generate_report
+
+    if args.report_cmd == "generate":
+        output = generate_report(
+            state_path=args.state or "",
+            plan_path=args.plan or "",
+            digest_dir=args.digest_dir or "",
+            output_path=args.output,
+        )
+        print(output)
+        sys.exit(0)
+
+
 def cmd_serve(args):
     """Start the web dashboard server."""
     import os
@@ -505,6 +523,16 @@ def main():
     c_find.add_argument("--spec", default=None, help="Spec override path")
     c_find.add_argument("--brief", default=None, help="Brief override path")
 
+    # --- report ---
+    rpt_parser = subparsers.add_parser("report", help="HTML report generation")
+    rpt_sub = rpt_parser.add_subparsers(dest="report_cmd", required=True)
+
+    r_gen = rpt_sub.add_parser("generate", help="Generate HTML report from orchestration data")
+    r_gen.add_argument("--state", default=None, help="State JSON file path")
+    r_gen.add_argument("--plan", default=None, help="Plan JSON file path")
+    r_gen.add_argument("--digest-dir", default=None, help="Digest directory path")
+    r_gen.add_argument("--output", default="wt/orchestration/report.html", help="Output HTML path")
+
     # --- events ---
     evt_parser = subparsers.add_parser("events", help="Query orchestration events log")
     evt_parser.add_argument("--log", default=None, help="Events JSONL file path")
@@ -529,6 +557,8 @@ def main():
         cmd_template(args)
     elif args.command == "config":
         cmd_config(args)
+    elif args.command == "report":
+        cmd_report(args)
     elif args.command == "events":
         cmd_events(args)
     elif args.command == "serve":

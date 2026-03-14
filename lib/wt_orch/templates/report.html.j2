@@ -1,0 +1,268 @@
+{# Orchestration Report — Jinja2 template
+   Migrated from: lib/orchestration/reporter.sh render_* functions
+   Produces identical HTML output to the bash version. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>Orchestration Report</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #1e1e1e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; margin: 0; padding: 20px; }
+  h1 { color: #fff; border-bottom: 2px solid #444; padding-bottom: 8px; }
+  h2 { color: #ccc; margin-top: 32px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  h3 { color: #aaa; margin-top: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #444; padding: 8px 12px; text-align: left; }
+  th { background: #2a2a2a; color: #ccc; font-weight: 600; }
+  tr:nth-child(even) { background: #252525; }
+  .status-merged, .status-done { color: #4caf50; }
+  .status-running, .status-verifying { color: #ff9800; }
+  .status-failed { color: #f44336; }
+  .status-merge-blocked, .status-blocked { color: #e91e63; }
+  .status-skipped { color: #ffc107; }
+  .status-pending, .status-planned { color: #9e9e9e; }
+  .status-uncovered { color: #ff5722; font-weight: bold; }
+  .gate-pass { color: #4caf50; }
+  .gate-fail { color: #f44336; }
+  .gate-na { color: #666; }
+  .coverage-bar { background: #333; border-radius: 4px; height: 16px; overflow: hidden; display: inline-block; width: 120px; vertical-align: middle; }
+  .coverage-fill { height: 100%; background: #4caf50; float: left; }
+  .coverage-fill-inprogress { height: 100%; background: #ff9800; float: left; }
+  .coverage-summary { background: #252525; border: 1px solid #444; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+  .coverage-summary p { margin: 8px 0 0 0; font-size: 14px; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; padding: 4px; color: #ccc; }
+  .not-available { color: #666; font-style: italic; }
+  .gap-critical { background: #4e2a2a; }
+  .gap-minor { background: #3a3a2a; }
+  .audit-clean { color: #4caf50; font-weight: bold; }
+  .audit-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .audit-badge-gaps { background: #4e2a2a; color: #f44336; }
+  .audit-badge-clean { background: #1b3a1b; color: #4caf50; }
+  .audit-badge-error { background: #3a3a2a; color: #ffc107; }
+  .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #333; color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Orchestration Report</h1>
+
+{# ─── Digest Section ─────────────────────────────────────────────── #}
+
+<h2>Spec Digest</h2>
+{% if not data.digest.available %}
+<p class="not-available">Not available — run <code>wt-orchestrate digest</code> first.</p>
+{% else %}
+<p><strong>Source:</strong> {{ data.digest.spec_dir }} ({{ data.digest.file_count }} files) | <strong>Hash:</strong> {{ data.digest.source_hash[:12] }} | <strong>Digested:</strong> {{ data.digest.timestamp }}</p>
+
+{% if data.digest.req_count > 0 %}
+<p><strong>Requirements:</strong> {{ data.digest.req_count }}</p>
+{% endif %}
+
+{% if data.digest.domains %}
+<h3>Domains</h3>
+<table><tr><th>Domain</th><th>Requirements</th></tr>
+{% for d in data.digest.domains %}
+<tr><td>{{ d.name }}</td><td>{{ d.count }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if data.digest.ambiguities %}
+<h3>Ambiguities ({{ data.digest.ambiguities|length }})</h3>
+<table><tr><th>ID</th><th>Type</th><th>Description</th><th>Resolution</th><th>Note</th><th>By</th></tr>
+{% for a in data.digest.ambiguities %}
+<tr style="{{ a.row_color }}"><td>{{ a.id }}</td><td>{{ a.type }}</td><td>{{ a.description }}</td><td>{{ a.resolution }}</td><td>{{ a.resolution_note }}</td><td>{{ a.resolved_by }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% endif %}
+
+{# ─── Plan Section ───────────────────────────────────────────────── #}
+
+<h2>Plan</h2>
+{% if not data.plan.available %}
+<p class="not-available">No plan generated yet.</p>
+{% else %}
+<p><strong>Changes:</strong> {{ data.plan.total_changes }}</p>
+
+<table>
+<tr><th>Change</th><th>REQs</th><th>Dependencies</th><th>Status</th></tr>
+{% for c in data.plan.changes %}
+<tr><td>{{ c.name }}</td><td>{{ c.req_count }}</td><td>{{ c.deps }}</td><td><span class="status-{{ c.status }}">{{ c.status }}</span></td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{# ─── Milestone Section ──────────────────────────────────────────── #}
+
+{% if data.milestones.available %}
+<h2>Milestones</h2>
+<p><strong>Current Phase:</strong> {{ data.milestones.current_phase }} / {{ data.milestones.phase_count }}</p>
+<table>
+<tr><th>Phase</th><th>Status</th><th>Changes</th><th>Tokens</th><th>Server</th><th>Completed</th></tr>
+{% for p in data.milestones.phases %}
+<tr>
+<td>Phase {{ p.num }}</td>
+<td><span class="status-{{ p.status }}">{{ p.status }}</span></td>
+<td>{{ p.merged }} / {{ p.total }}</td>
+<td>{{ p.tokens_display }}</td>
+<td>{% if p.server_alive %}<a href="http://localhost:{{ p.server_port }}" style="color:#64b5f6">localhost:{{ p.server_port }}</a>{% else %}No server{% endif %}</td>
+<td>{{ p.completed_at if p.completed_at else "-" }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{# ─── Execution Section ──────────────────────────────────────────── #}
+
+<h2>Execution</h2>
+{% if not data.execution.available %}
+<p class="not-available">No execution state.</p>
+{% else %}
+<p><strong>Status:</strong> <span class="status-{{ data.execution.orch_status }}">{{ data.execution.orch_status }}</span></p>
+<p><strong>E2E mode:</strong> {{ data.execution.e2e_mode }}</p>
+
+<table>
+{% if data.execution.e2e_mode == "phase_end" %}
+<tr><th>Change</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Test</th><th>Smoke</th></tr>
+{% else %}
+<tr><th>Change</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Test</th><th>E2E</th><th>Smoke</th></tr>
+{% endif %}
+
+{% for row in data.execution.rows %}
+{% if row is instance_of_phase_header %}
+{% set colspan = 6 if data.execution.e2e_mode == "phase_end" else 7 %}
+<tr style="background:#1a3a4a;border-top:2px solid #446"><td colspan="{{ colspan }}"><strong>Phase {{ row.phase }}</strong> — {{ row.merged }}/{{ row.total }} merged, {{ row.tokens_display }} tokens</td></tr>
+{% else %}
+<tr>
+<td>{{ row.name }}</td>
+<td>{{ row.status_html }}</td>
+<td>{{ row.duration_display }}</td>
+<td>{{ row.tokens_display }}</td>
+<td><span class="{{ row.test_class }}">{{ row.test_display }}</span></td>
+{% if data.execution.e2e_mode != "phase_end" %}
+<td><span class="{{ row.e2e_class }}">{{ row.e2e_display }}</span></td>
+{% endif %}
+<td><span class="{{ row.smoke_class }}">{{ row.smoke_display }}</span></td>
+</tr>
+{% endif %}
+{% endfor %}
+
+{# Summary row #}
+{% set summary_colspan = 2 if data.execution.e2e_mode == "phase_end" else 3 %}
+<tr style="border-top:2px solid #666;font-weight:bold">
+<td>Total</td><td></td><td>{{ data.execution.total_duration_display }}</td><td>{{ data.execution.total_tokens_display }}</td>
+{% if data.execution.total_tests > 0 %}
+<td colspan="{{ summary_colspan }}">{{ data.execution.total_tests }} tests</td>
+{% else %}
+<td colspan="{{ summary_colspan }}"></td>
+{% endif %}
+</tr>
+</table>
+
+{# Smoke screenshot gallery #}
+{% if data.execution.smoke_screenshots %}
+<details><summary>Smoke Screenshots</summary>
+<div style="margin:12px 0">
+{% for sg in data.execution.smoke_screenshots %}
+<h4>{{ sg.name }} ({{ sg.count }} images)</h4>
+{% endfor %}
+</div></details>
+{% endif %}
+
+{# E2E screenshot gallery #}
+{% if data.execution.e2e_screenshots %}
+<details><summary>E2E Screenshots</summary>
+<div style="margin:12px 0">
+{% for sg in data.execution.e2e_screenshots %}
+<h4>{{ sg.name }} ({{ sg.count }} images)</h4>
+{% endfor %}
+</div></details>
+{% endif %}
+
+{# Phase-end E2E results #}
+{% if data.execution.phase_e2e_results %}
+<h3>Phase-End E2E Results</h3>
+<table>
+<tr><th>Phase</th><th>Result</th><th>Duration</th><th>Screenshots</th><th>Time</th></tr>
+{% for pe in data.execution.phase_e2e_results %}
+<tr>
+<td>Cycle {{ pe.cycle }}</td>
+<td><span class="{{ pe.result_class }}">{{ pe.result }}</span></td>
+<td>{{ pe.duration_s }}s</td>
+<td>{% if pe.sc_count > 0 and pe.sc_dir %}<a href="../../{{ pe.sc_dir }}" style="color:#64b5f6">{{ pe.sc_count }} images</a>{% elif pe.sc_count > 0 %}{{ pe.sc_count }} images{% else %}-{% endif %}</td>
+<td>{{ pe.timestamp }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% endif %}
+
+{# ─── Audit Section ──────────────────────────────────────────────── #}
+
+{% if data.audit.available %}
+<h2>Post-Phase Audit</h2>
+
+{% for entry in data.audit.entries %}
+<h3>Cycle {{ entry.cycle }} <span class="audit-badge {{ entry.badge_class }}">{{ entry.badge_text }}</span></h3>
+<p>Model: {{ entry.model }} | Duration: {{ entry.duration_s }}s</p>
+
+{% if entry.summary %}
+<p><em>{{ entry.summary }}</em></p>
+{% endif %}
+
+{% if entry.result == "gaps_found" and entry.gap_count > 0 %}
+<table>
+<tr><th>ID</th><th>Severity</th><th>Description</th><th>Spec Reference</th><th>Suggested Scope</th></tr>
+{% for gap in entry.gaps %}
+<tr class="{{ gap.row_class }}"><td>{{ gap.id }}</td><td>{{ gap.severity }}</td><td>{{ gap.description }}</td><td>{{ gap.spec_reference }}</td><td>{{ gap.suggested_scope }}</td></tr>
+{% endfor %}
+</table>
+{% elif entry.result == "clean" %}
+<p class="audit-clean">All spec sections covered</p>
+{% elif entry.result == "parse_error" %}
+<p class="not-available">Audit output could not be parsed — see debug log for details</p>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{# ─── Coverage Section ───────────────────────────────────────────── #}
+
+<h2>Requirement Coverage <label style="font-size:14px;font-weight:normal;margin-left:16px;cursor:pointer"><input type="checkbox" id="cov-all-toggle" onchange="toggleCovPhase()" checked> Include previous phases</label></h2>
+<script>function toggleCovPhase(){var c=document.getElementById("cov-all-toggle").checked;document.querySelectorAll("[data-phase=previous]").forEach(function(r){r.style.display=c?"":"none"});document.querySelectorAll(".cov-summary").forEach(function(e){var t=parseInt(e.dataset.total),m=parseInt(e.dataset.merged),i=parseInt(e.dataset.inprog),pm=parseInt(e.dataset.prevMerged);if(!c){m-=pm;t-=pm}var a=m+i,p=t>0?Math.round(a*100/t):0,mp=t>0?Math.round(m*100/t):0,ip=t>0?Math.round(i*100/t):0;e.querySelector(".cov-num").textContent=a+"/"+t+" requirements active ("+p+"%)";e.querySelector(".cov-detail").innerHTML="<span class=status-merged>"+m+" merged ("+mp+"%)</span> + <span class=status-running>"+i+" in-progress ("+ip+"%)</span>";e.querySelector(".coverage-fill").style.width=mp+"%";e.querySelector(".coverage-fill-inprogress").style.width=ip+"%";var uc=e.querySelector(".cov-uncovered");if(uc)uc.textContent=(t-a)+" uncovered"})}</script>
+
+{% if not data.coverage.available %}
+<p class="not-available">Not available — no digest or coverage data.</p>
+{% else %}
+{# Grand summary #}
+<div class="coverage-summary cov-summary" data-total="{{ data.coverage.grand_total }}" data-merged="{{ data.coverage.grand_covered }}" data-inprog="{{ data.coverage.grand_inprogress }}" data-prev-merged="{{ data.coverage.grand_prev_merged }}">
+<strong style="font-size:18px" class="cov-num">{{ data.coverage.grand_active }}/{{ data.coverage.grand_total }} requirements active ({{ data.coverage.grand_active_pct }}%)</strong>
+ — <span class="cov-detail"><span class="status-merged">{{ data.coverage.grand_covered }} merged ({{ data.coverage.grand_merged_pct }}%)</span> + <span class="status-running">{{ data.coverage.grand_inprogress }} in-progress ({{ data.coverage.grand_inprog_pct }}%)</span></span>
+<br><span class="coverage-bar" style="width:200px"><span class="coverage-fill" style="width:{{ data.coverage.grand_merged_pct }}%"></span><span class="coverage-fill-inprogress" style="width:{{ data.coverage.grand_inprog_pct }}%"></span></span>
+<p style="color:#888" class="cov-uncovered">{{ data.coverage.grand_uncovered }} uncovered</p>
+</div>
+
+{# Per-domain details #}
+{% for domain in data.coverage.domains %}
+<details class="cov-summary" data-total="{{ domain.total }}" data-merged="{{ domain.merged }}" data-inprog="{{ domain.inprogress }}" data-prev-merged="{{ domain.prev_merged }}">
+<summary><strong>{{ domain.name }}</strong> — <span class="cov-num">{{ domain.active }}/{{ domain.total }} ({{ domain.active_pct }}%)</span> <span class="coverage-bar"><span class="coverage-fill" style="width:{{ domain.merged_pct }}%"></span><span class="coverage-fill-inprogress" style="width:{{ domain.inprog_pct }}%"></span></span></summary>
+<table><tr><th>REQ</th><th>Title</th><th>Change</th><th>Status</th></tr>
+{% for req in domain.requirements %}
+<tr{% if req.phase == "previous" %} data-phase="previous" style="opacity:0.7"{% endif %}><td>{{ req.req_id }}</td><td>{{ req.title }}</td><td>{{ req.change }}</td><td><span class="status-{{ req.status }}">{{ req.status }}</span></td></tr>
+{% endfor %}
+</table>
+</details>
+{% endfor %}
+
+<p><strong>Total:</strong> {{ data.coverage.grand_covered }}/{{ data.coverage.grand_total }} merged ({{ data.coverage.grand_merged_pct }}%) | {{ data.coverage.grand_inprogress }} in-progress ({{ data.coverage.grand_inprog_pct }}%)</p>
+{% endif %}
+
+{# ─── Footer ─────────────────────────────────────────────────────── #}
+
+<div class="footer">Generated: {{ data.timestamp }} | Auto-refreshes every 15s</div>
+</body>
+</html>
