@@ -439,8 +439,7 @@ cmd_start() {
 
             # Recover orphaned changes (running/verifying with no worktree/PID)
             recover_orphaned_changes
-            # Retry merge queue immediately on resume (don't wait 30s)
-            retry_merge_queue
+            # Note: retry_merge_queue is now handled by Python monitor loop
             # Resume changes that were running when we were interrupted
             resume_stopped_changes
             # Dispatch any remaining pending changes
