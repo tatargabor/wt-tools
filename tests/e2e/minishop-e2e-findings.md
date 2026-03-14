@@ -45,6 +45,14 @@
 - **Fix**: [bb53d3a07] — When `checkpoint_auto_approve` is true, auto-resume from checkpoint to running after polling active changes.
 - **Recurrence**: new (first seen in run #13 attempt 6)
 
+#### 23. Checkpoint status not in bash resume list — state reinitialized on restart
+- **Type**: framework
+- **Severity**: critical (data loss)
+- **Root cause**: `dispatcher.sh` L368 only resumes from `time_limit` or `stopped`. When sentinel restarts with state in `checkpoint` status, it falls through to `init_state()` which overwrites the state file, destroying all merged progress.
+- **Fix**: [9422dc7ba] — Added `checkpoint` to the list of resumable statuses in the bash wrapper.
+- **Recurrence**: new (first seen in run #13 attempt 6)
+- **Impact**: Lost 4 merged changes (test-infrastructure-setup, products-page, cart-feature, admin-auth). Had to reconstruct state from git history.
+
 ### Agent Quality Issues (Not Framework Bugs)
 
 #### cart-feature: IDOR not fixed after 2 review retries
