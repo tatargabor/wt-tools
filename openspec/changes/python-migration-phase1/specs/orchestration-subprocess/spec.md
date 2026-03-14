@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Subprocess wrappers for claude CLI, git, and general commands with logging and timeout support.
+
+## Requirements
 
 ### Requirement: Claude CLI wrapper
 The system SHALL provide a `run_claude()` function that wraps Claude CLI invocations with logging, timeout, and structured result capture.

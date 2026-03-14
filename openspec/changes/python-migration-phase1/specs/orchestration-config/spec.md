@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Configuration parsing, directive resolution, duration utilities, and input detection for orchestration.
+
+## Requirements
 
 ### Requirement: Duration parsing
 The system SHALL provide a `parse_duration()` function that converts human-readable duration strings to seconds. Migrated from: `utils.sh:parse_duration()` L46-73.

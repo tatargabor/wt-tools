@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Structured logging framework for all orchestration modules with file and stderr output.
+
+## Requirements
 
 ### Requirement: Structured logging configuration
 The system SHALL provide a `logging_config.py` module that configures Python's `logging` framework for all orchestration modules.

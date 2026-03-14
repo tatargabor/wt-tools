@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Event bus with JSONL persistence for orchestration audit trail and in-process pub/sub.
+
+## Requirements
 
 ### Requirement: Event emission
 The system SHALL provide an `emit()` function that writes structured events to a JSONL file. Migrated from: `events.sh:emit_event()` L19-61.
