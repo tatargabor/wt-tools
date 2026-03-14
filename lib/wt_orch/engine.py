@@ -318,7 +318,11 @@ def monitor_loop(
             _retry_merge_queue_safe(state_file, event_bus)
             if _check_completion(state_file, d, event_bus):
                 break
-            continue
+            if d.checkpoint_auto_approve:
+                logger.info("Checkpoint auto-approved — resuming")
+                update_state_field(state_file, "status", "running")
+            else:
+                continue
 
         # Token budget enforcement
         if d.token_budget > 0:
