@@ -87,7 +87,13 @@ proactive_and_format() {
 
     local result
     result=$(python3 -c "
-import sys, json, os, random
+import sys, json, os, random, re
+
+HEURISTIC_PATTERNS = [
+    'false positive', 'same pattern', 'known pattern', 'known issue',
+    'was a false', 'unlike previous', 'same issue as', 'this is not a real',
+]
+_HEURISTIC_RE = re.compile('|'.join(re.escape(p) for p in HEURISTIC_PATTERNS), re.IGNORECASE)
 
 # Read used IDs from session cache for uniqueness
 cache_file = sys.argv[2]
@@ -141,7 +147,8 @@ for m in filtered:
     try: score = f'{float(score):.2f}'
     except Exception: pass
     print(f'  [{score}] {c[:100]}', file=sys.stderr)
-    print(f'  - [MEM#{cid}] {c}')
+    heur = '\u26a0\ufe0f HEURISTIC: ' if _HEURISTIC_RE.search(c) else ''
+    print(f'  - [MEM#{cid}] {heur}{c}')
     emitted += 1
 if not emitted: sys.exit(1)
 print(f'filtered={emitted}', file=sys.stderr)
@@ -214,7 +221,13 @@ recall_and_format() {
 
     local result
     result=$(python3 -c "
-import sys, json, os, random
+import sys, json, os, random, re
+
+HEURISTIC_PATTERNS = [
+    'false positive', 'same pattern', 'known pattern', 'known issue',
+    'was a false', 'unlike previous', 'same issue as', 'this is not a real',
+]
+_HEURISTIC_RE = re.compile('|'.join(re.escape(p) for p in HEURISTIC_PATTERNS), re.IGNORECASE)
 
 # Read used IDs from session cache for uniqueness
 cache_file = sys.argv[2]
@@ -263,7 +276,8 @@ for m in memories:
     try: s = f'{float(s):.2f}'
     except Exception: pass
     print(f'  [{s}] {c[:100]}', file=sys.stderr)
-    print(f'  - [MEM#{cid}] {c}')
+    heur = '\u26a0\ufe0f HEURISTIC: ' if _HEURISTIC_RE.search(c) else ''
+    print(f'  - [MEM#{cid}] {heur}{c}')
 
 if not context_ids: sys.exit(1)
 

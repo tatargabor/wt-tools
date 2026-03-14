@@ -1324,7 +1324,7 @@ handle_change_done() {
     local verify_ok=true
     local verify_output=""
     if command -v claude &>/dev/null; then
-        verify_output=$( (cd "$wt_path" && echo "Run /opsx:verify $change_name" | run_claude --max-turns 5) 2>&1) || verify_ok=false
+        verify_output=$( (cd "$wt_path" && printf 'IMPORTANT: Memory is not branch/worktree-aware — verify against filesystem, never skip checks based on memory alone.\nRun /opsx:verify %s' "$change_name" | run_claude --max-turns 5) 2>&1) || verify_ok=false
     fi
     gate_verify_ms=$(( $(date +%s%N) / 1000000 - _v_start ))
     update_change_field "$change_name" "gate_verify_ms" "$gate_verify_ms"
@@ -1336,11 +1336,13 @@ handle_change_done() {
             gate_spec_coverage="pass"
             update_change_field "$change_name" "spec_coverage_result" '"pass"'
             log_info "Verify gate: spec coverage PASS for $change_name"
+            orch_remember "Verify PASS for $change_name — filesystem checks confirmed implementation" Context "phase:verified,change:$change_name"
         elif echo "$verify_output" | grep -q "VERIFY_RESULT: FAIL"; then
             verify_ok=false
             gate_spec_coverage="fail"
             update_change_field "$change_name" "spec_coverage_result" '"fail"'
             log_error "Verify gate: spec coverage FAIL for $change_name"
+            orch_remember "Verify FAIL for $change_name — previous memories about this change may be inaccurate" Learning "phase:verify-failed,change:$change_name,volatile"
         else
             # No sentinel line — use heuristic: if Claude exited 0 and no obvious
             # failure indicators, treat as pass (the LLM often omits the sentinel)

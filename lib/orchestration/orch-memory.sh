@@ -25,9 +25,11 @@ orch_recall() {
     command -v wt-memory &>/dev/null || return 0
     local start_ms
     start_ms=$(($(date +%s%N) / 1000000))
+    local cutoff_iso
+    cutoff_iso=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v-24H '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "1970-01-01T00:00:00Z")
     local result
     result=$(wt-memory recall "$query" --limit "$limit" --tags "$tags" --mode hybrid 2>/dev/null | \
-        jq -r '[.[] | select(.tags // "" | test("stale:true") | not)] | .[].content' 2>/dev/null | head -c 2000 || true)
+        jq -r --arg cutoff "$cutoff_iso" '[.[] | select(.tags // "" | test("stale:true") | not) | select(if (.tags // "" | test("volatile")) then ((.created_at // "9999") > $cutoff) else true end)] | .[].content' 2>/dev/null | head -c 2000 || true)
     local elapsed_ms=$(( $(date +%s%N) / 1000000 - start_ms ))
     local result_len=${#result}
     _MEM_RECALL_COUNT=$((_MEM_RECALL_COUNT + 1))

@@ -151,6 +151,14 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 - **False Positives**: When uncertain, prefer SUGGESTION over WARNING, WARNING over CRITICAL
 - **Actionability**: Every issue must have a specific recommendation with file/line references where applicable
 
+## Memory Safety Rule
+
+Memory is a **hypothesis**, the filesystem is the **verdict**. During verification:
+- **NEVER** conclude PASS based on memory alone — always perform Glob/Grep/Read checks for every requirement
+- Memory may recall patterns from different branches or worktrees — it is **not branch-aware**
+- If memory suggests "known false positive" or "same pattern as before", treat it as a starting hypothesis and verify the actual files
+- If filesystem contradicts memory, the filesystem wins — report CRITICAL issues for missing implementations regardless of what memory says
+
 **Graceful Degradation**
 
 - If only tasks.md exists: verify task completion only, skip spec/design checks

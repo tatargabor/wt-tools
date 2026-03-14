@@ -26,6 +26,9 @@ This project uses persistent memory (shodh-memory) across sessions. Memory conte
 - `wt-memory forget <id>` — suppress or correct a wrong memory
 - Most things are remembered automatically. Only use `remember` for emphasis.
 
+### Memory Safety During Verification
+Memory is a hypothesis, not a verdict. During `/opsx:verify`, always check the filesystem (Glob, Grep, Read) — never skip checks because memory suggests "known false positive" or "same pattern." Memory is not branch/worktree-aware.
+
 ## Help & Documentation
 
 When the user asks how a feature works or needs help with wt-tools:

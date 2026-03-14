@@ -188,7 +188,13 @@ PYEOF
 
     # Save filtered turns with context prefix and tags
     python3 -c "
-import json, sys, subprocess
+import json, sys, subprocess, re
+
+HEURISTIC_PATTERNS = [
+    'false positive', 'same pattern', 'known pattern', 'known issue',
+    'was a false', 'unlike previous', 'same issue as', 'this is not a real',
+]
+_HEURISTIC_RE = re.compile('|'.join(re.escape(p) for p in HEURISTIC_PATTERNS), re.IGNORECASE)
 
 entries = json.load(open(sys.argv[1]))
 if not entries:
@@ -209,10 +215,13 @@ for i, entry in enumerate(entries, 1):
     full_content = prefix + content
 
     mem_type = 'Context' if role == 'user' else 'Learning'
+    tags = base_tags
+    if _HEURISTIC_RE.search(content):
+        tags = f'{tags},volatile'
 
     try:
         subprocess.run(
-            ['wt-memory', 'remember', '--type', mem_type, '--tags', base_tags],
+            ['wt-memory', 'remember', '--type', mem_type, '--tags', tags],
             input=full_content, text=True, capture_output=True, timeout=5
         )
         saved += 1
