@@ -326,10 +326,9 @@ def monitor_loop(
         # Verify-failed recovery
         _recover_verify_failed(state_file, d, event_bus)
 
-        # Cascade failed deps
-        from .state import cascade_failed_deps
-        with locked_state(state_file) as st:
-            cascade_failed_deps(st, event_bus=event_bus)
+        # Note: no cascade_failed_deps() — pending changes with failed deps
+        # simply stay pending (never dispatched because deps_met() returns False).
+        # _check_all_done() and _check_phase_milestone() treat them as terminal.
 
         # Dispatch ready changes
         pre_running = _count_by_status(state_file, "running")
@@ -533,25 +532,44 @@ def _check_completion(
     )
     failed_count = sum(1 for c in state.changes if c.status == "failed")
     merge_blocked = sum(1 for c in state.changes if c.status == "merge-blocked")
+    # Pending changes with all deps failed will never run — count as blocked, not active
+    from .state import deps_failed
+    blocked_pending = sum(
+        1 for c in state.changes
+        if c.status == "pending" and deps_failed(state, c.name)
+    )
     active_count = sum(
         1 for c in state.changes
         if c.status in ("running", "pending", "verifying", "stalled")
-    )
+    ) - blocked_pending
 
     # Partial completion: no active changes, some failed/blocked
+    all_resolved = truly_complete + failed_count + merge_blocked + blocked_pending
     if active_count == 0 and truly_complete < total:
-        terminal = truly_complete + failed_count + merge_blocked
-        if terminal >= total:
+        if all_resolved >= total:
             logger.info(
-                "%d succeeded, %d failed, %d merge-blocked — all resolved",
-                truly_complete, failed_count, merge_blocked,
+                "%d succeeded, %d failed, %d merge-blocked, %d dep-blocked — all resolved",
+                truly_complete, failed_count, merge_blocked, blocked_pending,
             )
 
-    all_resolved = truly_complete + failed_count + merge_blocked
     if truly_complete < total and not (active_count == 0 and all_resolved >= total):
         return False
 
-    logger.info("All %d changes complete", total)
+    logger.info("All %d changes resolved (%d complete, %d dep-blocked)", total, truly_complete, blocked_pending)
+
+    # Dep-blocked: some changes couldn't run because dependencies failed.
+    # Stop with "stopped" status so user can fix failed changes and restart.
+    if blocked_pending > 0:
+        logger.info(
+            "%d changes blocked by failed dependencies — stopping (not done)",
+            blocked_pending,
+        )
+        update_state_field(state_file, "status", "stopped")
+        update_state_field(state_file, "stop_reason", "dep_blocked")
+        update_state_field(state_file, "dep_blocked_count", blocked_pending)
+        _send_terminal_notifications(state_file, "dep_blocked", event_bus)
+        _generate_report_safe(state_file)
+        return True
 
     # Total failure: all changes failed, none succeeded — don't replan
     # (nothing was merged, so there's no foundation to build on)
@@ -956,9 +974,14 @@ def _check_phase_completion(
         return
 
     # Check if all changes in current phase are terminal
+    # Pending changes with failed deps are effectively terminal (will never run)
+    from .state import deps_failed
     phase_changes = [c for c in state.changes if c.phase == current_phase]
     terminal_statuses = {"merged", "done", "skipped", "failed", "merge-blocked"}
-    all_terminal = all(c.status in terminal_statuses for c in phase_changes)
+    all_terminal = all(
+        c.status in terminal_statuses or (c.status == "pending" and deps_failed(state, c.name))
+        for c in phase_changes
+    )
 
     if not all_terminal or not phase_changes:
         return
