@@ -1323,13 +1323,18 @@ def handle_change_done(
                 flagged_reqs = ", ".join(sorted(set(re.findall(r"REQ-[A-Z0-9]+-\d+", rr.output))))
                 if flagged_reqs:
                     retry_prompt = (
-                        f"Code review found CRITICAL issues — requirements with no implementation evidence: {flagged_reqs}\n\n"
-                        f"Review feedback:\n{rr.output[:500]}\n\nOriginal scope: {scope}"
+                        f"CRITICAL CODE REVIEW FAILURE. You MUST fix these issues before anything else.\n\n"
+                        f"Requirements with no implementation evidence: {flagged_reqs}\n\n"
+                        f"=== REVIEW FEEDBACK (fix ALL issues below) ===\n{rr.output[:1500]}\n"
+                        f"=== END REVIEW FEEDBACK ===\n\n"
+                        f"Do NOT work on new features. Only fix the issues listed above."
                     )
                 else:
                     retry_prompt = (
-                        f"Code review found CRITICAL issues. Fix these issues.\n\n"
-                        f"Review feedback:\n{rr.output[:500]}\n\nOriginal scope: {scope}"
+                        f"CRITICAL CODE REVIEW FAILURE. You MUST fix these issues before anything else.\n\n"
+                        f"=== REVIEW FEEDBACK (fix ALL issues below) ===\n{rr.output[:1500]}\n"
+                        f"=== END REVIEW FEEDBACK ===\n\n"
+                        f"Do NOT work on new features. Only fix the issues listed above."
                     )
                 update_change_field(state_file, change_name, "retry_context", retry_prompt)
                 _snapshot_retry_tokens(state_file, change_name, wt_path)

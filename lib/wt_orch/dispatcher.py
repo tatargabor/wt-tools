@@ -1205,9 +1205,13 @@ def resume_change(
         update_change_field(state_path, change_name, "retry_context", None, event_bus=event_bus)
 
         is_merge_retry = change.extras.get("merge_rebase_pending", False)
+        is_review_retry = "REVIEW FEEDBACK" in retry_ctx or "review" in retry_ctx.lower()[:50]
         if is_merge_retry:
             done_criteria = "merge"
             max_iter = 5
+        elif is_review_retry:
+            done_criteria = "test"
+            max_iter = 5  # review fixes need more iterations (fix + re-test)
         else:
             done_criteria = "test"
             max_iter = 3
