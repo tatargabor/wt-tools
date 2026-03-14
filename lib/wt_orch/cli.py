@@ -876,6 +876,162 @@ def cmd_engine(args):
         sys.exit(0)
 
 
+def cmd_digest(args):
+    """Dispatch digest subcommands."""
+    from .digest import (
+        call_digest_api,
+        check_coverage_gaps,
+        check_digest_freshness,
+        parse_digest_response,
+        scan_spec_directory,
+        stabilize_ids,
+        validate_digest,
+        write_digest_output,
+        build_digest_prompt,
+    )
+
+    if args.digest_cmd == "run":
+        scan = scan_spec_directory(args.spec)
+        prompt = build_digest_prompt(args.spec, scan)
+        raw = call_digest_api(prompt, model=args.model)
+        digest = parse_digest_response(raw)
+        errors = validate_digest(digest)
+        if errors:
+            for e in errors:
+                print(f"WARNING: {e}", file=sys.stderr)
+        digest = stabilize_ids(digest)
+        if args.dry_run:
+            import dataclasses
+            print(json.dumps(dataclasses.asdict(digest), indent=2))
+        else:
+            write_digest_output(digest, scan)
+            print(json.dumps({"status": "ok", "file_count": scan.file_count, "req_count": len(digest.requirements)}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "validate":
+        from pathlib import Path
+        reqs_path = Path(args.dir) / "requirements.json"
+        if not reqs_path.is_file():
+            print(json.dumps({"valid": False, "errors": ["No requirements.json found"]}))
+            sys.exit(1)
+        data = json.loads(reqs_path.read_text())
+        errors = validate_digest(data)
+        print(json.dumps({"valid": len(errors) == 0, "errors": errors}))
+        sys.exit(0 if not errors else 1)
+
+    elif args.digest_cmd == "coverage":
+        gaps = check_coverage_gaps(args.dir)
+        print(json.dumps({"uncovered": gaps, "count": len(gaps)}))
+        sys.exit(0)
+
+    elif args.digest_cmd == "freshness":
+        result = check_digest_freshness(args.spec, args.dir)
+        print(json.dumps({"freshness": result}))
+        sys.exit(0)
+
+
+def cmd_watchdog(args):
+    """Dispatch watchdog subcommands."""
+    from .watchdog import watchdog_check, heartbeat_data
+    from .state import load_state
+
+    if args.watchdog_cmd == "check":
+        state = load_state(args.state)
+        state_dict = state.to_dict()
+        result = watchdog_check(args.change, state_dict, args.state)
+        print(json.dumps({
+            "action": result.action,
+            "reason": result.reason,
+            "escalation_level": result.escalation_level,
+        }))
+        sys.exit(0)
+
+    elif args.watchdog_cmd == "status":
+        state = load_state(args.state)
+        state_dict = state.to_dict()
+        statuses = []
+        for c in state_dict.get("changes", []):
+            wd = c.get("watchdog")
+            if wd:
+                statuses.append({
+                    "change": c["name"],
+                    "status": c.get("status", ""),
+                    "escalation_level": wd.get("escalation_level", 0),
+                    "consecutive_same_hash": wd.get("consecutive_same_hash", 0),
+                    "last_activity_epoch": wd.get("last_activity_epoch", 0),
+                })
+        print(json.dumps(statuses, indent=2))
+        sys.exit(0)
+
+
+def cmd_audit(args):
+    """Dispatch audit subcommands."""
+    from .auditor import build_audit_prompt, run_audit
+    from .state import load_state
+
+    if args.audit_cmd == "run":
+        state = load_state(args.state)
+        state_dict = state.to_dict()
+        result = run_audit(
+            state_dict,
+            cycle=args.cycle,
+            input_mode=args.input_mode,
+            input_path=args.input_path,
+            review_model=args.model,
+        )
+        gap_data = [{"description": g.description, "severity": g.severity} for g in result.gaps]
+        print(json.dumps({
+            "audit_result": result.audit_result,
+            "gap_count": len(result.gaps),
+            "gaps": gap_data,
+            "summary": result.summary,
+            "duration_ms": result.duration_ms,
+        }))
+        sys.exit(0)
+
+    elif args.audit_cmd == "prompt":
+        state = load_state(args.state)
+        state_dict = state.to_dict()
+        prompt_data = build_audit_prompt(
+            state_dict,
+            cycle=args.cycle,
+            input_mode=args.input_mode,
+            input_path=args.input_path,
+        )
+        print(json.dumps(prompt_data, indent=2))
+        sys.exit(0)
+
+
+def cmd_build(args):
+    """Dispatch build subcommands."""
+    if args.build_cmd == "check":
+        from .builder import check_base_build
+        result = check_base_build(args.project)
+        print(json.dumps({
+            "status": result.status,
+            "package_manager": result.package_manager,
+        }))
+        sys.exit(0 if result.status != "fail" else 1)
+
+    elif args.build_cmd == "fix":
+        from .builder import fix_base_build
+        result = fix_base_build(args.project)
+        print(json.dumps({"status": result.status}))
+        sys.exit(0 if result.status == "pass" else 1)
+
+    elif args.build_cmd == "detect-server":
+        from .config import detect_dev_server
+        cmd = detect_dev_server(args.project)
+        print(json.dumps({"command": cmd or ""}))
+        sys.exit(0)
+
+    elif args.build_cmd == "detect-pm":
+        from .config import detect_package_manager
+        pm = detect_package_manager(args.project)
+        print(json.dumps({"package_manager": pm}))
+        sys.exit(0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="wt-orch-core",
@@ -1271,6 +1427,69 @@ def main():
 
     ms_cw = ms_sub.add_parser("cleanup-worktrees", help="Remove all milestone worktrees")
 
+    # --- digest ---
+    dig_parser = subparsers.add_parser("digest", help="Spec digest operations")
+    dig_sub = dig_parser.add_subparsers(dest="digest_cmd", required=True)
+
+    dig_run = dig_sub.add_parser("run", help="Run full digest pipeline")
+    dig_run.add_argument("--spec", required=True, help="Spec directory or file path")
+    dig_run.add_argument("--dry-run", action="store_true", help="Print without writing")
+    dig_run.add_argument("--model", default="opus", help="Model for digest")
+
+    dig_val = dig_sub.add_parser("validate", help="Validate existing digest")
+    dig_val.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_cov = dig_sub.add_parser("coverage", help="Show coverage report")
+    dig_cov.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    dig_fresh = dig_sub.add_parser("freshness", help="Check digest freshness")
+    dig_fresh.add_argument("--spec", required=True, help="Spec directory or file path")
+    dig_fresh.add_argument("--dir", default="wt/orchestration/digest", help="Digest directory")
+
+    # --- watchdog ---
+    wd_parser = subparsers.add_parser("watchdog", help="Watchdog operations")
+    wd_sub = wd_parser.add_subparsers(dest="watchdog_cmd", required=True)
+
+    wd_check = wd_sub.add_parser("check", help="Run watchdog check for one change")
+    wd_check.add_argument("--change", required=True, help="Change name")
+    wd_check.add_argument("--state", required=True, help="State file path")
+
+    wd_status = wd_sub.add_parser("status", help="Show watchdog state for all changes")
+    wd_status.add_argument("--state", required=True, help="State file path")
+
+    # --- audit ---
+    aud_parser = subparsers.add_parser("audit", help="Post-phase audit operations")
+    aud_sub = aud_parser.add_subparsers(dest="audit_cmd", required=True)
+
+    aud_run = aud_sub.add_parser("run", help="Run post-phase audit")
+    aud_run.add_argument("--cycle", type=int, default=1, help="Cycle number")
+    aud_run.add_argument("--state", required=True, help="State file path")
+    aud_run.add_argument("--input-mode", default="spec", help="Input mode (spec/digest)")
+    aud_run.add_argument("--input-path", default="", help="Input file path")
+    aud_run.add_argument("--model", default="sonnet", help="Review model")
+
+    aud_prompt = aud_sub.add_parser("prompt", help="Print audit prompt without executing")
+    aud_prompt.add_argument("--cycle", type=int, default=1, help="Cycle number")
+    aud_prompt.add_argument("--state", required=True, help="State file path")
+    aud_prompt.add_argument("--input-mode", default="spec", help="Input mode")
+    aud_prompt.add_argument("--input-path", default="", help="Input file path")
+
+    # --- build ---
+    bld_parser = subparsers.add_parser("build", help="Build health operations")
+    bld_sub = bld_parser.add_subparsers(dest="build_cmd", required=True)
+
+    bld_check = bld_sub.add_parser("check", help="Run build health check")
+    bld_check.add_argument("--project", default=".", help="Project directory")
+
+    bld_fix = bld_sub.add_parser("fix", help="Attempt LLM-assisted build fix")
+    bld_fix.add_argument("--project", default=".", help="Project directory")
+
+    bld_ds = bld_sub.add_parser("detect-server", help="Detect dev server command")
+    bld_ds.add_argument("--project", default=".", help="Project directory")
+
+    bld_pm = bld_sub.add_parser("detect-pm", help="Detect package manager")
+    bld_pm.add_argument("--project", default=".", help="Project directory")
+
     # --- engine ---
     eng_parser = subparsers.add_parser("engine", help="Orchestration engine")
     eng_sub = eng_parser.add_subparsers(dest="engine_cmd", required=True)
@@ -1308,6 +1527,14 @@ def main():
         cmd_milestone(args)
     elif args.command == "engine":
         cmd_engine(args)
+    elif args.command == "digest":
+        cmd_digest(args)
+    elif args.command == "watchdog":
+        cmd_watchdog(args)
+    elif args.command == "audit":
+        cmd_audit(args)
+    elif args.command == "build":
+        cmd_build(args)
 
 
 if __name__ == "__main__":

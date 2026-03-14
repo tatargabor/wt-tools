@@ -594,3 +594,124 @@ def auto_detect_test_command(directory: str = ".") -> str:
             return f"{pkg_mgr} run {candidate}"
 
     return ""
+
+
+# ─── Package Manager Detection ───────────────────────────────────
+# Migrated from: lib/orchestration/server-detect.sh:detect_package_manager()
+
+
+def detect_package_manager(project_dir: str = ".") -> str:
+    """Detect package manager from lockfile presence.
+
+    Returns: bun, pnpm, yarn, pip, poetry, or npm (default).
+    """
+    d = Path(project_dir)
+    if (d / "bun.lockb").is_file() or (d / "bun.lock").is_file():
+        return "bun"
+    elif (d / "pnpm-lock.yaml").is_file():
+        return "pnpm"
+    elif (d / "yarn.lock").is_file():
+        return "yarn"
+    elif (d / "poetry.lock").is_file():
+        return "poetry"
+    elif (d / "Pipfile.lock").is_file():
+        return "pip"
+    return "npm"
+
+
+def install_dependencies(project_dir: str = ".") -> bool:
+    """Install dependencies using detected package manager.
+
+    Migrated from: lib/orchestration/server-detect.sh:install_dependencies()
+
+    Returns: True on success, False on failure (non-blocking).
+    """
+    d = Path(project_dir)
+    if not (d / "package.json").is_file():
+        return True  # Nothing to install
+
+    pm = detect_package_manager(project_dir)
+    logger.info("Installing dependencies in %s with %s", project_dir, pm)
+
+    from .subprocess_utils import run_command
+
+    install_cmd = [pm, "install"]
+    result = run_command(install_cmd, timeout=120, cwd=project_dir)
+
+    if result.exit_code == 0:
+        logger.info("Dependencies installed successfully (%s)", pm)
+        return True
+    else:
+        logger.warning("Dependency install failed (%s) — non-blocking", pm)
+        return False
+
+
+# ─── Dev Server Detection ────────────────────────────────────────
+# Migrated from: lib/orchestration/server-detect.sh:detect_dev_server()
+
+
+def detect_dev_server(
+    project_dir: str = ".",
+    milestone_dev_server: str = "",
+    smoke_dev_server_command: str = "",
+) -> str | None:
+    """Auto-detect dev server command for a project.
+
+    Detection cascade:
+    1. milestones.dev_server directive (explicit override)
+    2. smoke_dev_server_command directive
+    3. package.json scripts.dev
+    4. docker-compose.yml or compose.yml
+    5. Makefile dev/serve target
+    6. manage.py (Django)
+
+    Args:
+        project_dir: Project directory path.
+        milestone_dev_server: Explicit override from milestones directive.
+        smoke_dev_server_command: Reuse smoke config.
+
+    Returns:
+        Command string or None if not detected.
+    """
+    d = Path(project_dir)
+
+    # 1. Explicit milestone override
+    if milestone_dev_server:
+        return milestone_dev_server
+
+    # 2. Reuse smoke_dev_server_command
+    if smoke_dev_server_command:
+        return smoke_dev_server_command
+
+    # 3. package.json scripts.dev
+    pkg_json = d / "package.json"
+    if pkg_json.is_file():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            if data.get("scripts", {}).get("dev"):
+                pm = detect_package_manager(project_dir)
+                return f"{pm} run dev"
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # 4. docker-compose.yml or compose.yml
+    if (d / "docker-compose.yml").is_file() or (d / "compose.yml").is_file():
+        return "docker compose up"
+
+    # 5. Makefile with dev or serve target
+    makefile = d / "Makefile"
+    if makefile.is_file():
+        try:
+            content = makefile.read_text(encoding="utf-8")
+            if re.search(r"^dev:", content, re.MULTILINE):
+                return "make dev"
+            if re.search(r"^serve:", content, re.MULTILINE):
+                return "make serve"
+        except (OSError, IOError):
+            pass
+
+    # 6. manage.py (Django)
+    if (d / "manage.py").is_file():
+        return "python manage.py runserver"
+
+    return None
