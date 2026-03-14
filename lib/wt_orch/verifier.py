@@ -1341,6 +1341,7 @@ def handle_change_done(
             return
 
         update_change_field(state_file, change_name, "review_result", "pass")
+        update_change_field(state_file, change_name, "review_output", rr.output[:2000])
 
     # ── Step 5b: Verification rules ──
     if wt_path:

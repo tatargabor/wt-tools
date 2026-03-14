@@ -721,6 +721,9 @@ def _blocking_smoke_pipeline(
     )
     _collect_smoke_screenshots(change_name, state_file)
 
+    smoke_output = (smoke_result.stdout or "")[-2000:]
+    update_change_field(state_file, change_name, "smoke_output", smoke_output)
+
     if smoke_result.exit_code == 0:
         logger.info("Post-merge: smoke tests passed for %s", change_name)
         update_change_field(state_file, change_name, "smoke_result", "pass")
@@ -768,6 +771,8 @@ def _nonblocking_smoke_pipeline(
         ["bash", "-c", smoke_command], timeout=smoke_timeout,
     )
     _collect_smoke_screenshots(change_name, state_file)
+    smoke_output = (smoke_result.stdout or "")[-2000:]
+    update_change_field(state_file, change_name, "smoke_output", smoke_output)
 
     if smoke_result.exit_code == 0:
         logger.info("Post-merge: smoke tests passed for %s", change_name)
