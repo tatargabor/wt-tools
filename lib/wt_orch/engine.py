@@ -227,6 +227,18 @@ def monitor_loop(
     This is the Python equivalent of monitor.sh monitor_loop().
     Parses directives, then loops: poll → dispatch → merge → replan → watchdog.
     """
+    # Single-instance guard: flock on orchestrator lock file
+    import fcntl
+    lock_path = os.path.join(os.path.dirname(state_file) or ".", "orchestrator.lock")
+    lock_fd = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        logger.error("Another orchestrator is already running — exiting")
+        lock_fd.close()
+        return
+    logger.info("Acquired orchestrator lock: %s", lock_path)
+
     # Parse directives
     if os.path.isfile(directives_json):
         with open(directives_json) as f:
