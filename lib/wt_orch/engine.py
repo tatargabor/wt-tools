@@ -676,7 +676,7 @@ def _auto_replan_cycle(
 
     # 5. Build the prompt and call Claude
     from .templates import render_planning_prompt
-    prompt = render_planning_prompt(context)
+    prompt = render_planning_prompt(**context)
 
     claude_result = run_claude(prompt, timeout=300, model=d.default_model or "opus")
     if claude_result.exit_code != 0:

@@ -1066,7 +1066,7 @@ def run_planning_pipeline(
 
     # 6. Call Claude
     from .templates import render_planning_prompt
-    prompt = render_planning_prompt(context)
+    prompt = render_planning_prompt(**context)
 
     # Compute input hash for metadata
     input_hash = ""
