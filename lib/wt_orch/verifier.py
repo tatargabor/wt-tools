@@ -133,6 +133,47 @@ def _extract_review_fixes(review_output: str) -> str:
     return "\n".join(fixes)
 
 
+def _load_web_security_rules(wt_path: str) -> str:
+    """Load web security rules from the worktree's .claude/rules/ if available.
+
+    Looks for web security rule files (deployed by wt-project init) and returns
+    a condensed version for injection into review retry prompts.
+    """
+    rules_dir = Path(wt_path) / ".claude" / "rules"
+    if not rules_dir.is_dir():
+        return ""
+
+    # Collect web-related rule files (may be in rules/ or rules/web/)
+    rule_files = []
+    for pattern in ("web/*.md", "wt-web-*.md", "*web-security*.md", "*auth-middleware*.md"):
+        rule_files.extend(rules_dir.glob(pattern))
+
+    if not rule_files:
+        return ""
+
+    parts = []
+    total = 0
+    for rf in sorted(set(rule_files)):
+        try:
+            content = rf.read_text()
+        except OSError:
+            continue
+        # Strip YAML front matter
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end > 0:
+                content = content[end + 3:].strip()
+        # Truncate individual rules
+        if len(content) > 1500:
+            content = content[:1500] + "\n..."
+        total += len(content)
+        if total > 4000:
+            break
+        parts.append(content)
+
+    return "\n\n".join(parts)
+
+
 @dataclass
 class ScopeCheckResult:
     """Result of implementation scope check."""
@@ -1383,12 +1424,20 @@ def handle_change_done(
                     parts.append(fix_instructions)
                     parts.append("=== END REQUIRED FIXES ===\n")
 
+                # Inject web security rules if available in the worktree
+                security_guide = _load_web_security_rules(wt_path)
+                if security_guide:
+                    parts.append("=== SECURITY REFERENCE (follow these patterns) ===")
+                    parts.append(security_guide)
+                    parts.append("=== END SECURITY REFERENCE ===\n")
+
                 if flagged_reqs:
                     parts.append(f"Requirements with no implementation evidence: {flagged_reqs}\n")
 
                 parts.append(f"Full review output:\n{rr.output[:1500]}\n")
                 parts.append(
                     "INSTRUCTIONS: Open each FILE listed above, go to the LINE, and apply the FIX. "
+                    "Use the SECURITY REFERENCE patterns above to ensure your fix is correct. "
                     "Commit after fixing. Do NOT work on new features — only fix the issues above."
                 )
 

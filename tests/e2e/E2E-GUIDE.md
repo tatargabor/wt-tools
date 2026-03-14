@@ -62,6 +62,11 @@ This is critical — fixes must reach the running processes:
 
 If you skip step 4, worktree agents will run with old code.
 
+**IMPORTANT: Rules must be re-deployed too.** Web security rules (`.claude/rules/web/`) and other
+path-scoped rules are deployed by `wt-project init`. When fixing security-related bugs (IDOR,
+missing auth middleware, etc.), always re-deploy so that retry agents get the updated rules. The
+`wt-project init` + worktree sync (steps 3-4) handles this automatically — just don't skip them.
+
 ## State Reset
 
 ### Partial Reset (preferred — preserves merged work)
