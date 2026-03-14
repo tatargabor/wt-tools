@@ -32,7 +32,11 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 STATE_FILE="orchestration-state.json"
-EVENTS_FILE="${STATE_FILE%.json}-events.jsonl"
+# Match Python events.py: stem.replace("-state", "") + "-events.jsonl"
+# orchestration-state.json → orchestration-events.jsonl
+_stem="${STATE_FILE%.json}"
+_stem="${_stem%-state}"
+EVENTS_FILE="${_stem}-events.jsonl"
 LOG_FILE="orchestration.log"
 PID_FILE="sentinel.pid"
 MAX_RAPID_CRASHES=5
