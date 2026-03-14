@@ -72,7 +72,7 @@ def archive_change(change_name: str) -> bool:
     try:
         os.makedirs(archive_dir, exist_ok=True)
         shutil.move(change_dir, dest)
-        run_command(["git", "add", dest, change_dir], timeout=30)
+        run_command(["git", "add", dest], timeout=30)
         run_command(
             ["git", "commit", "-m", f"chore: archive {change_name} change", "--no-verify"],
             timeout=60,

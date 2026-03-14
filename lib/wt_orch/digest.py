@@ -439,6 +439,8 @@ def stabilize_ids(
         key = (req.get("source", ""), req.get("source_section", ""))
         if key in old_by_key:
             req["id"] = old_by_key[key]["id"]
+        if "id" not in req:
+            continue  # skip requirements without IDs (will be assigned below)
         used_ids.add(req["id"])
         stabilized.append(req)
 

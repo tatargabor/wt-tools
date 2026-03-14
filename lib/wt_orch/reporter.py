@@ -721,7 +721,7 @@ def _extract_execution(state_path: str) -> ExecutionData:
         total_tokens=total_tokens,
         total_tokens_display=_format_tokens(total_tokens),
         total_duration_s=total_duration_s,
-        total_duration_display=f"{total_duration_s // 60}m",
+        total_duration_display=_format_duration(total_duration_s),
         total_tests=total_tests,
         phase_e2e_results=phase_e2e_results,
         smoke_screenshots=smoke_screenshots,

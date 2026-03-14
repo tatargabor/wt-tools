@@ -13,6 +13,8 @@ from typing import Optional
 from .util import (
     _log,
     _dbg,
+    read_cache,
+    write_cache,
     metrics_timer_start,
     metrics_timer_elapsed,
     metrics_append,

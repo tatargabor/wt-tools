@@ -113,13 +113,13 @@ def check_pid(pid: int, expected_cmdline_pattern: str) -> CheckResult:
     if cmdline is None:
         cmdline = _get_cmdline_psutil(pid)
 
-    # If we can't read cmdline at all, fall back to kill -0 semantics
+    # If we can't read cmdline at all, conservatively report no match
     if cmdline is None:
         print(
-            f"Warning: cannot read cmdline for PID {pid}, falling back to kill -0",
+            f"Warning: cannot read cmdline for PID {pid}, assuming no match",
             file=sys.stderr,
         )
-        return CheckResult(alive=True, match=True)
+        return CheckResult(alive=True, match=False)
 
     matched = _matches_pattern(cmdline, expected_cmdline_pattern)
     return CheckResult(alive=True, match=matched)

@@ -253,7 +253,9 @@ def _enforce_max_milestone_worktrees(max_wts: int, state_file: str) -> None:
                 except OSError:
                     pass
                 with locked_state(state_file) as st:
-                    st.extras.setdefault("phases", {}).get(oldest_phase, {}).pop("server_pid", None)
+                    phases_dict = st.extras.setdefault("phases", {})
+                    if oldest_phase in phases_dict:
+                        phases_dict[oldest_phase].pop("server_pid", None)
                 logger.info("Milestone: killed server for phase %s (PID %s)", oldest_phase, old_pid)
 
         # Remove worktree

@@ -109,8 +109,10 @@ def read_loop_state(wt_path: str) -> Optional[LoopState]:
     try:
         with open(state_file, "r") as f:
             fcntl.flock(f, fcntl.LOCK_SH)
-            data = json.load(f)
-            fcntl.flock(f, fcntl.LOCK_UN)
+            try:
+                data = json.load(f)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
         return _dict_to_state(data)
     except (json.JSONDecodeError, OSError):
         return None
@@ -124,12 +126,14 @@ def update_loop_state(wt_path: str, field: str, value: Any) -> bool:
     try:
         with open(state_file, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
-            data = json.load(f)
-            data[field] = value
-            f.seek(0)
-            f.truncate()
-            json.dump(data, f, indent=2)
-            fcntl.flock(f, fcntl.LOCK_UN)
+            try:
+                data = json.load(f)
+                data[field] = value
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=2)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
         return True
     except (json.JSONDecodeError, OSError):
         return False
@@ -165,34 +169,36 @@ def add_iteration(
     try:
         with open(state_file, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
-            data = json.load(f)
-            entry = {
-                "n": iteration,
-                "started": started,
-                "ended": ended,
-                "done_check": done_check,
-                "commits": commits,
-                "tokens_used": tokens_used,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_read_tokens": cache_read_tokens,
-                "cache_create_tokens": cache_create_tokens,
-                "timed_out": timed_out,
-                "tokens_estimated": tokens_estimated,
-                "no_op": no_op,
-                "ff_exhausted": ff_exhausted,
-                "log_file": log_file,
-                "resumed": resumed,
-                "ff_recovered": ff_recovered,
-                "team_spawned": team_spawned,
-                "teammates_count": teammates_count,
-                "team_tasks_parallel": team_tasks_parallel,
-            }
-            data.setdefault("iterations", []).append(entry)
-            f.seek(0)
-            f.truncate()
-            json.dump(data, f, indent=2)
-            fcntl.flock(f, fcntl.LOCK_UN)
+            try:
+                data = json.load(f)
+                entry = {
+                    "n": iteration,
+                    "started": started,
+                    "ended": ended,
+                    "done_check": done_check,
+                    "commits": commits,
+                    "tokens_used": tokens_used,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cache_read_tokens": cache_read_tokens,
+                    "cache_create_tokens": cache_create_tokens,
+                    "timed_out": timed_out,
+                    "tokens_estimated": tokens_estimated,
+                    "no_op": no_op,
+                    "ff_exhausted": ff_exhausted,
+                    "log_file": log_file,
+                    "resumed": resumed,
+                    "ff_recovered": ff_recovered,
+                    "team_spawned": team_spawned,
+                    "teammates_count": teammates_count,
+                    "team_tasks_parallel": team_tasks_parallel,
+                }
+                data.setdefault("iterations", []).append(entry)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=2)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
         return True
     except (json.JSONDecodeError, OSError):
         return False

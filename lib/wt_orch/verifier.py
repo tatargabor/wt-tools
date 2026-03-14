@@ -595,7 +595,7 @@ def smoke_fix_scoped(
 
     for attempt in range(1, max_retries + 1):
         update_change_field(state_file, change_name, "smoke_fix_attempts", attempt)
-        update_change_field(state_file, change_name, "smoke_status", json.dumps("fixing"))
+        update_change_field(state_file, change_name, "smoke_status", "fixing")
         logger.info("Smoke fix attempt %d/%d for %s", attempt, max_retries, change_name)
 
         # Build fix prompt via template
@@ -867,12 +867,18 @@ def poll_change(
                 return "dead"
         return None
 
-    # Extract tokens
-    tokens = int(loop_state.get("total_tokens", 0))
-    in_tok = int(loop_state.get("total_input_tokens", 0))
-    out_tok = int(loop_state.get("total_output_tokens", 0))
-    cr_tok = int(loop_state.get("total_cache_read", 0))
-    cc_tok = int(loop_state.get("total_cache_create", 0))
+    # Extract tokens (safely handle malformed values)
+    def _safe_int(val: object) -> int:
+        try:
+            return int(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    tokens = _safe_int(loop_state.get("total_tokens", 0))
+    in_tok = _safe_int(loop_state.get("total_input_tokens", 0))
+    out_tok = _safe_int(loop_state.get("total_output_tokens", 0))
+    cr_tok = _safe_int(loop_state.get("total_cache_read", 0))
+    cc_tok = _safe_int(loop_state.get("total_cache_create", 0))
 
     # Fallback: if loop-state has 0 tokens, try wt-usage
     if tokens == 0:

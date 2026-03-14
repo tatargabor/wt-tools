@@ -639,6 +639,8 @@ def topological_sort(changes: list[Change] | list[dict]) -> list[str]:
             if d in adj:
                 adj[d].append(name)
                 in_deg[name] += 1
+            else:
+                logger.warning("Dependency %r of change %r not found in plan — ignoring", d, name)
 
     queue = deque(sorted(n for n in graph if in_deg[n] == 0))
     result: list[str] = []

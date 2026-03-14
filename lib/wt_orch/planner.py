@@ -146,9 +146,9 @@ def summarize_spec(
 
     try:
         result = run_claude(summary_prompt, model=model)
-        if result.returncode == 0 and result.output:
-            logger.info("Spec summarization complete (%d chars)", len(result.output))
-            return result.output
+        if result.exit_code == 0 and result.stdout:
+            logger.info("Spec summarization complete (%d chars)", len(result.stdout))
+            return result.stdout
     except Exception as e:
         logger.error("Spec summarization failed: %s", e)
 

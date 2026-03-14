@@ -162,7 +162,7 @@ Do NOT create a worktree — fix directly in the current directory."""
     )
 
     if fix_result.exit_code == 0:
-        # Reset cache and re-check
+        # Re-check build (reset cache only on confirmed success)
         _build_cache["status"] = ""
         _build_cache["output"] = ""
         result = check_base_build(project_path)
@@ -170,6 +170,8 @@ Do NOT create a worktree — fix directly in the current directory."""
             logger.info("Base build fix: SUCCESS (model=%s)", model)
             _build_cache["fix_attempted"] = "done"
             return result
+        # Fix applied but build still fails — don't corrupt fix_attempted state
+        logger.warning("Base build fix: LLM fix applied but rebuild still fails (model=%s)", model)
 
     # Track which model failed
     if _build_cache["fix_attempted"] == "sonnet":
