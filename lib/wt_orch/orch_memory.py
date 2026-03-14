@@ -260,6 +260,57 @@ def plan_memory_hygiene() -> dict[str, Any]:
     }
 
 
+# ─── Memory Audit ────────────────────────────────────────────────
+# Periodic memory health check (dedup dry-run + spot-check)
+
+
+def orch_memory_audit() -> dict[str, Any]:
+    """Periodic memory health check: dedup dry-run + spot-check.
+
+    Returns:
+        Dict with duplicates found, total memories, elapsed_ms.
+    """
+    if not shutil.which("wt-memory"):
+        return {}
+
+    start_ms = _now_ms()
+
+    # Dedup dry-run
+    dedup_result = run_command(
+        ["wt-memory", "dedup", "--dry-run"],
+        timeout=30,
+    )
+    dedup_count = 0
+    if dedup_result.exit_code == 0:
+        import re
+
+        m = re.search(r"(\d+)\s+duplicates", dedup_result.stdout)
+        if m:
+            dedup_count = int(m.group(1))
+
+    # Spot-check: verify index integrity
+    verify_result = run_command(
+        ["wt-memory", "verify-index"],
+        timeout=30,
+    )
+    index_ok = verify_result.exit_code == 0
+
+    elapsed_ms = _now_ms() - start_ms
+
+    logger.info(
+        "Memory audit: %dms — %d duplicates, index %s",
+        elapsed_ms,
+        dedup_count,
+        "ok" if index_ok else "BROKEN",
+    )
+
+    return {
+        "duplicates": dedup_count,
+        "index_ok": index_ok,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
 # ─── Memory Stats ────────────────────────────────────────────────
 # Migrated from: orch-memory.sh:orch_memory_stats()
 

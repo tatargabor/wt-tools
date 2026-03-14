@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # lib/orchestration/merger.sh — Merge, cleanup, archive operations
 #
-# Python implementation: lib/wt_orch/merger.py
-# This file contains thin wrappers that delegate to wt-orch-core merge *
-# Functions that interact heavily with bash globals (merge_change, _try_merge)
-# remain in bash due to deep coupling with hook system, notifications, and
-# the orchestrator's global state (orch_remember, send_notification, etc.).
+# DEPRECATED: merge_change() and retry_merge_queue() now run in Python via
+# merger.py when ORCH_ENGINE=python. This file has thin wrappers (archive,
+# cleanup-all) and the bash merge pipeline as fallback for ORCH_ENGINE=bash.
+#
+# Python implementation: lib/wt_orch/merger.py (the live merge pipeline after cutover)
 
 # ─── Archive (delegated to Python) ──────────────────────────────────
 

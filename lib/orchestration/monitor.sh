@@ -2,11 +2,11 @@
 # lib/orchestration/monitor.sh — Main orchestration monitoring loop
 # Dependencies: state.sh, events.sh, dispatcher.sh, verifier.sh, merger.sh, watchdog.sh
 #
-# Python implementation: lib/wt_orch/engine.py
-# monitor_loop remains in bash due to deep coupling with bash globals (STATE_FILENAME,
-# LOG_FILE, ORCHESTRATOR_START_EPOCH, etc.), signal traps, and many bash-only functions
-# (orch_remember, send_notification, trigger_checkpoint, auto_replan_cycle, etc.).
-# The Python engine.py provides a clean-room implementation for future cutover.
+# DEPRECATED: monitor_loop() runs in Python via `wt-orch-core engine monitor` when
+# ORCH_ENGINE=python (set in cmd_start). This bash version is kept as fallback for
+# ORCH_ENGINE=bash. After validation, this file will be reduced to a header-only stub.
+#
+# Python implementation: lib/wt_orch/engine.py (the live engine after cutover)
 
 monitor_loop() {
     local directives="$1"

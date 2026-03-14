@@ -169,6 +169,49 @@ def parse_directives(raw: dict) -> Directives:
     return d
 
 
+# ─── Cleanup / Shutdown ────────────────────────────────────────────
+
+
+def cleanup_orchestrator(state_file: str, directives: Directives | None = None) -> None:
+    """Cleanup on orchestrator exit: update state, kill dev servers, pause if needed.
+
+    Called via atexit or signal handlers.
+
+    Args:
+        state_file: Path to orchestration state file.
+        directives: Parsed directives (optional, for pause_on_exit check).
+    """
+    try:
+        state = load_state(state_file)
+
+        # Don't overwrite terminal states
+        if state.status not in ("done", "time_limit"):
+            update_state_field(state_file, "status", "stopped")
+            logger.info("Orchestrator state set to 'stopped'")
+
+        # Kill auto-started dev server PIDs
+        dev_pids = state.extras.get("dev_server_pids", [])
+        if dev_pids:
+            import signal as sig
+            for pid in dev_pids:
+                try:
+                    os.kill(pid, sig.SIGTERM)
+                    logger.info("Killed dev server PID %d", pid)
+                except (OSError, ProcessLookupError):
+                    pass
+
+        # Pause running changes if directive set
+        if directives and getattr(directives, 'hook_on_fail', ''):
+            # Check for pause_on_exit in raw directives
+            pass  # Handled by individual change cleanup
+
+        # Generate final report
+        _generate_report_safe(state_file)
+
+    except Exception:
+        logger.error("cleanup_orchestrator failed", exc_info=True)
+
+
 # ─── Monitor Loop ──────────────────────────────────────────────────
 
 # Source: monitor.sh monitor_loop() L5-586
@@ -229,6 +272,7 @@ def monitor_loop(
                 active_seconds, wall_elapsed,
             )
             update_state_field(state_file, "status", "time_limit")
+            _send_terminal_notifications(state_file, "time_limit", event_bus)
             _generate_report_safe(state_file)
             break
 
@@ -294,7 +338,7 @@ def monitor_loop(
 
         # Token hard limit
         if d.token_hard_limit > 0:
-            _check_token_hard_limit(state_file, d)
+            _check_token_hard_limit(state_file, d, event_bus)
 
         # Self-watchdog
         _self_watchdog(
@@ -311,11 +355,19 @@ def monitor_loop(
         # Generate report
         _generate_report_safe(state_file)
 
+        # Periodic memory operations (every ~10 polls ≈ 2.5 minutes)
+        if poll_count % 10 == 0:
+            _periodic_memory_ops_safe(state_file)
+
+        # Watchdog heartbeat
+        if event_bus:
+            event_bus.emit("WATCHDOG_HEARTBEAT")
+
         # Checkpoint check
         if d.checkpoint_every > 0:
             state = load_state(state_file)
             if state.changes_since_checkpoint >= d.checkpoint_every:
-                _trigger_checkpoint_safe(state_file, "periodic")
+                _trigger_checkpoint_safe(state_file, "periodic", event_bus)
                 continue
 
         # Completion detection
@@ -494,6 +546,7 @@ def _check_completion(
         update_state_field(state_file, "all_failed", True)
         from .merger import cleanup_all_worktrees
         cleanup_all_worktrees(state_file)
+        _send_terminal_notifications(state_file, "total_failure", event_bus)
         _generate_report_safe(state_file)
         return True
 
@@ -511,6 +564,7 @@ def _check_completion(
     from .merger import cleanup_all_worktrees
     cleanup_all_worktrees(state_file)
     run_command(["git", "tag", "-f", "orch/complete", "HEAD"], timeout=10)
+    _send_terminal_notifications(state_file, "done", event_bus)
     _generate_report_safe(state_file)
     return True
 
@@ -518,8 +572,12 @@ def _check_completion(
 def _handle_auto_replan(
     state_file: str, d: Directives, event_bus: Any
 ) -> bool:
-    """Handle auto-replan cycle. Returns True if loop should exit."""
-    # Source: monitor.sh L473-566
+    """Handle auto-replan cycle. Returns True if loop should exit.
+
+    Fully Python implementation — no bash shell-out.
+    Calls planner.collect_replan_context() and planner.build_decomposition_context()
+    directly, then invokes Claude for a new plan.
+    """
     state = load_state(state_file)
     cycle = state.extras.get("replan_cycle", 0)
 
@@ -529,6 +587,7 @@ def _handle_auto_replan(
         update_state_field(state_file, "replan_limit_reached", True)
         from .merger import cleanup_all_worktrees
         cleanup_all_worktrees(state_file)
+        _send_terminal_notifications(state_file, "replan_limit", event_bus)
         _generate_report_safe(state_file)
         return True
 
@@ -539,24 +598,23 @@ def _handle_auto_replan(
 
     logger.info("Auto-replanning (cycle %d/%d)...", cycle, d.max_replan_cycles)
 
-    # Delegate to bash auto_replan_cycle (not yet migrated)
-    replan_result = run_command(
-        ["bash", "-c", f'source {WT_TOOLS_ROOT}/lib/orchestration/planner.sh && auto_replan_cycle "{{}}" {cycle}'],
-        timeout=600,
-    )
+    try:
+        replan_result = _auto_replan_cycle(state_file, d, cycle, event_bus)
+    except Exception:
+        logger.error("Replan cycle %d failed with exception", cycle, exc_info=True)
+        replan_result = "error"
 
-    if replan_result.exit_code == 0:
-        # New plan dispatched
+    if replan_result == "dispatched":
         update_state_field(state_file, "replan_attempt", 0)
         logger.info("Replan cycle %d: new changes dispatched", cycle)
         return False  # continue monitoring
 
-    if replan_result.exit_code == 1:
-        # No new work — genuinely done
+    if replan_result == "no_new_work":
         update_state_field(state_file, "replan_attempt", 0)
         update_state_field(state_file, "status", "done")
         from .merger import cleanup_all_worktrees
         cleanup_all_worktrees(state_file)
+        _send_terminal_notifications(state_file, "done", event_bus)
         _generate_report_safe(state_file)
         return True
 
@@ -569,12 +627,178 @@ def _handle_auto_replan(
         update_state_field(state_file, "status", "done")
         update_state_field(state_file, "replan_exhausted", True)
         update_state_field(state_file, "replan_attempt", 0)
+        _send_terminal_notifications(state_file, "replan_exhausted", event_bus)
         _generate_report_safe(state_file)
         return True
 
     logger.warning("Replan failed (cycle %d, attempt %d) — will retry", cycle, replan_attempt)
     time.sleep(30)
     return False  # continue monitoring
+
+
+def _auto_replan_cycle(
+    state_file: str, d: Directives, cycle: int, event_bus: Any
+) -> str:
+    """Execute one auto-replan cycle entirely in Python.
+
+    Returns: "dispatched", "no_new_work", or "error".
+    """
+    from .planner import collect_replan_context, build_decomposition_context, validate_plan, enrich_plan_metadata
+    from .subprocess_utils import run_claude
+    from .dispatcher import dispatch_ready_changes
+
+    # 1. Archive completed changes to state-archive.jsonl
+    _archive_completed_to_jsonl(state_file)
+
+    # 2. Collect replan context
+    replan_ctx = collect_replan_context(state_file)
+    if not replan_ctx.get("completed_names"):
+        logger.warning("Replan: no completed changes found — nothing to build on")
+        return "no_new_work"
+
+    # 3. Read plan metadata for input_mode/input_path
+    plan_file = os.environ.get("PLAN_FILENAME", "wt/orchestration/plan.json")
+    if not os.path.isfile(plan_file):
+        logger.error("Replan: plan file not found at %s", plan_file)
+        return "error"
+
+    with open(plan_file) as f:
+        plan_data = json.load(f)
+
+    input_mode = plan_data.get("input_mode", "spec")
+    input_path = plan_data.get("input_path", "")
+
+    # 4. Build decomposition context
+    context = build_decomposition_context(
+        input_mode, input_path,
+        replan_ctx=replan_ctx,
+    )
+
+    # 5. Build the prompt and call Claude
+    from .templates import render_planning_prompt
+    prompt = render_planning_prompt(context)
+
+    claude_result = run_claude(prompt, timeout=300, model=d.default_model or "opus")
+    if claude_result.exit_code != 0:
+        logger.error("Replan: Claude invocation failed (exit %d)", claude_result.exit_code)
+        return "error"
+
+    # 6. Parse response
+    response_text = claude_result.stdout.strip()
+
+    # Extract JSON from response
+    plan_json = None
+    try:
+        plan_json = json.loads(response_text)
+    except json.JSONDecodeError:
+        # Try extracting JSON from markdown fences
+        import re
+        match = re.search(r'```(?:json)?\s*\n(.*?)\n```', response_text, re.DOTALL)
+        if match:
+            try:
+                plan_json = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+        # Try finding first { to last }
+        if plan_json is None:
+            first = response_text.find("{")
+            last = response_text.rfind("}")
+            if first >= 0 and last > first:
+                try:
+                    plan_json = json.loads(response_text[first:last + 1])
+                except json.JSONDecodeError:
+                    pass
+
+    if not plan_json or "changes" not in plan_json:
+        logger.error("Replan: could not parse plan JSON from Claude response")
+        return "error"
+
+    new_changes = plan_json.get("changes", [])
+    if not new_changes:
+        logger.info("Replan: Claude returned empty changes list")
+        return "no_new_work"
+
+    # 7. Novelty check — skip if all changes duplicate previously failed ones
+    state = load_state(state_file)
+    failed_names = {c.name for c in state.changes if c.status == "failed"}
+    new_names = {c.get("name", "") for c in new_changes}
+    if new_names and new_names.issubset(failed_names):
+        logger.info("Replan: all %d new changes are duplicates of failed ones — no new work", len(new_names))
+        return "no_new_work"
+
+    # 8. Write updated plan
+    plan_data["changes"] = new_changes
+    plan_data["replan_cycle"] = cycle
+    with open(plan_file, "w") as f:
+        json.dump(plan_data, f, indent=2)
+
+    # 9. Add new changes to existing state
+    _append_changes_to_state(state_file, new_changes)
+
+    dispatch_ready_changes(
+        state_file, d.max_parallel,
+        default_model=d.default_model,
+        model_routing=d.model_routing,
+        team_mode=d.team_mode,
+        context_pruning=d.context_pruning,
+        event_bus=event_bus,
+    )
+
+    if event_bus:
+        event_bus.emit("REPLAN_DISPATCHED", data={"cycle": cycle, "changes": len(new_changes)})
+
+    return "dispatched"
+
+
+def _append_changes_to_state(state_file: str, new_changes: list[dict]) -> None:
+    """Append new plan changes to existing orchestration state."""
+    from .state import Change, locked_state
+
+    with locked_state(state_file) as state:
+        existing_names = {c.name for c in state.changes}
+        for c in new_changes:
+            if c.get("name") in existing_names:
+                continue
+            change = Change(
+                name=c["name"],
+                scope=c.get("scope", ""),
+                complexity=c.get("complexity", "M"),
+                change_type=c.get("change_type", "feature"),
+                depends_on=c.get("depends_on", []),
+                roadmap_item=c.get("roadmap_item", ""),
+                model=c.get("model", None),
+                phase=c.get("phase", 1),
+            )
+            state.changes.append(change)
+        logger.info("Appended %d new changes to state", len(new_changes))
+
+
+def _archive_completed_to_jsonl(state_file: str) -> None:
+    """Archive completed changes to state-archive.jsonl before replan."""
+    state = load_state(state_file)
+    archive_path = os.path.join(os.path.dirname(state_file), "state-archive.jsonl")
+
+    completed = [
+        c for c in state.changes
+        if c.status in ("merged", "done", "failed", "merge-blocked", "skipped")
+    ]
+    if not completed:
+        return
+
+    try:
+        with open(archive_path, "a") as f:
+            for c in completed:
+                entry = {
+                    "name": c.name,
+                    "status": c.status,
+                    "tokens_used": c.tokens_used,
+                    "scope": c.scope,
+                    "archived_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                f.write(json.dumps(entry) + "\n")
+        logger.info("Archived %d completed changes to %s", len(completed), archive_path)
+    except OSError:
+        logger.warning("Failed to archive completed changes")
 
 
 # ─── Utility Helpers ───────────────────────────────────────────────
@@ -634,7 +858,7 @@ def _retry_failed_builds_safe(state_file: str, d: Directives, event_bus: Any) ->
         logger.warning("Retry failed builds failed", exc_info=True)
 
 
-def _check_token_hard_limit(state_file: str, d: Directives) -> None:
+def _check_token_hard_limit(state_file: str, d: Directives, event_bus: Any = None) -> None:
     """Check token hard limit and trigger checkpoint if exceeded."""
     # Source: monitor.sh L354-377
     state = load_state(state_file)
@@ -654,7 +878,7 @@ def _check_token_hard_limit(state_file: str, d: Directives) -> None:
         "Token hard limit reached: %dM / %dM tokens",
         cumulative // 1_000_000, d.token_hard_limit // 1_000_000,
     )
-    _trigger_checkpoint_safe(state_file, "token_hard_limit")
+    _trigger_checkpoint_safe(state_file, "token_hard_limit", event_bus)
     update_state_field(state_file, "token_hard_limit_triggered", False)
 
 
@@ -733,6 +957,43 @@ def _check_phase_milestone(
         advance_phase(st, event_bus=event_bus)
 
 
+def _send_terminal_notifications(
+    state_file: str, reason: str, event_bus: Any = None,
+) -> None:
+    """Send desktop notification + summary email at terminal state."""
+    try:
+        from .notifications import send_notification, send_summary_email
+        from .digest import final_coverage_check
+
+        state = load_state(state_file)
+        total = len(state.changes)
+        merged = sum(1 for c in state.changes if c.status == "merged")
+
+        title = f"Orchestration {reason}"
+        body = f"{merged}/{total} changes merged"
+
+        send_notification(title, body, urgency="normal", channels="desktop,email")
+        coverage = final_coverage_check()
+        send_summary_email(state_file, coverage_summary=coverage)
+    except Exception:
+        logger.debug("Terminal notification failed (non-critical)", exc_info=True)
+
+
+def _periodic_memory_ops_safe(state_file: str) -> None:
+    """Run periodic memory operations (exception-safe)."""
+    try:
+        from .orch_memory import orch_memory_stats, orch_gate_stats, orch_memory_audit
+
+        orch_memory_stats()
+
+        state = load_state(state_file)
+        orch_gate_stats(state.to_dict() if hasattr(state, 'to_dict') else {"changes": []})
+
+        orch_memory_audit()
+    except Exception:
+        logger.debug("Periodic memory ops failed (non-critical)", exc_info=True)
+
+
 def _generate_report_safe(state_file: str) -> None:
     """Generate HTML report (exception-safe)."""
     try:
@@ -742,11 +1003,25 @@ def _generate_report_safe(state_file: str) -> None:
         pass
 
 
-def _trigger_checkpoint_safe(state_file: str, reason: str) -> None:
+def trigger_checkpoint(state_file: str, reason: str, event_bus: Any = None) -> None:
+    """Set state to checkpoint, log reason, emit CHECKPOINT event.
+
+    Args:
+        state_file: Path to state file.
+        reason: Reason for checkpoint (e.g., "periodic", "token_hard_limit").
+        event_bus: Optional EventBus for CHECKPOINT event emission.
+    """
+    update_state_field(state_file, "status", "checkpoint")
+    update_state_field(state_file, "checkpoint_reason", reason)
+    logger.info("Checkpoint triggered: %s", reason)
+    if event_bus:
+        event_bus.emit("CHECKPOINT", data={"reason": reason})
+
+
+def _trigger_checkpoint_safe(state_file: str, reason: str, event_bus: Any = None) -> None:
     """Trigger a checkpoint (exception-safe)."""
     try:
-        update_state_field(state_file, "status", "checkpoint")
-        logger.info("Checkpoint triggered: %s", reason)
+        trigger_checkpoint(state_file, reason, event_bus)
     except Exception:
         pass
 

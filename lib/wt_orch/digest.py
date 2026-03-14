@@ -668,6 +668,69 @@ def check_coverage_gaps_internal(
     return [rid for rid in all_ids if rid not in covered_ids]
 
 
+def final_coverage_check(digest_dir: str = DIGEST_DIR) -> str:
+    """Read digest requirements, compute covered/uncovered counts, return summary.
+
+    Called before marking orchestration done. Result included in summary email.
+
+    Args:
+        digest_dir: Path to digest directory.
+
+    Returns:
+        Human-readable summary string (e.g., "12/15 requirements covered (3 uncovered)").
+        Empty string if no digest data available.
+    """
+    reqs_path = Path(digest_dir) / "requirements.json"
+    cov_path = Path(digest_dir) / "coverage.json"
+
+    if not reqs_path.is_file():
+        return ""
+
+    try:
+        reqs_data = json.loads(reqs_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+    all_reqs = [
+        r for r in reqs_data.get("requirements", [])
+        if r.get("status") != "removed"
+    ]
+    total = len(all_reqs)
+    if total == 0:
+        return ""
+
+    # Read coverage data
+    coverage: dict = {}
+    if cov_path.is_file():
+        try:
+            cov_data = json.loads(cov_path.read_text(encoding="utf-8"))
+            coverage = cov_data.get("coverage", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    covered = sum(
+        1 for r in all_reqs
+        if r["id"] in coverage and coverage[r["id"]].get("status") == "merged"
+    )
+    planned = sum(
+        1 for r in all_reqs
+        if r["id"] in coverage and coverage[r["id"]].get("status") != "merged"
+    )
+    uncovered_ids = [r["id"] for r in all_reqs if r["id"] not in coverage]
+
+    lines = [f"{covered}/{total} requirements covered (merged)"]
+    if planned:
+        lines.append(f"  {planned} planned but not yet merged")
+    if uncovered_ids:
+        lines.append(f"  {len(uncovered_ids)} uncovered: {', '.join(uncovered_ids[:10])}")
+        if len(uncovered_ids) > 10:
+            lines[-1] += f" (+{len(uncovered_ids) - 10} more)"
+
+    summary = "\n".join(lines)
+    logger.info("Final coverage check: %s", lines[0])
+    return summary
+
+
 def update_coverage_status(
     change_name: str,
     new_status: str,

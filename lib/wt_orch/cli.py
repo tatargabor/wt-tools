@@ -929,12 +929,40 @@ def cmd_engine(args):
     """Dispatch engine subcommands.
 
     Migrated from: lib/orchestration/monitor.sh
+    When running as the monitor, registers signal handlers and atexit cleanup.
     """
-    from .engine import monitor_loop
+    import atexit
+    import signal
+
+    from .engine import cleanup_orchestrator, monitor_loop, parse_directives
 
     event_bus = _make_event_bus(args.state) if hasattr(args, "state") and args.state else None
 
     if args.engine_cmd == "monitor":
+        # Parse directives for cleanup context
+        directives = None
+        try:
+            import os
+            if os.path.isfile(args.directives):
+                with open(args.directives) as f:
+                    raw = json.load(f)
+            else:
+                raw = json.loads(args.directives)
+            directives = parse_directives(raw)
+        except Exception:
+            pass
+
+        # Register cleanup via atexit
+        atexit.register(cleanup_orchestrator, args.state, directives)
+
+        # Signal handlers: SIGTERM, SIGINT, SIGHUP → sys.exit(0) → triggers atexit
+        def _signal_handler(signum, frame):
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _signal_handler)
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGHUP, _signal_handler)
+
         monitor_loop(
             args.directives,
             args.state,
@@ -1597,6 +1625,11 @@ def main():
     e_mon.add_argument("--directives", required=True, help="Directives JSON file or string")
     e_mon.add_argument("--state", required=True, help="State file path")
     e_mon.add_argument("--poll-interval", type=int, default=15, help="Poll interval in seconds")
+    e_mon.add_argument("--default-model", default="", help="Default model override")
+    e_mon.add_argument("--team-mode", action="store_true", help="Enable team mode")
+    e_mon.add_argument("--context-pruning", action="store_true", default=True, help="Enable context pruning")
+    e_mon.add_argument("--model-routing", default="off", help="Model routing mode")
+    e_mon.add_argument("--checkpoint-auto-approve", action="store_true", help="Auto-approve checkpoints")
 
     args = parser.parse_args()
 

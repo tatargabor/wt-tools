@@ -2,6 +2,10 @@
 # lib/orchestration/planner.sh — Planning, validation, replanning
 #
 # Sourced by bin/wt-orchestrate. All functions run in the orchestrator's global scope.
+#
+# DEPRECATED: auto_replan_cycle() now runs in Python via engine.py when
+# ORCH_ENGINE=python. cmd_plan() wrapper remains for CLI use.
+# Python implementation: lib/wt_orch/planner.py, engine.py
 
 # ─── Spec Summarization ──────────────────────────────────────────────
 

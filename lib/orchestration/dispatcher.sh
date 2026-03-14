@@ -444,6 +444,22 @@ cmd_start() {
             resume_stopped_changes
             # Dispatch any remaining pending changes
             dispatch_ready_changes "$max_parallel"
+
+            # Feature flag: Python or bash monitor loop
+            if [[ "${ORCH_ENGINE:-bash}" == "python" ]]; then
+                log_info "Exec'ing to Python monitor (ORCH_ENGINE=python, resume path)"
+                local _directives_file
+                _directives_file=$(mktemp /tmp/orch-directives-XXXXXX.json)
+                echo "$directives" > "$_directives_file"
+                exec wt-orch-core engine monitor \
+                    --directives "$_directives_file" \
+                    --state "$STATE_FILENAME" \
+                    --poll-interval "${POLL_INTERVAL:-15}" \
+                    --default-model "$(echo "$directives" | jq -r '.default_model // "opus"')" \
+                    ${TEAM_MODE:+--team-mode} \
+                    --model-routing "$(echo "$directives" | jq -r '.model_routing // "off"')" \
+                    ${CHECKPOINT_AUTO_APPROVE:+--checkpoint-auto-approve}
+            fi
             monitor_loop "$directives"
             return 0
         fi
@@ -554,7 +570,23 @@ cmd_start() {
     # Dispatch initial changes
     dispatch_ready_changes "$max_parallel"
 
-    # Monitor loop
+    # Feature flag: Python or bash monitor loop
+    if [[ "${ORCH_ENGINE:-bash}" == "python" ]]; then
+        log_info "Exec'ing to Python monitor (ORCH_ENGINE=python, fresh start)"
+        local _directives_file
+        _directives_file=$(mktemp /tmp/orch-directives-XXXXXX.json)
+        echo "$directives" > "$_directives_file"
+        exec wt-orch-core engine monitor \
+            --directives "$_directives_file" \
+            --state "$STATE_FILENAME" \
+            --poll-interval "${POLL_INTERVAL:-15}" \
+            --default-model "$(echo "$directives" | jq -r '.default_model // "opus"')" \
+            ${TEAM_MODE:+--team-mode} \
+            --model-routing "$(echo "$directives" | jq -r '.model_routing // "off"')" \
+            ${CHECKPOINT_AUTO_APPROVE:+--checkpoint-auto-approve}
+    fi
+
+    # Monitor loop (bash fallback)
     monitor_loop "$directives"
 }
 

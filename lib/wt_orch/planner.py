@@ -987,3 +987,168 @@ def collect_replan_context(state_path: str) -> dict:
         )
 
     return result
+
+
+# ─── Planning Pipeline ────────────────────────────────────────────────
+
+
+def run_planning_pipeline(
+    input_mode: str,
+    input_path: str,
+    *,
+    state_path: str = "",
+    model: str = "opus",
+    team_mode: bool = False,
+    replan_ctx: dict | None = None,
+    replan_cycle: int | None = None,
+) -> dict:
+    """Orchestrate the full planning flow in Python.
+
+    Steps: input detection → freshness check → triage gate → design bridge →
+    Claude call → response parse → plan enrichment.
+
+    Args:
+        input_mode: "brief", "spec", or "digest".
+        input_path: Path to input file or digest directory.
+        state_path: Path to state file (for replan context).
+        model: Model to use for Claude call.
+        team_mode: Enable team mode in decomposition.
+        replan_ctx: Replan context dict (if replanning).
+        replan_cycle: Replan cycle number (if replanning).
+
+    Returns:
+        Enriched plan dict ready to write.
+
+    Raises:
+        RuntimeError: If planning fails.
+    """
+    from .subprocess_utils import run_claude
+
+    # 1. Freshness check for digest mode
+    if input_mode == "digest":
+        from .digest import check_digest_freshness
+        freshness = check_digest_freshness(input_path)
+        if freshness == "stale":
+            logger.warning("Digest is stale — consider re-running wt-orchestrate digest")
+
+    # 2. Triage gate
+    triage_status = check_triage_gate(input_path if input_mode == "digest" else "")
+    if triage_status.blocking_count > 0:
+        auto_defer = os.environ.get("TRIAGE_AUTO_DEFER", "false") == "true"
+        if auto_defer:
+            logger.info("Triage: auto-deferring %d blocking ambiguities", triage_status.blocking_count)
+        else:
+            raise RuntimeError(
+                f"Triage gate: {triage_status.blocking_count} unresolved ambiguities block planning. "
+                f"Edit triage.md or set TRIAGE_AUTO_DEFER=true."
+            )
+
+    # 3. Design bridge (detect design MCP, fetch snapshot)
+    design_context = _fetch_design_context()
+
+    # 4. Test infra detection
+    test_infra = detect_test_infra()
+    test_infra_context = ""
+    if test_infra.test_command:
+        test_infra_context = f"Test command: {test_infra.test_command}"
+
+    # 5. Build decomposition context
+    context = build_decomposition_context(
+        input_mode, input_path,
+        replan_ctx=replan_ctx,
+        design_context=design_context,
+        test_infra_context=test_infra_context,
+        team_mode=team_mode,
+    )
+
+    # 6. Call Claude
+    from .templates import render_planning_prompt
+    prompt = render_planning_prompt(context)
+
+    # Compute input hash for metadata
+    input_hash = ""
+    try:
+        if os.path.isfile(input_path):
+            input_hash = hashlib.sha256(Path(input_path).read_bytes()).hexdigest()
+        elif os.path.isdir(input_path):
+            input_hash = hashlib.sha256(input_path.encode()).hexdigest()
+    except OSError:
+        pass
+
+    result = run_claude(prompt, timeout=300, model=model, extra_args=["--max-turns", "1"])
+    if result.exit_code != 0:
+        raise RuntimeError(f"Claude planning call failed (exit {result.exit_code})")
+
+    # 7. Parse response
+    plan_data = _parse_plan_response(result.stdout)
+    if not plan_data:
+        raise RuntimeError("Could not parse plan JSON from Claude response")
+
+    # 8. Validate
+    plan_file_tmp = "/tmp/wt-plan-validate.json"
+    with open(plan_file_tmp, "w") as f:
+        json.dump(plan_data, f, indent=2)
+
+    validation = validate_plan(plan_file_tmp)
+    if not validation.valid:
+        logger.warning("Plan validation warnings: %s", validation.errors)
+
+    # 9. Enrich metadata
+    plan_data = enrich_plan_metadata(
+        plan_data,
+        input_hash,
+        input_mode,
+        input_path,
+        replan_cycle=replan_cycle,
+        state_path=state_path,
+    )
+
+    return plan_data
+
+
+def _fetch_design_context() -> str:
+    """Detect design MCP server and fetch snapshot if available."""
+    if os.path.isfile("design-snapshot.md"):
+        try:
+            content = Path("design-snapshot.md").read_text(errors="replace")
+            if "## Design Tokens" in content:
+                return content[:5000]
+        except OSError:
+            pass
+    return ""
+
+
+def _parse_plan_response(response_text: str) -> dict | None:
+    """Extract plan JSON from Claude response text."""
+    text = response_text.strip()
+
+    # Direct parse
+    try:
+        data = json.loads(text)
+        if "changes" in data:
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    # Strip markdown fences
+    match = re.search(r'```(?:json)?\s*\n(.*?)\n```', text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if "changes" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # Brace scanning
+    first = text.find("{")
+    last = text.rfind("}")
+    if first >= 0 and last > first:
+        try:
+            data = json.loads(text[first:last + 1])
+            if "changes" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    return None

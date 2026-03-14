@@ -327,6 +327,13 @@ def merge_change(
         # Sync running worktrees
         _sync_running_worktrees(change_name, state_file)
 
+        # Update coverage status
+        try:
+            from .digest import update_coverage_status
+            update_coverage_status(change_name, "merged")
+        except Exception:
+            logger.debug("Coverage update failed for %s (non-critical)", change_name)
+
         # Post-merge dependency install
         _post_merge_deps_install()
 
@@ -504,9 +511,50 @@ def _get_main_branch() -> str:
 
 
 def _run_hook(hook_name: str, change_name: str, status: str, wt_path: str) -> bool:
-    """Run an orchestration hook via the bash hook system. Returns True if allowed."""
-    # Hooks are managed by the bash layer — Python doesn't execute them directly.
-    # This is a no-op placeholder; the bash wrapper handles hooks.
+    """Run an orchestration hook via subprocess. Returns True if allowed (or no hook).
+
+    Hook scripts are user-defined shell scripts configured via directives
+    (hook_pre_merge, hook_post_merge, hook_on_fail).
+    """
+    # Check if the hook script is configured in state directives
+    from .state import load_state
+    import glob as glob_mod
+
+    # Try to find the hook from STATE_FILENAME env var
+    state_file = os.environ.get("STATE_FILENAME", "")
+    if not state_file or not os.path.isfile(state_file):
+        return True
+
+    try:
+        state = load_state(state_file)
+        directives = state.extras.get("directives", {})
+    except Exception:
+        return True
+
+    hook_key = f"hook_{hook_name}"
+    hook_script = directives.get(hook_key, "")
+    if not hook_script:
+        return True
+
+    logger.info("Running %s hook for %s: %s", hook_name, change_name, hook_script)
+
+    env = dict(os.environ)
+    env["CHANGE_NAME"] = change_name
+    env["CHANGE_STATUS"] = status
+    if wt_path:
+        env["WORKTREE_PATH"] = wt_path
+
+    result = run_command(
+        ["bash", "-c", hook_script],
+        timeout=120,
+        env=env,
+    )
+
+    if result.exit_code != 0:
+        logger.warning("%s hook failed for %s (exit %d)", hook_name, change_name, result.exit_code)
+        return False
+
+    logger.info("%s hook succeeded for %s", hook_name, change_name)
     return True
 
 
