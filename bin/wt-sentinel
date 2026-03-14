@@ -160,9 +160,35 @@ if [[ ! -f "$STATE_FILE" ]]; then
 elif [[ -f "$STATE_FILE" ]]; then
     _prev_status=$(jq -r '.status // ""' "$STATE_FILE" 2>/dev/null || true)
     if [[ "$_prev_status" == "done" || "$_prev_status" == "stopped" ]]; then
-        sentinel_log "Previous run finished (status=$_prev_status) — cleaning old state for fresh start"
-        rm -f "$STATE_FILE" "$EVENTS_FILE"
-        clean_old_worktrees
+        # Check if there are failed changes with worktrees — partial reset instead of nuke
+        _has_failed_with_wt=$(jq -r '[.changes[]? | select(.status == "failed" and .worktree_path != null and .worktree_path != "")] | length' "$STATE_FILE" 2>/dev/null || echo 0)
+        _has_merged=$(jq -r '[.changes[]? | select(.status == "merged")] | length' "$STATE_FILE" 2>/dev/null || echo 0)
+        if [[ "$_has_failed_with_wt" -gt 0 || "$_has_merged" -gt 0 ]]; then
+            sentinel_log "Previous run finished (status=$_prev_status) with $_has_failed_with_wt failed (with worktrees) + $_has_merged merged — partial reset (preserving worktrees)"
+            # Partial reset: failed → pending, clear retry counts, keep worktrees
+            local tmp
+            tmp=$(mktemp)
+            jq '
+                .status = "stopped" |
+                (.changes[] | select(.status == "failed")) |= (
+                    .status = "pending" |
+                    .verify_retry_count = 0 |
+                    .redispatch_count = 0 |
+                    .ralph_pid = null |
+                    .test_result = null |
+                    .build_result = null |
+                    .review_result = null |
+                    .smoke_result = null |
+                    .spec_coverage_result = null
+                )
+            ' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+            rm -f "$EVENTS_FILE"
+            sentinel_log "Partial reset complete — failed changes reset to pending, worktrees preserved"
+        else
+            sentinel_log "Previous run finished (status=$_prev_status) — cleaning old state for fresh start"
+            rm -f "$STATE_FILE" "$EVENTS_FILE"
+            clean_old_worktrees
+        fi
     fi
 fi
 
