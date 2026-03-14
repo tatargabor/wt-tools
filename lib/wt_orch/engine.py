@@ -338,9 +338,8 @@ def monitor_loop(
         if post_running > pre_running:
             last_progress_ts = int(time.time())
 
-        # Phase milestone check
-        if d.milestones_enabled:
-            _check_phase_milestone(state_file, d, event_bus)
+        # Phase advancement (always) + optional milestone check
+        _check_phase_completion(state_file, d, event_bus)
 
         # Retry merge queue
         pre_merged = _count_by_status(state_file, "merged")
@@ -941,11 +940,16 @@ def _self_watchdog(
             )
 
 
-def _check_phase_milestone(
+def _check_phase_completion(
     state_file: str, d: Directives, event_bus: Any
 ) -> None:
-    """Check phase completion and run milestone checkpoint."""
-    # Source: monitor.sh L322-337
+    """Check phase completion, run optional milestone, and advance phase.
+
+    Phase advancement ALWAYS happens when all changes in the current phase
+    are terminal. Milestone checkpoints only run if milestones_enabled.
+    Bug #17 fix: previously phase advancement was gated behind
+    milestones_enabled, so phases never advanced when milestones were off.
+    """
     state = load_state(state_file)
     current_phase = state.extras.get("current_phase", 999)
     if current_phase >= 999:
@@ -959,18 +963,21 @@ def _check_phase_milestone(
     if not all_terminal or not phase_changes:
         return
 
-    logger.info("Phase %d complete — running milestone checkpoint", current_phase)
-    from .milestone import run_milestone_checkpoint
-    run_milestone_checkpoint(
-        current_phase,
-        base_port=d.milestones_base_port,
-        max_worktrees=d.milestones_max_worktrees,
-        state_file=state_file,
-        milestone_dev_server=d.milestones_dev_server,
-        event_bus=event_bus,
-    )
+    logger.info("Phase %d complete — advancing", current_phase)
 
-    # Advance phase
+    # Optional milestone checkpoint
+    if d.milestones_enabled:
+        from .milestone import run_milestone_checkpoint
+        run_milestone_checkpoint(
+            current_phase,
+            base_port=d.milestones_base_port,
+            max_worktrees=d.milestones_max_worktrees,
+            state_file=state_file,
+            milestone_dev_server=d.milestones_dev_server,
+            event_bus=event_bus,
+        )
+
+    # Advance phase (always)
     from .state import advance_phase
     with locked_state(state_file) as st:
         advance_phase(st, event_bus=event_bus)
