@@ -511,7 +511,8 @@ run_phase_end_e2e() {
     log_info "Phase-end E2E: starting on main branch"
     emit_event "PHASE_E2E_STARTED" "" "{}"
 
-    local e2e_port=$((3100 + RANDOM % 900))
+    local e2e_port_base="${E2E_PORT_BASE:-3100}"
+    local e2e_port=$((e2e_port_base + RANDOM % 100))
     local _start=$(($(date +%s%N) / 1000000))
     local e2e_output=""
     local e2e_rc=0
@@ -1091,7 +1092,8 @@ handle_change_done() {
         e2e_test_count=$(find "$wt_path/tests/e2e" -name "*.spec.ts" -o -name "*.spec.js" 2>/dev/null | wc -l || echo 0)
         if [[ (-f "$wt_path/playwright.config.ts" || -f "$wt_path/playwright.config.js") && "$e2e_test_count" -gt 0 ]]; then
             update_change_field "$change_name" "status" '"verifying"'
-            local e2e_port=$((3100 + RANDOM % 900))
+            local e2e_port_base="${E2E_PORT_BASE:-3100}"
+            local e2e_port=$((e2e_port_base + RANDOM % 100))
             info "Running E2E tests for $change_name (port=$e2e_port)..."
             log_info "Verify gate: e2e start for $change_name (PW_PORT=$e2e_port)"
 

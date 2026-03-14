@@ -51,6 +51,11 @@ monitor_loop() {
     local e2e_mode
     e2e_mode=$(echo "$directives" | jq -r '.e2e_mode // "per_change"')
 
+    # Export E2E port base for verifier — prevents cross-project port collisions
+    # Each project sets e2e_port_base in orchestration.yaml (default: 3100)
+    export E2E_PORT_BASE
+    E2E_PORT_BASE=$(echo "$directives" | jq -r '.e2e_port_base // 3100')
+
     local token_hard_limit
     token_hard_limit=$(echo "$directives" | jq -r ".token_hard_limit // $DEFAULT_TOKEN_HARD_LIMIT")
 
