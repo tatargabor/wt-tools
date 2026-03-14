@@ -675,7 +675,7 @@ def _auto_replan_cycle(
         return "no_new_work"
 
     # 3. Read plan metadata for input_mode/input_path
-    plan_file = os.environ.get("PLAN_FILENAME", "wt/orchestration/plan.json")
+    plan_file = os.environ.get("PLAN_FILENAME", "orchestration-plan.json")
     if not os.path.isfile(plan_file):
         logger.error("Replan: plan file not found at %s", plan_file)
         return "error"
