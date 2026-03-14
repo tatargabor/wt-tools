@@ -1070,7 +1070,26 @@ cmd_start() {
     fi
 
     if [[ "$need_plan" == true ]]; then
-        # Clean slate: remove all previous plan/state artifacts
+        # Guard: do not replan while changes are actively running
+        if [[ -f "$STATE_FILENAME" ]]; then
+            local _active_count
+            _active_count=$(jq '[.changes[] | select(.status == "running" or .status == "verifying" or .status == "dispatching")] | length' "$STATE_FILENAME" 2>/dev/null || echo "0")
+            if [[ "$_active_count" -gt 0 ]]; then
+                warn "Spec changed but $_active_count change(s) still active — deferring replan"
+                log_info "Replan deferred: $_active_count active changes, spec change detected"
+                need_plan=false
+            fi
+        fi
+    fi
+
+    if [[ "$need_plan" == true ]]; then
+        # Backup state before clean slate — recover if plan fails
+        if [[ -f "$STATE_FILENAME" ]]; then
+            cp "$STATE_FILENAME" "${STATE_FILENAME}.bak"
+            log_info "State backed up to ${STATE_FILENAME}.bak"
+        fi
+
+        # Clean slate: remove plan/state artifacts for fresh planning
         local stale_files=("$PLAN_FILENAME" "$STATE_FILENAME" "$SUMMARY_FILENAME"
                            ".claude/orchestration-last-response.txt")
         for f in "${stale_files[@]}"; do
@@ -1080,7 +1099,16 @@ cmd_start() {
             fi
         done
         info "Creating plan..."
-        cmd_plan || return 1
+        if ! cmd_plan; then
+            # Plan failed — restore backed up state so orchestrator can continue
+            if [[ -f "${STATE_FILENAME}.bak" ]]; then
+                mv "${STATE_FILENAME}.bak" "$STATE_FILENAME"
+                warn "Plan failed — restored previous state"
+                log_error "cmd_plan failed, state restored from backup"
+            fi
+            return 1
+        fi
+        rm -f "${STATE_FILENAME}.bak"
 
         # Plan approval gate: if directive set, wait for user to approve
         local directives_for_gate
