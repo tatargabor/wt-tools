@@ -247,6 +247,12 @@ def monitor_loop(
     token_wait = False
     replan_retry_count = 0
 
+    # Ensure state is "running" — the bash layer may have set "stopped"
+    # via EXIT trap before exec'ing to us
+    if state.status == "stopped":
+        logger.info("Resuming orchestration (was: stopped)")
+        update_state_field(state_file, "status", "running")
+
     logger.info("Monitor loop started (poll every %ds, auto_replan=%s)", poll_interval, d.auto_replan)
 
     # Self-watchdog tracking

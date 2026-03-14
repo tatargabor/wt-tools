@@ -447,6 +447,10 @@ cmd_start() {
 
             # Exec to Python monitor loop
             log_info "Exec'ing to Python monitor (resume path)"
+            # Clear EXIT trap — exec replaces the process, and the bash EXIT
+            # trap would write status=stopped before Python starts
+            trap - EXIT
+            update_state_field "status" '"running"'
             local _directives_file
             _directives_file=$(mktemp /tmp/orch-directives-XXXXXX.json)
             echo "$directives" > "$_directives_file"
@@ -568,6 +572,10 @@ cmd_start() {
 
     # Exec to Python monitor loop
     log_info "Exec'ing to Python monitor (fresh start)"
+    # Clear EXIT trap — exec replaces the process, and the bash EXIT
+    # trap would write status=stopped before Python starts
+    trap - EXIT
+    update_state_field "status" '"running"'
     local _directives_file
     _directives_file=$(mktemp /tmp/orch-directives-XXXXXX.json)
     echo "$directives" > "$_directives_file"
