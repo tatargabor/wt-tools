@@ -1209,7 +1209,7 @@ def resume_change(
             done_criteria = "merge"
             max_iter = 5
         else:
-            done_criteria = "build"
+            done_criteria = "test"
             max_iter = 3
     else:
         task_desc = f"Continue {change_name}: {change.scope[:200]}"

@@ -1281,9 +1281,10 @@ def handle_change_done(
                     update_change_field(state_file, change_name, "status", "verify-failed")
                     scope = change.scope or ""
                     retry_prompt = (
-                        "The change has NO test files. Add tests for the implemented functionality. "
-                        "Test files must match *.test.* or *.spec.* patterns.\n\n"
-                        f"Original scope: {scope}"
+                        f"Verify failed: no test files found (*.test.* or *.spec.* patterns).\n\n"
+                        f"IMPORTANT: First ensure ALL implementation from the scope below is complete "
+                        f"and committed. Then add tests for the implemented functionality.\n\n"
+                        f"Scope (implement this fully, then add tests):\n{scope}"
                     )
                     update_change_field(state_file, change_name, "retry_context", retry_prompt)
                     _snapshot_retry_tokens(state_file, change_name, wt_path)
