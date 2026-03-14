@@ -980,11 +980,9 @@ $req_entries"
     local _heartbeat_pid=$!
 
     local claude_output
-    local _mcp_args=()
-    if [[ -n "${DESIGN_MCP_CONFIG:-}" && -f "${DESIGN_MCP_CONFIG:-}" ]]; then
-        _mcp_args=(--mcp-config "$DESIGN_MCP_CONFIG")
-    fi
-    claude_output=$(export RUN_CLAUDE_TIMEOUT=1200; echo "$prompt" | run_claude --model "$(model_id opus)" --max-turns 2 "${_mcp_args[@]}") || {
+    # NOTE: No MCP tools for decompose — design context is already in the prompt text.
+    # MCP tools (e.g. Figma) consume turns with tool calls, leaving no room for JSON output.
+    claude_output=$(export RUN_CLAUDE_TIMEOUT=1200; echo "$prompt" | run_claude --model "$(model_id opus)" --max-turns 1) || {
         rm -f "$_hb_marker"
         kill "$_heartbeat_pid" 2>/dev/null; wait "$_heartbeat_pid" 2>/dev/null || true
         error "Claude decomposition failed. Check your Claude CLI setup."
