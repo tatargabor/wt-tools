@@ -151,20 +151,66 @@ From 6 E2E runs (4 MiniShop, 2 CraftBrew):
 
 Compare each run against these baselines. Track: wall clock, merged/failed ratio, total tokens, interventions needed.
 
-## Run Findings Template
+## Run Findings — Storage & Workflow
 
-Document bugs found during each run:
+### Where findings go
+
+Each E2E project gets its own findings file **in the wt-tools repo**:
+
+```
+tests/e2e/{project}-e2e-findings.md    # version-controlled, permanent record
+```
+
+Examples:
+- `tests/e2e/craftbrew-e2e-findings.md` — CraftBrew digest pipeline runs
+- `tests/e2e/minishop-e2e-findings.md` — MiniShop basic runs
+
+### When to write
+
+Write findings **continuously during the run**, not after:
+
+1. **Bug found** → append to findings file immediately (even before fix)
+2. **Bug fixed** → update the entry with commit hash and deploy status
+3. **Phase completes** → add status table and timing data
+4. **Run ends** → write Final Run Report section with metrics
+
+### Per-bug template
 
 ```markdown
-## Run N Findings
-
-### Bug 1: [short description]
+### N. [short description]
 - **Type**: framework / app
 - **Severity**: blocking / noise
 - **Root cause**: ...
 - **Fix**: [commit hash] — deployed to running test? yes/no
 - **Recurrence**: new / seen in run N-1
 ```
+
+### Final Run Report template
+
+```markdown
+## Final Run Report
+
+### Status: COMPLETED / INTERRUPTED / PARTIAL (X/Y merged)
+
+| Change | REQs | Status | Tokens | Time | Notes |
+|--------|------|--------|--------|------|-------|
+| ... | ... | merged/FAILED | ... | ... | ... |
+
+### Key Metrics
+- **Wall clock**: Xh Ym
+- **Changes merged**: X/Y (Z%)
+- **Sentinel interventions**: N
+- **Total tokens**: XM
+- **Bugs found & fixed**: N
+- **Verify retries**: N
+
+### Conclusions
+1. ...
+```
+
+### Cross-run tracking
+
+Number bugs sequentially across runs within the same project file (e.g. Run #1 bugs 1-7, Run #2 bugs 8-14). This makes it easy to reference bugs across runs and track recurrence.
 
 ## Architecture Quick Reference
 
