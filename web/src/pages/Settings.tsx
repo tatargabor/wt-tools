@@ -21,6 +21,7 @@ interface SettingsData {
   runs_dir?: string | null
   runs_count?: number
   orchestrator_pid?: number | null
+  sentinel_pid?: number | null
   plan_version?: string | number | null
   data_sources?: Record<string, DataSource>
 }
@@ -80,6 +81,7 @@ export default function Settings({ project }: Props) {
         <h2 className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2">Runtime</h2>
         <div className="bg-neutral-900/50 rounded-lg border border-neutral-800 px-4 py-2 divide-y divide-neutral-800/50">
           <ConfigValue label="Orchestrator PID" value={data.orchestrator_pid} />
+          <ConfigValue label="Sentinel PID" value={data.sentinel_pid} />
           <ConfigValue label="Plan version" value={data.plan_version != null ? `v${data.plan_version}` : null} />
           <ConfigValue label="CLAUDE.md" value={data.has_claude_md ? 'Present' : 'Not found'} />
           <ConfigValue label="Project knowledge" value={data.has_project_knowledge ? 'Present' : 'Not found'} />

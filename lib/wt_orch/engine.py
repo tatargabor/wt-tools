@@ -248,10 +248,11 @@ def monitor_loop(
 
     d = parse_directives(raw)
 
-    # Persist timing info
+    # Persist timing info and orchestrator PID
     start_epoch = int(time.time())
     update_state_field(state_file, "started_epoch", start_epoch)
     update_state_field(state_file, "time_limit_secs", d.time_limit_secs)
+    update_state_field(state_file, "orchestrator_pid", os.getpid())
 
     # Restore active_seconds from state (cumulative across restarts)
     state = load_state(state_file)

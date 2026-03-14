@@ -1267,6 +1267,7 @@ def get_project_settings(project: str):
         "has_project_knowledge": False,
         "runs_dir": None,
         "orchestrator_pid": None,
+        "sentinel_pid": None,
         "plan_version": None,
     }
 
@@ -1279,6 +1280,16 @@ def get_project_settings(project: str):
             result["orchestrator_pid"] = state.orchestrator_pid
             result["plan_version"] = state.plan_version
         except Exception:
+            pass
+
+    # Sentinel PID
+    sentinel_pid_file = project_path / "sentinel.pid"
+    if sentinel_pid_file.exists():
+        try:
+            pid = int(sentinel_pid_file.read_text().strip())
+            os.kill(pid, 0)  # check alive
+            result["sentinel_pid"] = pid
+        except (ValueError, OSError):
             pass
 
     # Orchestration config (YAML)
