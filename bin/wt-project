@@ -157,7 +157,7 @@ _write_generated_file_patterns() {
     local py
     py=$(_wt_python) 2>/dev/null || return 0
 
-    "$py" -c "
+    PYTHONPATH="$WT_TOOLS_ROOT/lib${PYTHONPATH:+:$PYTHONPATH}" "$py" -c "
 import sys
 project_path = sys.argv[1]
 output_file = sys.argv[2]
