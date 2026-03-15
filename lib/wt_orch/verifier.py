@@ -435,8 +435,18 @@ def review_change(
     # Build design compliance section (empty if no snapshot)
     design_compliance = ""
     if design_snapshot_dir:
-        # build_design_review_section is called from bash — template renders it
-        pass
+        from .root import WT_TOOLS_ROOT
+        bridge_path = os.path.join(WT_TOOLS_ROOT, "lib", "design", "bridge.sh")
+        if os.path.isfile(bridge_path):
+            design_r = run_command(
+                ["bash", "-c",
+                 f'source "{bridge_path}" 2>/dev/null && build_design_review_section "{design_snapshot_dir}"'],
+                timeout=5,
+            )
+            if design_r.exit_code == 0 and design_r.stdout.strip():
+                design_compliance = design_r.stdout.strip()
+            elif design_r.exit_code != 0 and design_r.stderr.strip():
+                logger.warning("Design review section failed: %s", design_r.stderr[:200])
 
     # Build review prompt via template
     template_input = json.dumps({
@@ -1098,6 +1108,7 @@ def handle_change_done(
     e2e_command: str = "",
     e2e_timeout: int = DEFAULT_E2E_TIMEOUT,
     event_bus: EventBus | None = None,
+    design_snapshot_dir: str = "",
     **kwargs: Any,
 ) -> None:
     """Full verify gate pipeline: build → test → e2e → scope → review → rules → verify → merge queue.
@@ -1398,7 +1409,7 @@ def handle_change_done(
         scope = change.scope or ""
 
         start_ms = int(time.monotonic() * 1000)
-        rr = review_change(change_name, wt_path, scope, review_model, state_file=state_file)
+        rr = review_change(change_name, wt_path, scope, review_model, state_file=state_file, design_snapshot_dir=design_snapshot_dir)
         gate_review_ms = int(time.monotonic() * 1000) - start_ms
         update_change_field(state_file, change_name, "gate_review_ms", gate_review_ms)
 

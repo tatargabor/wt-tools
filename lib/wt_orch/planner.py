@@ -1047,7 +1047,7 @@ def run_planning_pipeline(
                 )
 
     # 3. Design bridge (detect design MCP, fetch snapshot)
-    design_context = _fetch_design_context()
+    design_context = _fetch_design_context(force=bool(replan_ctx))
 
     # 4. Test infra detection
     test_infra = detect_test_infra()
@@ -1214,16 +1214,132 @@ def plan_via_agent(
     return True
 
 
-def _fetch_design_context() -> str:
-    """Detect design MCP server and fetch snapshot if available."""
-    if os.path.isfile("design-snapshot.md"):
+def _detect_design_mcp() -> str | None:
+    """Detect registered design MCP server from .claude/settings.json.
+
+    Returns server name (e.g., 'figma') or None if no design MCP found.
+    """
+    settings_path = os.path.join(".claude", "settings.json")
+    if not os.path.isfile(settings_path):
+        return None
+    try:
+        with open(settings_path) as f:
+            settings = json.load(f)
+        mcp_servers = settings.get("mcpServers", {})
+        for name in mcp_servers:
+            if name in ("figma", "penpot", "sketch", "zeplin"):
+                return name
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _load_design_file_ref() -> str | None:
+    """Read design_file from orchestration config.
+
+    Checks wt/orchestration/config.yaml then .claude/orchestration.yaml.
+    Returns the URL string or None.
+    """
+    for config_path in ("wt/orchestration/config.yaml", ".claude/orchestration.yaml"):
+        if not os.path.isfile(config_path):
+            continue
+        try:
+            content = Path(config_path).read_text(errors="replace")
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith("design_file:"):
+                    val = line[len("design_file:"):].strip().strip("'\"")
+                    if val:
+                        return val
+        except OSError:
+            pass
+    return None
+
+
+def _fetch_design_context(force: bool = False) -> str:
+    """Detect design MCP, health-check, fetch snapshot via bash bridge.
+
+    Calls setup_design_bridge + check_design_mcp_health + fetch_design_snapshot
+    in a single chained bash subprocess (env vars from setup carry through).
+
+    Args:
+        force: If True, re-fetch even if cached (used during replan).
+
+    Returns:
+        Snapshot content (first 5000 chars) or empty string.
+
+    Raises:
+        RuntimeError: If design MCP + design_file configured but fetch fails
+                      (unless DESIGN_OPTIONAL=true).
+    """
+    from .subprocess_utils import run_command
+    from .root import WT_TOOLS_ROOT
+
+    # Check cache first (skip fetch if valid snapshot exists and not forcing)
+    if not force and os.path.isfile("design-snapshot.md"):
         try:
             content = Path("design-snapshot.md").read_text(errors="replace")
             if "## Design Tokens" in content:
                 return content[:5000]
         except OSError:
             pass
-    return ""
+
+    # Detect design MCP
+    server_name = _detect_design_mcp()
+    if not server_name:
+        return ""
+
+    # Load design file reference — skip health check if not configured
+    design_file_ref = _load_design_file_ref()
+    if not design_file_ref:
+        return ""
+
+    # All three bash bridge calls in ONE subprocess (env vars carry through)
+    bridge_path = os.path.join(WT_TOOLS_ROOT, "lib", "design", "bridge.sh")
+    if not os.path.isfile(bridge_path):
+        logger.warning("Design bridge not found: %s", bridge_path)
+        return ""
+
+    force_arg = "force" if force else ""
+    project_root = os.getcwd()
+
+    result = run_command(
+        ["bash", "-c",
+         f'export PROJECT_ROOT="{project_root}" && '
+         f'source "{bridge_path}" 2>/dev/null && '
+         f'setup_design_bridge && '
+         f'check_design_mcp_health && '
+         f'fetch_design_snapshot {force_arg}'],
+        timeout=300,
+        env={"DESIGN_SNAPSHOT_DIR": project_root},
+    )
+
+    # Read the generated snapshot
+    if result.exit_code == 0 and os.path.isfile("design-snapshot.md"):
+        try:
+            content = Path("design-snapshot.md").read_text(errors="replace")
+            if "## Design Tokens" in content:
+                logger.info("Design snapshot loaded (%d bytes)", len(content))
+                return content[:5000]
+        except OSError:
+            pass
+
+    # Fail-fast: design configured but fetch failed
+    design_optional = os.environ.get("DESIGN_OPTIONAL", "").lower() == "true"
+    if design_optional:
+        logger.warning(
+            "Design snapshot fetch failed (DESIGN_OPTIONAL=true, continuing without design). "
+            "Server: %s, exit_code: %d", server_name, result.exit_code
+        )
+        return ""
+
+    raise RuntimeError(
+        f"Design snapshot fetch failed — {server_name} MCP is registered and design_file "
+        f"is configured but snapshot could not be generated. "
+        f"Exit code: {result.exit_code}. Stderr: {result.stderr[:500]}. "
+        f"Fix: authenticate the {server_name} MCP (run /mcp → {server_name} → Authenticate), "
+        f"or set DESIGN_OPTIONAL=true to skip."
+    )
 
 
 def _parse_plan_response(response_text: str) -> dict | None:

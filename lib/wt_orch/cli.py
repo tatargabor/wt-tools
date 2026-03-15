@@ -6,6 +6,7 @@ pyproject.toml [project.scripts] also points here for pip-installed environments
 
 import argparse
 import json
+import os
 import sys
 
 
@@ -576,6 +577,7 @@ def cmd_dispatch(args):
             input_mode=args.input_mode or "",
             input_path=args.input_path or "",
             digest_dir=args.digest_dir or "",
+            design_snapshot_dir=os.getcwd(),
         )
         sys.exit(0 if ok else 1)
 
@@ -590,6 +592,7 @@ def cmd_dispatch(args):
             input_mode=args.input_mode or "",
             input_path=args.input_path or "",
             digest_dir=args.digest_dir or "",
+            design_snapshot_dir=os.getcwd(),
         )
         print(count)
         sys.exit(0)
@@ -738,6 +741,7 @@ def cmd_verify(args):
             e2e_command=args.e2e_command or "",
             e2e_timeout=args.e2e_timeout,
             event_bus=event_bus,
+            design_snapshot_dir=os.getcwd(),
         )
         print(status or "skipped")
         sys.exit(0)
@@ -756,6 +760,7 @@ def cmd_verify(args):
             e2e_command=args.e2e_command or "",
             e2e_timeout=args.e2e_timeout,
             event_bus=event_bus,
+            design_snapshot_dir=os.getcwd(),
         )
         sys.exit(0)
 

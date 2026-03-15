@@ -1047,6 +1047,7 @@ def dispatch_ready_changes(
     input_mode: str = "",
     input_path: str = "",
     digest_dir: str = "",
+    design_snapshot_dir: str = ".",
 ) -> int:
     """Dispatch pending changes respecting deps and parallel limits.
 
@@ -1099,6 +1100,7 @@ def dispatch_ready_changes(
             input_mode=input_mode,
             input_path=input_path,
             digest_dir=digest_dir,
+            design_snapshot_dir=design_snapshot_dir,
         )
         running += 1
         dispatched += 1
