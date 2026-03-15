@@ -183,6 +183,9 @@ def is_done(
     elif done_criteria == "merge":
         return _check_merge_done(wt_path)
 
+    elif done_criteria == "test":
+        return _check_test_done(wt_path)
+
     return False
 
 
@@ -238,6 +241,42 @@ def get_new_commits(wt_path: str, since: str = "") -> list:
 
 
 # ─── Internal helpers ─────────────────────────────────────────
+
+
+def _check_test_done(wt_path: str) -> bool:
+    """Test command passes = done. Fallback chain: loop-state → auto-detect → build."""
+    from .config import auto_detect_test_command
+
+    # 1. Read test_command from loop-state.json
+    test_cmd = None
+    state_file = os.path.join(wt_path, ".claude", "loop-state.json")
+    try:
+        with open(state_file, "r") as f:
+            data = json.load(f)
+        test_cmd = data.get("test_command")  # None if absent or null
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    # 2. Fallback: auto-detect from project config
+    if not test_cmd:
+        test_cmd = auto_detect_test_command(wt_path)
+
+    # 3. Last resort: fall back to build check
+    if not test_cmd:
+        return _check_build_done(wt_path)
+
+    try:
+        result = subprocess.run(
+            test_cmd,
+            shell=True,
+            cwd=wt_path,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
 
 
 def _check_build_done(wt_path: str) -> bool:

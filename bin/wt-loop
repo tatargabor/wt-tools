@@ -56,7 +56,8 @@ Commands:
   run                      Internal: run the loop (called by terminal)
 
 Start Options:
-  --done <criteria>        Done detection: tasks|openspec|manual (default: tasks, auto-detects openspec)
+  --done <criteria>        Done detection: tasks|openspec|manual|build|merge|test (default: tasks, auto-detects openspec)
+  --test-command <cmd>    Test command for done=test criteria (e.g. "pnpm test")
   --max <n>                Max iterations (default: 10)
   --stall-threshold <n>    Stall after N commit-less iterations (default: 2)
   --max-idle <n>           Stop after N identical-output iterations (default: 3)
@@ -121,12 +122,17 @@ cmd_start() {
     local label=""
     local change_name=""
     local token_budget_k=""
+    local test_command=""
     local team_mode=false
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --done)
                 done_criteria="$2"
+                shift 2
+                ;;
+            --test-command)
+                test_command="$2"
                 shift 2
                 ;;
             --max)
@@ -278,6 +284,13 @@ cmd_start() {
     tmp_pm=$(mktemp)
     jq --arg pm "$effective_permission_mode" --argjson mi "$max_idle_iterations" --argjson tm "$team_mode" \
         '.permission_mode = $pm | .max_idle_iterations = $mi | .team_mode = $tm' "$state_file_init" > "$tmp_pm" && mv "$tmp_pm" "$state_file_init"
+
+    # Save test command in state (for done=test criteria)
+    if [[ -n "$test_command" ]]; then
+        local tmp_tc
+        tmp_tc=$(mktemp)
+        jq --arg tc "$test_command" '.test_command = $tc' "$state_file_init" > "$tmp_tc" && mv "$tmp_tc" "$state_file_init"
+    fi
 
     # Resolve and save model in state (default: opus)
     local effective_model

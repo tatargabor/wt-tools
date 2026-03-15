@@ -509,3 +509,127 @@ class TestRetryFailedBuilds:
         ])
         count = retry_failed_builds(state_file, max_retries=2)
         assert count == 0
+
+
+# ─── resume_change — test command passing ──────────────────────────
+
+
+class TestResumeChangeTestCommand:
+    def test_test_command_passed_from_directives(self, state_file, tmp_dir):
+        """resume_change passes --test-command from directives when done=test."""
+        from unittest.mock import patch, MagicMock
+
+        wt_dir = os.path.join(tmp_dir, "worktree")
+        os.makedirs(os.path.join(wt_dir, ".claude"))
+
+        _write_state(state_file, [
+            {
+                "name": "fix-idor",
+                "scope": "Fix IDOR vulnerability",
+                "complexity": "S",
+                "change_type": "bugfix",
+                "depends_on": [],
+                "status": "stopped",
+                "worktree_path": wt_dir,
+                "ralph_pid": 0,
+                "tokens_used": 100,
+                "tokens_used_prev": 0,
+                "input_tokens": 50,
+                "output_tokens": 50,
+                "cache_read_tokens": 0,
+                "cache_create_tokens": 0,
+                "input_tokens_prev": 0,
+                "output_tokens_prev": 0,
+                "cache_read_tokens_prev": 0,
+                "cache_create_tokens_prev": 0,
+                "verify_retry_count": 0,
+                "redispatch_count": 0,
+                "merge_retry_count": 0,
+                "retry_context": "REVIEW FEEDBACK: Fix IDOR on cart routes",
+            },
+        ])
+        # Store directives in state extras
+        with open(state_file) as f:
+            st = json.load(f)
+        st["directives"] = {"test_command": "pnpm test"}
+        with open(state_file, "w") as f:
+            json.dump(st, f)
+
+        # Write loop-state to signal running
+        loop_state_file = os.path.join(wt_dir, ".claude", "loop-state.json")
+        with open(loop_state_file, "w") as f:
+            json.dump({"status": "starting", "terminal_pid": 12345}, f)
+
+        from wt_orch.dispatcher import resume_change
+
+        captured_cmd = []
+
+        def mock_run_command(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0)
+
+        with patch("wt_orch.dispatcher.run_command", side_effect=mock_run_command), \
+             patch("wt_orch.dispatcher._kill_existing_wt_loop"):
+            result = resume_change(state_file, "fix-idor")
+
+        assert result is True
+        assert "--test-command" in captured_cmd
+        tc_idx = captured_cmd.index("--test-command")
+        assert captured_cmd[tc_idx + 1] == "pnpm test"
+        assert "--done" in captured_cmd
+        done_idx = captured_cmd.index("--done")
+        assert captured_cmd[done_idx + 1] == "test"
+
+    def test_no_test_command_no_flag(self, state_file, tmp_dir):
+        """When no test command available, --test-command flag is omitted."""
+        from unittest.mock import patch, MagicMock
+
+        wt_dir = os.path.join(tmp_dir, "worktree")
+        os.makedirs(os.path.join(wt_dir, ".claude"))
+
+        _write_state(state_file, [
+            {
+                "name": "fix-auth",
+                "scope": "Fix auth",
+                "complexity": "S",
+                "change_type": "bugfix",
+                "depends_on": [],
+                "status": "stopped",
+                "worktree_path": wt_dir,
+                "ralph_pid": 0,
+                "tokens_used": 0,
+                "tokens_used_prev": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_create_tokens": 0,
+                "input_tokens_prev": 0,
+                "output_tokens_prev": 0,
+                "cache_read_tokens_prev": 0,
+                "cache_create_tokens_prev": 0,
+                "verify_retry_count": 0,
+                "redispatch_count": 0,
+                "merge_retry_count": 0,
+                "retry_context": "REVIEW FEEDBACK: Fix auth middleware",
+            },
+        ])
+
+        loop_state_file = os.path.join(wt_dir, ".claude", "loop-state.json")
+        with open(loop_state_file, "w") as f:
+            json.dump({"status": "starting", "terminal_pid": 12345}, f)
+
+        from wt_orch.dispatcher import resume_change
+
+        captured_cmd = []
+
+        def mock_run_command(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0)
+
+        with patch("wt_orch.dispatcher.run_command", side_effect=mock_run_command), \
+             patch("wt_orch.dispatcher._kill_existing_wt_loop"), \
+             patch("wt_orch.config.auto_detect_test_command", return_value=""):
+            result = resume_change(state_file, "fix-auth")
+
+        assert result is True
+        assert "--test-command" not in captured_cmd

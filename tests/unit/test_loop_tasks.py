@@ -245,3 +245,95 @@ class TestTaskStatus:
     def test_with_values(self):
         s = TaskStatus(total=10, done=7, pending=2, manual=1, percent=70.0)
         assert s.done == 7
+
+
+# ─── _check_test_done ────────────────────────────────────────
+
+
+class TestCheckTestDone:
+    def test_pass_returns_true(self, wt, monkeypatch):
+        """Test command exits 0 → done."""
+        state_file = os.path.join(wt, ".claude", "loop-state.json")
+        with open(state_file, "w") as f:
+            json.dump({"test_command": "true"}, f)
+
+        import subprocess
+        from unittest.mock import patch
+
+        with patch("wt_orch.loop_tasks.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args="true", returncode=0, stdout="", stderr=""
+            )
+            assert is_done(wt, "test") is True
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args
+            assert call_kwargs[1]["shell"] is True
+            assert call_kwargs[1]["timeout"] == 300
+
+    def test_fail_returns_false(self, wt):
+        """Test command exits non-zero → not done."""
+        state_file = os.path.join(wt, ".claude", "loop-state.json")
+        with open(state_file, "w") as f:
+            json.dump({"test_command": "false"}, f)
+
+        import subprocess
+        from unittest.mock import patch
+
+        with patch("wt_orch.loop_tasks.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args="false", returncode=1, stdout="FAIL", stderr=""
+            )
+            assert is_done(wt, "test") is False
+
+    def test_timeout_returns_false(self, wt):
+        """Test command timeout → not done."""
+        state_file = os.path.join(wt, ".claude", "loop-state.json")
+        with open(state_file, "w") as f:
+            json.dump({"test_command": "sleep 999"}, f)
+
+        import subprocess
+        from unittest.mock import patch
+
+        with patch("wt_orch.loop_tasks.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
+            assert is_done(wt, "test") is False
+
+    def test_fallback_auto_detect(self, wt):
+        """No test_command in state → auto-detect fallback."""
+        state_file = os.path.join(wt, ".claude", "loop-state.json")
+        with open(state_file, "w") as f:
+            json.dump({"test_command": None}, f)  # null = absent
+
+        import subprocess
+        from unittest.mock import patch
+
+        with patch("wt_orch.loop_tasks.subprocess.run") as mock_run, \
+             patch("wt_orch.loop_tasks._check_test_done.__wrapped__", None, create=True), \
+             patch("wt_orch.config.auto_detect_test_command", return_value="npm test") as mock_detect:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args="npm test", returncode=0, stdout="", stderr=""
+            )
+            assert is_done(wt, "test") is True
+            mock_detect.assert_called_once_with(wt)
+
+    def test_fallback_build_check(self, wt):
+        """No test command anywhere → fall back to build check."""
+        state_file = os.path.join(wt, ".claude", "loop-state.json")
+        with open(state_file, "w") as f:
+            json.dump({}, f)
+
+        from unittest.mock import patch
+
+        with patch("wt_orch.config.auto_detect_test_command", return_value=""), \
+             patch("wt_orch.loop_tasks._check_build_done", return_value=True) as mock_build:
+            assert is_done(wt, "test") is True
+            mock_build.assert_called_once_with(wt)
+
+    def test_no_state_file_falls_back(self, wt):
+        """No loop-state.json → falls through to auto-detect/build."""
+        from unittest.mock import patch
+
+        with patch("wt_orch.config.auto_detect_test_command", return_value=""), \
+             patch("wt_orch.loop_tasks._check_build_done", return_value=False) as mock_build:
+            assert is_done(wt, "test") is False
+            mock_build.assert_called_once()

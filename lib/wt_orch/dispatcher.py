@@ -1230,6 +1230,15 @@ def resume_change(
 
     impl_model = resolve_change_model(change, default_model, model_routing)
 
+    # Resolve test command for done=test criteria
+    test_command = ""
+    if done_criteria == "test":
+        state = load_state(state_path)
+        test_command = state.extras.get("directives", {}).get("test_command", "")
+        if not test_command:
+            from .config import auto_detect_test_command
+            test_command = auto_detect_test_command(wt_path)
+
     cmd = [
         "wt-loop", "start", task_desc,
         "--max", str(max_iter),
@@ -1238,6 +1247,8 @@ def resume_change(
         "--model", impl_model,
         "--change", change_name,
     ]
+    if test_command:
+        cmd.extend(["--test-command", test_command])
     if team_mode:
         cmd.append("--team")
 

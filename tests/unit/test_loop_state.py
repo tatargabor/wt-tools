@@ -245,3 +245,29 @@ class TestLoopStateDataclass:
         s = LoopState(worktree_name="wt", task="build", max_iterations=10)
         assert s.worktree_name == "wt"
         assert s.task == "build"
+
+    def test_test_command_default_none(self):
+        s = LoopState()
+        assert s.test_command is None
+
+    def test_test_command_roundtrip(self, wt):
+        """test_command field survives write→read cycle."""
+        from wt_orch.loop_state import _state_to_dict, _dict_to_state
+
+        s = LoopState(test_command="pnpm test")
+        d = _state_to_dict(s)
+        assert d["test_command"] == "pnpm test"
+
+        restored = _dict_to_state(d)
+        assert restored.test_command == "pnpm test"
+
+    def test_test_command_none_roundtrip(self, wt):
+        """None test_command serializes as null and deserializes back to None."""
+        from wt_orch.loop_state import _state_to_dict, _dict_to_state
+
+        s = LoopState(test_command=None)
+        d = _state_to_dict(s)
+        assert d["test_command"] is None
+
+        restored = _dict_to_state(d)
+        assert restored.test_command is None

@@ -48,6 +48,7 @@ class LoopState:
     permission_mode: str = "default"
     model: Optional[str] = None
     ff_max_retries: int = 2
+    test_command: Optional[str] = None
 
 
 def get_loop_state_file(wt_path: str) -> str:
