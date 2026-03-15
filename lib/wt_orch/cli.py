@@ -999,6 +999,9 @@ def cmd_engine(args):
             # Apply CLI flag overrides
             if getattr(args, "checkpoint_auto_approve", False):
                 directives.checkpoint_auto_approve = True
+            cli_timeout = getattr(args, "checkpoint_timeout", 0)
+            if cli_timeout:
+                directives.checkpoint_timeout = cli_timeout
         except Exception:
             pass
 
@@ -1019,6 +1022,7 @@ def cmd_engine(args):
             poll_interval=args.poll_interval,
             event_bus=event_bus,
             checkpoint_auto_approve=getattr(args, "checkpoint_auto_approve", False),
+            checkpoint_timeout=getattr(args, "checkpoint_timeout", 0),
         )
         sys.exit(0)
 
@@ -1876,6 +1880,7 @@ def main():
     e_mon.add_argument("--context-pruning", action="store_true", default=True, help="Enable context pruning")
     e_mon.add_argument("--model-routing", default="off", help="Model routing mode")
     e_mon.add_argument("--checkpoint-auto-approve", action="store_true", help="Auto-approve checkpoints")
+    e_mon.add_argument("--checkpoint-timeout", type=int, default=0, help="Auto-resume checkpoint after N seconds (0=disabled)")
 
     args = parser.parse_args()
 

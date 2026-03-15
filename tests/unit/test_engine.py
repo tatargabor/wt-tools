@@ -1,14 +1,23 @@
-"""Tests for wt_orch.engine — Directive parsing, token budget, time limit, completion."""
+"""Tests for wt_orch.engine — Directive parsing, token budget, time limit, completion, checkpoints."""
 
 import json
 import os
 import sys
+import tempfile
+import time
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "lib"))
 
-from wt_orch.engine import Directives, parse_directives
+from wt_orch.engine import (
+    Directives,
+    _checkpoint_approved,
+    _clear_checkpoint_state,
+    parse_directives,
+    trigger_checkpoint,
+)
+from wt_orch.state import OrchestratorState, Change, load_state, save_state
 
 
 class TestDirectivesDefaults:
@@ -232,3 +241,332 @@ class TestCompletionDetection:
         terminal = {"merged", "done", "skipped", "failed", "merge-blocked"}
         for status in active:
             assert status not in terminal
+
+
+# ─── Checkpoint Test Helpers ──────────────────────────────────────
+
+
+def _make_checkpoint_state(
+    state_file,
+    *,
+    status="running",
+    changes_since_checkpoint=0,
+    checkpoints=None,
+    extras=None,
+    changes=None,
+):
+    """Write a state file with configurable checkpoint fields."""
+    state = OrchestratorState(
+        status=status,
+        changes=changes or [
+            Change(name="change-1", status="merged"),
+            Change(name="change-2", status="running"),
+            Change(name="change-3", status="pending"),
+        ],
+        changes_since_checkpoint=changes_since_checkpoint,
+        checkpoints=checkpoints or [],
+        extras=extras or {},
+    )
+    save_state(state, state_file)
+    return state
+
+
+# ─── 6.1: Checkpoint Timeout Directive Parsing ───────────────────
+
+
+class TestCheckpointTimeoutDirective:
+    """Test checkpoint_timeout directive parsing (present and absent)."""
+
+    def test_checkpoint_timeout_present(self):
+        """checkpoint_timeout parses from directives JSON."""
+        d = parse_directives({"checkpoint_timeout": 3600})
+        assert d.checkpoint_timeout == 3600
+
+    def test_checkpoint_timeout_absent(self):
+        """checkpoint_timeout defaults to 0 (disabled) when absent."""
+        d = parse_directives({})
+        assert d.checkpoint_timeout == 0
+
+    def test_checkpoint_timeout_string_coercion(self):
+        """String checkpoint_timeout is coerced to int."""
+        d = parse_directives({"checkpoint_timeout": "1800"})
+        assert d.checkpoint_timeout == 1800
+
+    def test_checkpoint_timeout_zero_means_disabled(self):
+        """checkpoint_timeout=0 means no timeout."""
+        d = parse_directives({"checkpoint_timeout": 0})
+        assert d.checkpoint_timeout == 0
+
+
+# ─── 6.2: trigger_checkpoint() Counter Reset ─────────────────────
+
+
+class TestTriggerCheckpointCounterReset:
+    """Test that trigger_checkpoint() resets changes_since_checkpoint to 0."""
+
+    def test_counter_resets_to_zero(self, tmp_path):
+        """changes_since_checkpoint is reset to 0 after checkpoint trigger."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(state_file, changes_since_checkpoint=5)
+
+        trigger_checkpoint(state_file, "periodic")
+
+        state = load_state(state_file)
+        assert state.changes_since_checkpoint == 0
+
+
+# ─── 6.3: trigger_checkpoint() Stores checkpoint_started_at ──────
+
+
+class TestTriggerCheckpointStartedAt:
+    """Test that trigger_checkpoint() stores checkpoint_started_at in state extras."""
+
+    def test_started_at_stored(self, tmp_path):
+        """checkpoint_started_at is stored as epoch seconds in state extras."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(state_file)
+
+        before = int(time.time())
+        trigger_checkpoint(state_file, "periodic")
+        after = int(time.time())
+
+        state = load_state(state_file)
+        started_at = state.extras.get("checkpoint_started_at")
+        assert started_at is not None
+        assert before <= started_at <= after
+
+
+# ─── 6.4: trigger_checkpoint() Appends Checkpoint Record ─────────
+
+
+class TestTriggerCheckpointRecord:
+    """Test that trigger_checkpoint() appends checkpoint record to state.checkpoints."""
+
+    def test_checkpoint_record_appended(self, tmp_path):
+        """A checkpoint record with reason, triggered_at, changes_completed, approved is appended."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(
+            state_file,
+            changes=[
+                Change(name="c1", status="merged"),
+                Change(name="c2", status="done"),
+                Change(name="c3", status="running"),
+            ],
+        )
+
+        trigger_checkpoint(state_file, "token_hard_limit")
+
+        state = load_state(state_file)
+        assert len(state.checkpoints) == 1
+        record = state.checkpoints[0]
+        assert record["reason"] == "token_hard_limit"
+        assert "triggered_at" in record
+        assert record["changes_completed"] == 2  # merged + done
+        assert record["approved"] is False
+
+    def test_multiple_checkpoints_accumulate(self, tmp_path):
+        """Multiple trigger_checkpoint() calls append distinct records."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(state_file)
+
+        trigger_checkpoint(state_file, "periodic")
+        trigger_checkpoint(state_file, "token_hard_limit")
+
+        state = load_state(state_file)
+        assert len(state.checkpoints) == 2
+        assert state.checkpoints[0]["reason"] == "periodic"
+        assert state.checkpoints[1]["reason"] == "token_hard_limit"
+
+
+# ─── 6.5: _checkpoint_approved() Returns True When Approved ──────
+
+
+class TestCheckpointApprovedTrue:
+    """Test _checkpoint_approved() returning true when latest checkpoint has approved: true."""
+
+    def test_approved_true(self):
+        """Returns True when latest checkpoint record has approved=True."""
+        state = OrchestratorState(
+            checkpoints=[
+                {"reason": "periodic", "approved": False},
+                {"reason": "periodic", "approved": True},
+            ]
+        )
+        assert _checkpoint_approved(state) is True
+
+    def test_only_latest_matters(self):
+        """Only the last checkpoint record matters."""
+        state = OrchestratorState(
+            checkpoints=[
+                {"reason": "periodic", "approved": True},
+                {"reason": "periodic", "approved": False},
+            ]
+        )
+        assert _checkpoint_approved(state) is False
+
+
+# ─── 6.6: _checkpoint_approved() Returns False When No Checkpoints
+
+
+class TestCheckpointApprovedFalse:
+    """Test _checkpoint_approved() returning false when no checkpoints exist."""
+
+    def test_no_checkpoints(self):
+        """Returns False when checkpoints list is empty."""
+        state = OrchestratorState(checkpoints=[])
+        assert _checkpoint_approved(state) is False
+
+    def test_no_checkpoints_in_extras_either(self):
+        """Returns False when both checkpoints list and extras are empty."""
+        state = OrchestratorState(checkpoints=[], extras={})
+        assert _checkpoint_approved(state) is False
+
+    def test_extras_fallback(self):
+        """Falls back to extras['checkpoints'] if state.checkpoints is empty."""
+        state = OrchestratorState(
+            checkpoints=[],
+            extras={"checkpoints": [{"reason": "periodic", "approved": True}]},
+        )
+        assert _checkpoint_approved(state) is True
+
+
+# ─── 6.7: Checkpoint Timeout Auto-Resume Logic ───────────────────
+
+
+class TestCheckpointTimeoutAutoResume:
+    """Test checkpoint timeout auto-resume logic (mock time to exceed timeout)."""
+
+    def test_timeout_triggers_resume(self, tmp_path):
+        """When checkpoint_started_at + timeout < now, state should resume."""
+        state_file = str(tmp_path / "state.json")
+        # Set checkpoint_started_at to 3700 seconds ago
+        started_at = int(time.time()) - 3700
+        _make_checkpoint_state(
+            state_file,
+            status="checkpoint",
+            extras={"checkpoint_started_at": started_at},
+        )
+
+        # Simulate what monitor_loop does for timeout check
+        d = Directives(checkpoint_timeout=3600)
+        state = load_state(state_file)
+
+        if d.checkpoint_timeout > 0:
+            cs = state.extras.get("checkpoint_started_at", 0)
+            if cs and (int(time.time()) - cs) >= d.checkpoint_timeout:
+                from wt_orch.state import update_state_field
+                update_state_field(state_file, "status", "running")
+
+        state = load_state(state_file)
+        assert state.status == "running"
+
+    def test_no_timeout_when_not_exceeded(self, tmp_path):
+        """When timeout has not elapsed, state remains checkpoint."""
+        state_file = str(tmp_path / "state.json")
+        # Set checkpoint_started_at to 10 seconds ago (well under 3600s timeout)
+        started_at = int(time.time()) - 10
+        _make_checkpoint_state(
+            state_file,
+            status="checkpoint",
+            extras={"checkpoint_started_at": started_at},
+        )
+
+        d = Directives(checkpoint_timeout=3600)
+        state = load_state(state_file)
+
+        resumed = False
+        if d.checkpoint_timeout > 0:
+            cs = state.extras.get("checkpoint_started_at", 0)
+            if cs and (int(time.time()) - cs) >= d.checkpoint_timeout:
+                resumed = True
+
+        assert resumed is False
+        state = load_state(state_file)
+        assert state.status == "checkpoint"
+
+    def test_no_timeout_when_disabled(self, tmp_path):
+        """When checkpoint_timeout=0, no timeout check is performed."""
+        state_file = str(tmp_path / "state.json")
+        started_at = int(time.time()) - 99999  # way in the past
+        _make_checkpoint_state(
+            state_file,
+            status="checkpoint",
+            extras={"checkpoint_started_at": started_at},
+        )
+
+        d = Directives(checkpoint_timeout=0)
+        state = load_state(state_file)
+
+        resumed = False
+        if d.checkpoint_timeout > 0:
+            cs = state.extras.get("checkpoint_started_at", 0)
+            if cs and (int(time.time()) - cs) >= d.checkpoint_timeout:
+                resumed = True
+
+        assert resumed is False
+
+
+# ─── 6.8: Counter Reset Cadence ──────────────────────────────────
+
+
+class TestCheckpointCounterResetCadence:
+    """Test checkpoint counter reset cadence: checkpoint_every=3 triggers at 3, 6, 9."""
+
+    def test_checkpoint_triggers_every_n_changes(self, tmp_path):
+        """With checkpoint_every=3, checkpoints trigger at 3, 6, 9 changes (not 3, 6, 9 cumulative)."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(state_file, changes_since_checkpoint=0)
+
+        checkpoint_every = 3
+        trigger_count = 0
+
+        # Simulate 9 changes completing
+        for i in range(1, 10):
+            # Increment counter (simulating a change completing)
+            state = load_state(state_file)
+            from wt_orch.state import update_state_field
+            update_state_field(
+                state_file,
+                "changes_since_checkpoint",
+                state.changes_since_checkpoint + 1,
+            )
+
+            # Check if checkpoint should trigger
+            state = load_state(state_file)
+            if state.changes_since_checkpoint >= checkpoint_every:
+                trigger_checkpoint(state_file, "periodic")
+                trigger_count += 1
+
+                # Verify counter was reset
+                state = load_state(state_file)
+                assert state.changes_since_checkpoint == 0, (
+                    f"Counter should be 0 after checkpoint at change {i}, "
+                    f"got {state.changes_since_checkpoint}"
+                )
+
+                # Resume from checkpoint for next cycle
+                update_state_field(state_file, "status", "running")
+
+        # Should have triggered 3 times: at changes 3, 6, 9
+        assert trigger_count == 3
+
+    def test_counter_not_accumulating(self, tmp_path):
+        """Verify the old accumulating bug is fixed: counter resets, not accumulates."""
+        state_file = str(tmp_path / "state.json")
+        _make_checkpoint_state(state_file, changes_since_checkpoint=0)
+
+        # First checkpoint at change 3
+        from wt_orch.state import update_state_field
+        update_state_field(state_file, "changes_since_checkpoint", 3)
+        trigger_checkpoint(state_file, "periodic")
+
+        state = load_state(state_file)
+        assert state.changes_since_checkpoint == 0
+
+        # After resume, increment to 3 again (total 6 changes)
+        update_state_field(state_file, "status", "running")
+        update_state_field(state_file, "changes_since_checkpoint", 3)
+
+        # This should trigger (counter is 3, not needing to reach 6)
+        state = load_state(state_file)
+        assert state.changes_since_checkpoint >= 3  # triggers at 3, not 6

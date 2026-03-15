@@ -15,6 +15,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Optional
 
 from .root import WT_TOOLS_ROOT
@@ -87,6 +88,7 @@ class Directives:
     milestones_base_port: int = 3100
     milestones_max_worktrees: int = 3
     checkpoint_auto_approve: bool = False
+    checkpoint_timeout: int = 0
     post_merge_command: str = ""
     monitor_idle_timeout: int = DEFAULT_MONITOR_IDLE_TIMEOUT
     time_limit_secs: int = 0
@@ -142,6 +144,7 @@ def parse_directives(raw: dict) -> Directives:
     d.post_merge_command = _str(raw, "post_merge_command", d.post_merge_command)
     d.monitor_idle_timeout = _int(raw, "monitor_idle_timeout", d.monitor_idle_timeout)
     d.checkpoint_auto_approve = _bool(raw, "checkpoint_auto_approve", d.checkpoint_auto_approve)
+    d.checkpoint_timeout = _int(raw, "checkpoint_timeout", d.checkpoint_timeout)
 
     # Milestones sub-object
     ms = raw.get("milestones", {})
@@ -222,6 +225,7 @@ def monitor_loop(
     poll_interval: int = DEFAULT_POLL_INTERVAL,
     event_bus: Any = None,
     checkpoint_auto_approve: bool = False,
+    checkpoint_timeout: int = 0,
 ) -> None:
     """Run the main orchestration monitoring loop.
 
@@ -252,6 +256,8 @@ def monitor_loop(
     # Apply CLI overrides
     if checkpoint_auto_approve:
         d.checkpoint_auto_approve = True
+    if checkpoint_timeout:
+        d.checkpoint_timeout = checkpoint_timeout
 
     # Persist timing info and orchestrator PID
     start_epoch = int(time.time())
@@ -270,6 +276,12 @@ def monitor_loop(
     if state.status == "stopped":
         logger.info("Resuming orchestration (was: stopped)")
         update_state_field(state_file, "status", "running")
+    elif state.status == "checkpoint":
+        logger.info("Stale checkpoint cleared on restart — resuming")
+        update_state_field(state_file, "status", "running")
+
+    # Clear checkpoint-specific transient state on restart
+    _clear_checkpoint_state(state_file)
 
     logger.info("Monitor loop started (poll every %ds, auto_replan=%s)", poll_interval, d.auto_replan)
 
@@ -326,6 +338,25 @@ def monitor_loop(
             if d.checkpoint_auto_approve:
                 logger.info("Checkpoint auto-approved — resuming")
                 update_state_field(state_file, "status", "running")
+            elif _checkpoint_approved(state):
+                logger.info("Checkpoint approved via API — resuming")
+                update_state_field(state_file, "status", "running")
+            elif d.checkpoint_timeout > 0:
+                started = state.extras.get("checkpoint_started_at", 0)
+                if started and (int(time.time()) - started) >= d.checkpoint_timeout:
+                    elapsed = int(time.time()) - started
+                    logger.warning(
+                        "Checkpoint timed out after %ds — auto-resuming",
+                        elapsed,
+                    )
+                    update_state_field(state_file, "status", "running")
+                    if event_bus:
+                        event_bus.emit(
+                            "CHECKPOINT_TIMEOUT",
+                            data={"elapsed": elapsed},
+                        )
+                else:
+                    continue
             else:
                 continue
 
@@ -1075,6 +1106,48 @@ def _generate_report_safe(state_file: str) -> None:
         pass
 
 
+def _clear_checkpoint_state(state_file: str) -> None:
+    """Clear checkpoint-specific transient state on restart.
+
+    Removes checkpoint_reason, checkpoint_started_at from extras and
+    resets changes_since_checkpoint to 0. These fields are meaningful
+    only within a single orchestrator execution.
+    """
+    with locked_state(state_file) as state:
+        changed = False
+        if "checkpoint_reason" in state.extras:
+            del state.extras["checkpoint_reason"]
+            changed = True
+        if "checkpoint_started_at" in state.extras:
+            del state.extras["checkpoint_started_at"]
+            changed = True
+        if state.changes_since_checkpoint != 0:
+            state.changes_since_checkpoint = 0
+            changed = True
+        if changed:
+            logger.info("Cleared checkpoint transient state on restart")
+
+
+def _checkpoint_approved(state: OrchestratorState) -> bool:
+    """Check if the latest checkpoint has been approved via API.
+
+    Checks state.checkpoints[-1].get("approved", False), handling both
+    the checkpoints list on the dataclass and a fallback in extras.
+    Returns False if no checkpoints exist.
+    """
+    # Primary: check state.checkpoints list
+    checkpoints = state.checkpoints
+    if not checkpoints:
+        # Fallback: check extras for legacy storage
+        checkpoints = state.extras.get("checkpoints", [])
+    if not checkpoints:
+        return False
+    latest = checkpoints[-1]
+    if isinstance(latest, dict):
+        return bool(latest.get("approved", False))
+    return False
+
+
 def trigger_checkpoint(state_file: str, reason: str, event_bus: Any = None) -> None:
     """Set state to checkpoint, log reason, emit CHECKPOINT event.
 
@@ -1085,6 +1158,21 @@ def trigger_checkpoint(state_file: str, reason: str, event_bus: Any = None) -> N
     """
     update_state_field(state_file, "status", "checkpoint")
     update_state_field(state_file, "checkpoint_reason", reason)
+    update_state_field(state_file, "changes_since_checkpoint", 0)
+    update_state_field(state_file, "checkpoint_started_at", int(time.time()))
+    # Append checkpoint record to state.checkpoints
+    state = load_state(state_file)
+    completed_count = sum(
+        1 for c in state.changes if c.status in ("merged", "done", "skipped", "failed")
+    )
+    checkpoint_record = {
+        "reason": reason,
+        "triggered_at": datetime.now().astimezone().isoformat(),
+        "changes_completed": completed_count,
+        "approved": False,
+    }
+    with locked_state(state_file) as st:
+        st.checkpoints.append(checkpoint_record)
     logger.info("Checkpoint triggered: %s", reason)
     if event_bus:
         event_bus.emit("CHECKPOINT", data={"reason": reason})
