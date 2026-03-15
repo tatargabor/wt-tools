@@ -1297,24 +1297,18 @@ def _fetch_design_context(force: bool = False) -> str:
         logger.warning("Design bridge not found: %s", bridge_path)
         return ""
 
-    # bridge.sh needs run_claude (from wt-common.sh) for MCP health checks
-    common_path = os.path.join(WT_TOOLS_ROOT, "bin", "wt-common.sh")
-
     force_arg = "force" if force else ""
     project_root = os.getcwd()
 
-    source_chain = f'export PROJECT_ROOT="{project_root}" && '
-    if os.path.isfile(common_path):
-        source_chain += f'source "{common_path}" 2>/dev/null && '
-    source_chain += (
-        f'source "{bridge_path}" 2>/dev/null && '
-        f'setup_design_bridge && '
-        f'check_design_mcp_health && '
-        f'fetch_design_snapshot {force_arg}'
-    )
-
+    # Skip health check — it needs run_claude (from wt-common.sh) which is
+    # a complex PTY-wrapped function.  Go straight to setup + fetch.
+    # fetch_design_snapshot will fail fast if MCP isn't working anyway.
     result = run_command(
-        ["bash", "-c", source_chain],
+        ["bash", "-c",
+         f'export PROJECT_ROOT="{project_root}" && '
+         f'source "{bridge_path}" 2>/dev/null && '
+         f'setup_design_bridge && '
+         f'fetch_design_snapshot {force_arg}'],
         timeout=1800,
         env={"DESIGN_SNAPSHOT_DIR": project_root},
     )
