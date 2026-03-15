@@ -31,6 +31,12 @@ find_claude_pid() {
 dir="$PWD"
 while [[ "$dir" != "/" ]]; do
     if [[ -d "$dir/.wt-tools" ]]; then
+        # Early bailout: skip PID lookup if no .skill files exist
+        shopt -s nullglob
+        skill_files=("$dir"/.wt-tools/agents/*.skill)
+        shopt -u nullglob
+        [[ ${#skill_files[@]} -eq 0 ]] && exit 0
+
         now=$(date +%s)
         # Refresh per-PID skill file if we can find our claude ancestor
         claude_pid=$(find_claude_pid)
