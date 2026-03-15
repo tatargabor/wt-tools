@@ -1323,22 +1323,15 @@ def _fetch_design_context(force: bool = False) -> str:
         except OSError:
             pass
 
-    # Fail-fast: design configured but fetch failed
-    design_optional = os.environ.get("DESIGN_OPTIONAL", "").lower() == "true"
-    if design_optional:
-        logger.warning(
-            "Design snapshot fetch failed (DESIGN_OPTIONAL=true, continuing without design). "
-            "Server: %s, exit_code: %d", server_name, result.exit_code
-        )
-        return ""
-
-    raise RuntimeError(
-        f"Design snapshot fetch failed — {server_name} MCP is registered and design_file "
-        f"is configured but snapshot could not be generated. "
-        f"Exit code: {result.exit_code}. Stderr: {result.stderr[:500]}. "
-        f"Fix: authenticate the {server_name} MCP (run /mcp → {server_name} → Authenticate), "
-        f"or set DESIGN_OPTIONAL=true to skip."
+    # Design fetch is best-effort — never block planning because of it.
+    # The sentinel/orchestrator handles stuck detection; crashing here just
+    # wastes a restart cycle.  Log warning and continue without design.
+    logger.warning(
+        "Design snapshot fetch failed (continuing without design). "
+        "Server: %s, exit_code: %d, stderr: %.200s",
+        server_name, result.exit_code, result.stderr,
     )
+    return ""
 
 
 def _parse_plan_response(response_text: str) -> dict | None:
