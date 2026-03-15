@@ -1,11 +1,24 @@
 import { useParams, Link } from 'react-router';
+import { useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { products } from '../data/mockData';
 import { ArrowLeft } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group';
+import { Label } from '../components/ui/label';
 
 export function ProductDetail() {
   const { id } = useParams();
   const product = products.find(p => p.id === Number(id));
+  
+  // Initialize selected variants with first option of each variant type
+  const [selectedVariants, setSelectedVariants] = useState<{ [key: string]: string }>(() => {
+    if (!product?.variants) return {};
+    const initial: { [key: string]: string } = {};
+    Object.entries(product.variants).forEach(([key, values]) => {
+      initial[key] = values[0];
+    });
+    return initial;
+  });
 
   if (!product) {
     return (
@@ -17,6 +30,13 @@ export function ProductDetail() {
       </div>
     );
   }
+
+  const handleVariantChange = (variantType: string, value: string) => {
+    setSelectedVariants(prev => ({
+      ...prev,
+      [variantType]: value
+    }));
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -47,6 +67,37 @@ export function ProductDetail() {
                 {product.inStock ? 'In Stock' : 'Out of Stock'}
               </span>
             </div>
+
+            {/* Variant Selectors */}
+            {product.variants && Object.entries(product.variants).map(([variantType, options]) => (
+              <div key={variantType} className="mb-6">
+                <Label className="text-base font-semibold text-gray-900 mb-3 block">
+                  {variantType}
+                </Label>
+                <RadioGroup 
+                  value={selectedVariants[variantType]} 
+                  onValueChange={(value) => handleVariantChange(variantType, value)}
+                  className="flex flex-wrap gap-3"
+                >
+                  {options.map((option) => (
+                    <div key={option} className="flex items-center">
+                      <RadioGroupItem 
+                        value={option} 
+                        id={`${variantType}-${option}`}
+                        className="peer sr-only"
+                      />
+                      <Label
+                        htmlFor={`${variantType}-${option}`}
+                        className="flex items-center justify-center px-4 py-2 border-2 border-gray-300 rounded-lg cursor-pointer transition-all hover:border-blue-500 peer-data-[state=checked]:border-blue-600 peer-data-[state=checked]:bg-blue-50 peer-data-[state=checked]:text-blue-900 min-w-[80px] text-center"
+                      >
+                        {option}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            ))}
+
             <button 
               disabled={!product.inStock}
               className={`w-full py-3 px-6 rounded-lg font-medium text-lg transition-colors ${

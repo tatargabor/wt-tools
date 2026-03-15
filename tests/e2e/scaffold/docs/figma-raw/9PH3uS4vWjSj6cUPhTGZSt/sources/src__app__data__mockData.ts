@@ -6,6 +6,9 @@ export interface Product {
   price: number;
   inStock: boolean;
   image: string;
+  variants?: {
+    [key: string]: string[];
+  };
 }
 
 export interface CartItem {
@@ -35,7 +38,10 @@ export const products: Product[] = [
     description: "Experience crystal-clear audio with active noise cancellation. Premium wireless earbuds with 24-hour battery life and premium sound quality.",
     price: 89.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80",
+    variants: {
+      Color: ["Black", "White", "Silver"]
+    }
   },
   {
     id: 2,
@@ -44,7 +50,10 @@ export const products: Product[] = [
     description: "Expand your laptop's capabilities with 7 ports including HDMI, USB 3.0, SD card reader, and more. Perfect for professionals on the go.",
     price: 49.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1625948515291-69613efd103f?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1625948515291-69613efd103f?w=800&q=80",
+    variants: {
+      Color: ["Space Gray", "Silver"]
+    }
   },
   {
     id: 3,
@@ -53,7 +62,11 @@ export const products: Product[] = [
     description: "Cherry MX switches with customizable RGB lighting. Durable aluminum frame and programmable keys for the ultimate typing experience.",
     price: 129.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1595225476474-87563907a212?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1595225476474-87563907a212?w=800&q=80",
+    variants: {
+      "Switch Type": ["Red", "Blue", "Brown"],
+      Color: ["Black", "White"]
+    }
   },
   {
     id: 4,
@@ -62,7 +75,10 @@ export const products: Product[] = [
     description: "Precision optical sensor with adjustable DPI. Ergonomic design for all-day comfort. Works seamlessly across multiple devices.",
     price: 39.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=800&q=80",
+    variants: {
+      Color: ["Black", "White", "Gray"]
+    }
   },
   {
     id: 5,
@@ -71,7 +87,10 @@ export const products: Product[] = [
     description: "Sleek aluminum stand with 360° rotation and adjustable viewing angles. Compatible with all smartphones and tablets.",
     price: 24.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=800&q=80",
+    variants: {
+      Color: ["Silver", "Space Gray", "Rose Gold"]
+    }
   },
   {
     id: 6,
@@ -80,7 +99,11 @@ export const products: Product[] = [
     description: "Ultra HD 4K resolution with auto-focus and built-in microphone. Perfect for streaming, video calls, and content creation.",
     price: 159.99,
     inStock: false,
-    image: "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=800&q=80",
+    variants: {
+      Resolution: ["1080p", "4K"],
+      Color: ["Black", "White"]
+    }
   }
 ];
 

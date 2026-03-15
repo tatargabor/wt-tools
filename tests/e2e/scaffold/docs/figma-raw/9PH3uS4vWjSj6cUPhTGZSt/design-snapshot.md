@@ -5,10 +5,7 @@ Type: make
 
 ## Pages & Frames
 
-{
-  "note": "Make file — detected from URL",
-  "url": "https://www.figma.com/make/9PH3uS4vWjSj6cUPhTGZSt"
-}
+*Make file (file key: 9PH3uS4vWjSj6cUPhTGZSt)*
 
 ## Design Tokens
 
@@ -25,7 +22,7 @@ Type: make
 - `text-gray-500` (×1)
 - `text-gray-600` (×20)
 - `text-gray-700` (×7)
-- `text-gray-900` (×46)
+- `text-gray-900` (×47)
 - `text-green-600` (×1)
 - `text-red-500` (×1)
 - `text-red-600` (×1)
@@ -33,27 +30,28 @@ Type: make
 ### Typography
 - `font-bold` (×24)
 - `font-medium` (×16)
-- `font-semibold` (×17)
+- `font-semibold` (×18)
 - `text-2xl` (×4)
 - `text-3xl` (×9)
 - `text-4xl` (×3)
 - `text-5xl` (×1)
+- `text-base` (×1)
 - `text-lg` (×3)
 - `text-sm` (×22)
 - `text-xl` (×6)
 ### Spacing
 - `gap-12` (×1)
 - `gap-2` (×11)
-- `gap-3` (×5)
+- `gap-3` (×6)
 - `gap-4` (×2)
 - `gap-6` (×3)
 - `gap-8` (×2)
 - `mb-1` (×4)
 - `mb-12` (×1)
 - `mb-2` (×6)
-- `mb-3` (×3)
+- `mb-3` (×4)
 - `mb-4` (×4)
-- `mb-6` (×12)
+- `mb-6` (×13)
 - `mb-8` (×6)
 - `mt-1` (×2)
 - `mt-12` (×1)
@@ -68,12 +66,12 @@ Type: make
 - `p-8` (×3)
 - `pt-6` (×2)
 - `px-3` (×2)
-- `px-4` (×6)
+- `px-4` (×7)
 - `px-6` (×39)
 - `px-8` (×2)
 - `py-12` (×1)
 - `py-16` (×2)
-- `py-2` (×4)
+- `py-2` (×5)
 - `py-3` (×5)
 - `py-4` (×27)
 - `py-6` (×2)
@@ -81,13 +79,14 @@ Type: make
 - `space-y-4` (×1)
 ### Borders & Radius
 - `border` (×9)
+- `border-2` (×1)
 - `border-b` (×4)
 - `border-gray-200` (×13)
-- `border-gray-300` (×2)
+- `border-gray-300` (×3)
 - `border-t` (×2)
 - `rounded` (×3)
 - `rounded-full` (×1)
-- `rounded-lg` (×26)
+- `rounded-lg` (×27)
 ### Shadows
 - `shadow-lg` (×1)
 - `shadow-md` (×10)
@@ -95,391 +94,7 @@ Type: make
 
 ## Component Hierarchy
 
-{
-  "text": "This contains the resource links for all the source files in the Figma Make. Start with App.tsx to understand the code.",
-  "resource_links": [
-    {
-      "name": "src/app/App.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/App.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/accordion.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/accordion.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/alert-dialog.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/alert-dialog.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/alert.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/alert.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/aspect-ratio.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/aspect-ratio.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/avatar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/avatar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/badge.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/badge.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/breadcrumb.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/breadcrumb.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/button.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/button.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/calendar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/calendar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/card.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/card.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/carousel.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/carousel.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/chart.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/chart.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/checkbox.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/checkbox.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/collapsible.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/collapsible.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/command.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/command.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/context-menu.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/context-menu.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/dialog.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/dialog.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/drawer.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/drawer.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/dropdown-menu.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/dropdown-menu.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/form.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/form.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/hover-card.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/hover-card.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/input-otp.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/input-otp.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/input.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/input.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/label.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/label.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/menubar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/menubar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/navigation-menu.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/navigation-menu.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/pagination.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/pagination.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/popover.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/popover.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/progress.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/progress.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/radio-group.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/radio-group.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/resizable.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/resizable.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/scroll-area.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/scroll-area.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/select.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/select.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/separator.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/separator.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/sheet.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/sheet.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/sidebar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/sidebar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/skeleton.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/skeleton.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/slider.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/slider.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/sonner.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/sonner.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/switch.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/switch.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/table.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/table.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/tabs.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/tabs.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/textarea.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/textarea.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/toggle-group.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/toggle-group.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/toggle.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/toggle.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/tooltip.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/tooltip.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/use-mobile.ts",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/use-mobile.ts",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ui/utils.ts",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ui/utils.ts",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/figma/ImageWithFallback.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/figma/ImageWithFallback.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/Navbar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/Navbar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/ProductCard.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/ProductCard.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/components/AdminSidebar.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/components/AdminSidebar.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/data/mockData.ts",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/data/mockData.ts",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/ProductGrid.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/ProductGrid.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/MobileProductGrid.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/MobileProductGrid.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/ProductDetail.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/ProductDetail.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/Cart.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/Cart.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/OrdersList.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/OrdersList.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/OrderDetail.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/OrderDetail.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/AdminLogin.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/AdminLogin.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/AdminDashboard.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/AdminDashboard.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/AdminProducts.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/AdminProducts.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/pages/Index.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/pages/Index.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/app/routes.tsx",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/app/routes.tsx",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/styles/tailwind.css",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/styles/tailwind.css",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/styles/index.css",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/styles/index.css",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/styles/fonts.css",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/styles/fonts.css",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "src/styles/theme.css",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/src/styles/theme.css",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "package.json",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/package.json",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "postcss.config.mjs",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/postcss.config.mjs",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "vite.config.ts",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/vite.config.ts",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "guidelines/Guidelines.md",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/guidelines/Guidelines.md",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "ATTRIBUTIONS.md",
-      "uri": "file://figma/make/source/9PH3uS4vWjSj6cUPhTGZSt/ATTRIBUTIONS.md",
-      "mimeType": "text/plain"
-    },
-    {
-      "name": "8fc7b3897e356c8020e5e8319e6f8449fd803f32.png",
-      "uri": "file://figma/make/image/9PH3uS4vWjSj6cUPhTGZSt/8fc7b3897e356c8020e5e8319e6f8449fd803f32.png",
-      "mimeType": "image/png"
-    },
-    {
-      "name": "ef9b4d6129aed5f75c122d99b123bd7de1687a02.png",
-      "uri": "file://figma/make/image/9PH3uS4vWjSj6cUPhTGZSt/ef9b4d6129aed5f75c122d99b123bd7de1687a02.png",
-      "mimeType": "image/png"
-    }
-  ]
-}
+This contains the resource links for all the source files in the Figma Make. Start with App.tsx to understand the code.
 
 ## Source Files
 
@@ -878,6 +493,9 @@ export interface Product {
   price: number;
   inStock: boolean;
   image: string;
+  variants?: {
+    [key: string]: string[];
+  };
 }
 
 export interface CartItem {
@@ -907,7 +525,10 @@ export const products: Product[] = [
     description: "Experience crystal-clear audio with active noise cancellation. Premium wireless earbuds with 24-hour battery life and premium sound quality.",
     price: 89.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&q=80",
+    variants: {
+      Color: ["Black", "White", "Silver"]
+    }
   },
   {
     id: 2,
@@ -916,7 +537,10 @@ export const products: Product[] = [
     description: "Expand your laptop's capabilities with 7 ports including HDMI, USB 3.0, SD card reader, and more. Perfect for professionals on the go.",
     price: 49.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1625948515291-69613efd103f?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1625948515291-69613efd103f?w=800&q=80",
+    variants: {
+      Color: ["Space Gray", "Silver"]
+    }
   },
   {
     id: 3,
@@ -925,7 +549,11 @@ export const products: Product[] = [
     description: "Cherry MX switches with customizable RGB lighting. Durable aluminum frame and programmable keys for the ultimate typing experience.",
     price: 129.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1595225476474-87563907a212?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1595225476474-87563907a212?w=800&q=80",
+    variants: {
+      "Switch Type": ["Red", "Blue", "Brown"],
+      Color: ["Black", "White"]
+    }
   },
   {
     id: 4,
@@ -934,7 +562,10 @@ export const products: Product[] = [
     description: "Precision optical sensor with adjustable DPI. Ergonomic design for all-day comfort. Works seamlessly across multiple devices.",
     price: 39.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=800&q=80",
+    variants: {
+      Color: ["Black", "White", "Gray"]
+    }
   },
   {
     id: 5,
@@ -943,7 +574,10 @@ export const products: Product[] = [
     description: "Sleek aluminum stand with 360° rotation and adjustable viewing angles. Compatible with all smartphones and tablets.",
     price: 24.99,
     inStock: true,
-    image: "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=800&q=80",
+    variants: {
+      Color: ["Silver", "Space Gray", "Rose Gold"]
+    }
   },
   {
     id: 6,
@@ -952,7 +586,11 @@ export const products: Product[] = [
     description: "Ultra HD 4K resolution with auto-focus and built-in microphone. Perfect for streaming, video calls, and content creation.",
     price: 159.99,
     inStock: false,
-    image: "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=800&q=80"
+    image: "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=800&q=80",
+    variants: {
+      Resolution: ["1080p", "4K"],
+      Color: ["Black", "White"]
+    }
   }
 ];
 
@@ -1006,7 +644,6 @@ export const initialCart: CartItem[] = [
   { product: products[2], quantity: 1 },
   { product: products[4], quantity: 2 }
 ];
-
 ```
 
 ### src/app/pages/AdminDashboard.tsx
@@ -1595,13 +1232,26 @@ export function OrdersList() {
 ### src/app/pages/ProductDetail.tsx
 ```
 import { useParams, Link } from 'react-router';
+import { useState } from 'react';
 import { Navbar } from '../components/Navbar';
 import { products } from '../data/mockData';
 import { ArrowLeft } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group';
+import { Label } from '../components/ui/label';
 
 export function ProductDetail() {
   const { id } = useParams();
   const product = products.find(p => p.id === Number(id));
+  
+  // Initialize selected variants with first option of each variant type
+  const [selectedVariants, setSelectedVariants] = useState<{ [key: string]: string }>(() => {
+    if (!product?.variants) return {};
+    const initial: { [key: string]: string } = {};
+    Object.entries(product.variants).forEach(([key, values]) => {
+      initial[key] = values[0];
+    });
+    return initial;
+  });
 
   if (!product) {
     return (
@@ -1613,6 +1263,13 @@ export function ProductDetail() {
       </div>
     );
   }
+
+  const handleVariantChange = (variantType: string, value: string) => {
+    setSelectedVariants(prev => ({
+      ...prev,
+      [variantType]: value
+    }));
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -1643,6 +1300,37 @@ export function ProductDetail() {
                 {product.inStock ? 'In Stock' : 'Out of Stock'}
               </span>
             </div>
+
+            {/* Variant Selectors */}
+            {product.variants && Object.entries(product.variants).map(([variantType, options]) => (
+              <div key={variantType} className="mb-6">
+                <Label className="text-base font-semibold text-gray-900 mb-3 block">
+                  {variantType}
+                </Label>
+                <RadioGroup 
+                  value={selectedVariants[variantType]} 
+                  onValueChange={(value) => handleVariantChange(variantType, value)}
+                  className="flex flex-wrap gap-3"
+                >
+                  {options.map((option) => (
+                    <div key={option} className="flex items-center">
+                      <RadioGroupItem 
+                        value={option} 
+                        id={`${variantType}-${option}`}
+                        className="peer sr-only"
+                      />
+                      <Label
+                        htmlFor={`${variantType}-${option}`}
+                        className="flex items-center justify-center px-4 py-2 border-2 border-gray-300 rounded-lg cursor-pointer transition-all hover:border-blue-500 peer-data-[state=checked]:border-blue-600 peer-data-[state=checked]:bg-blue-50 peer-data-[state=checked]:text-blue-900 min-w-[80px] text-center"
+                      >
+                        {option}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            ))}
+
             <button 
               disabled={!product.inStock}
               className={`w-full py-3 px-6 rounded-lg font-medium text-lg transition-colors ${
@@ -1746,7 +1434,7 @@ export const router = createBrowserRouter([
 ```
 File src/styles/fonts.css not found
 
-Figma Debug UUID: 22ca1c1f-8d96-429c-ae21-bf730b515a01
+Figma Debug UUID: 3fe61929-3006-4291-af99-f67b11112efa
 ```
 
 ### src/styles/index.css
