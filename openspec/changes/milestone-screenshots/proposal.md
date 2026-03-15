@@ -19,9 +19,16 @@ Adding automatic screenshots to milestone emails lets the human glance at the em
 ### Modified Capabilities
 <!-- No existing spec-level requirements change — this is additive to the milestone checkpoint flow -->
 
+## Modular Architecture Note
+
+The milestone system is now Python-based (`lib/wt_orch/milestone.py`), not bash. The orchestration engine runs in Python and directives are parsed through `wt/orchestration/config.yaml`. Implementation must target:
+
+- **wt-tools** (`lib/wt_orch/milestone.py`): capture function, email embedding, directive parsing — all in Python
+- **wt-project-web** (optional): web-specific default screenshot URLs (e.g., `/`, `/admin`) could be provided via a new profile method, but core capture logic stays in wt-tools
+- Bash files (`lib/orchestration/milestone.sh`, `utils.sh`, `config.sh`) are legacy — do NOT add new functionality there
+
 ## Impact
 
-- `lib/orchestration/milestone.sh` — new capture function, extended email function
-- `lib/orchestration/utils.sh` — new `milestones_screenshots_*` directive variables
-- `lib/orchestration/config.sh` — parse screenshot directives
+- `lib/wt_orch/milestone.py` — new `capture_milestone_screenshots()`, extended `_send_milestone_email()`
+- `wt/orchestration/config.yaml` — new `milestones.screenshots.*` directives
 - No new runtime dependencies — uses `npx playwright screenshot` (already available in JS projects) with graceful fallback (skip if unavailable)

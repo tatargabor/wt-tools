@@ -1,6 +1,8 @@
 ## Context
 
-Milestone checkpoints (implemented in `lib/orchestration/milestone.sh`) create a worktree with a running dev server after each phase completes. An email is sent with text stats. The human must manually visit `localhost:310N` to visually verify the build. This adds a screenshot capture step between server health check and email, embedding images inline.
+Milestone checkpoints (implemented in `lib/wt_orch/milestone.py`) create a worktree with a running dev server after each phase completes. An email is sent with text stats. The human must manually visit `localhost:310N` to visually verify the build. This adds a screenshot capture step between server health check and email, embedding images inline.
+
+**Modular architecture**: The milestone system runs in Python. Directives are parsed from `wt/orchestration/config.yaml`. The bash files (`lib/orchestration/milestone.sh`, `utils.sh`) are legacy and must NOT receive new functionality. All new code goes into `lib/wt_orch/milestone.py`.
 
 ## Goals / Non-Goals
 
