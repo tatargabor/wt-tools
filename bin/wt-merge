@@ -58,6 +58,14 @@ GENERATED_FILE_PATTERNS=(
     ".wt-tools/**"
 )
 
+# Read profile-specific generated file patterns if available
+_PROFILE_PATTERNS_FILE="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}/wt/plugins/.generated-file-patterns"
+if [[ -f "$_PROFILE_PATTERNS_FILE" ]]; then
+    while IFS= read -r pat; do
+        [[ -n "$pat" ]] && GENERATED_FILE_PATTERNS+=("$pat")
+    done < "$_PROFILE_PATTERNS_FILE"
+fi
+
 # Check if a file matches any generated file pattern.
 is_generated_file() {
     local file="$1"

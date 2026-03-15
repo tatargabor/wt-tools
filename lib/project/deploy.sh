@@ -186,6 +186,7 @@ _deploy_skills() {
                 local dir_part
                 dir_part=$(dirname "$rel_path")
                 [[ "$dir_part" == gui ]] && continue  # gui/ rules are for wt-tools' own GUI, not consumer projects
+                [[ "$dir_part" == web ]] && continue  # web/ rules come from wt-project-web templates, not wt-tools
                 local base_name
                 base_name=$(basename "$rel_path")
                 local dst_dir="$dst_rules"

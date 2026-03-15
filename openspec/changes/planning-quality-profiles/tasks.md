@@ -133,20 +133,20 @@ Each step follows the pattern: `profile.method() → if None/empty → legacy fa
 
 ### Phase D: Bash Integration
 
-- [ ] D1: Wire bin/wt-merge — generated file patterns from profile
+- [x] D1: Wire bin/wt-merge — generated file patterns from profile
   - File: `bin/wt-merge`
   - Read `wt/plugins/.generated-file-patterns` file if it exists, append to `GENERATED_FILE_PATTERNS` array
   - The file is one pattern per line, written by `profile_loader.py` or `wt-project init`
   - Keep existing hardcoded patterns as base (backward compat)
   - Design ref: Component 4h
 
-- [ ] D2: Wire bin/wt-new — profile-aware bootstrap
+- [x] D2: Wire bin/wt-new — profile-aware bootstrap
   - File: `bin/wt-new`
   - Replace `bootstrap_dependencies()` bash function with Python call to `profile.bootstrap_worktree()`
   - Legacy fallback: if Python call fails, run current bash PM detection
   - Design ref: Component 4i
 
-- [ ] D3: deploy.sh — stop deploying web/ rules to consumers
+- [x] D3: deploy.sh — stop deploying web/ rules to consumers
   - File: `lib/project/deploy.sh`
   - **BLOCKED on C8**: verifier must use profile before we remove web rule deployment
   - In `_deploy_skills()` rule loop: skip files where `dir_part == "web"` (already skips `gui`)
@@ -154,7 +154,7 @@ Each step follows the pattern: `profile.method() → if None/empty → legacy fa
   - wt-tools' own `.claude/rules/web/` stays — used for self-development
   - Design ref: Component 5
 
-- [ ] D4: Write .generated-file-patterns at init/startup
+- [x] D4: Write .generated-file-patterns at init/startup
   - Profile loader or `wt-project init` writes `wt/plugins/.generated-file-patterns` for bash consumption
   - One pattern per line from `profile.generated_file_patterns()`
   - Called at engine startup (profile_loader) or at `wt-project init` time

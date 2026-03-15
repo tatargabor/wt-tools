@@ -54,7 +54,25 @@ bootstrap_env_files() {
 
 bootstrap_dependencies() {
     local wt_path="$1"
+    local project_root
+    project_root="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
 
+    # Try profile-aware bootstrap via Python first
+    if command -v python3 &>/dev/null; then
+        if python3 -c "
+from wt_orch.profile_loader import load_profile, NullProfile
+profile = load_profile('$project_root')
+if not isinstance(profile, NullProfile):
+    profile.bootstrap_worktree('$project_root', '$wt_path')
+    raise SystemExit(0)
+raise SystemExit(1)
+" 2>/dev/null; then
+            info "Dependencies installed via profile"
+            return 0
+        fi
+    fi
+
+    # Legacy fallback
     # Skip if no package.json
     [[ -f "$wt_path/package.json" ]] || return 0
 

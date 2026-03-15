@@ -145,6 +145,38 @@ _migrate_consumer() {
 # Deploy wt-tools hooks, commands, and skills to a project's .claude/ directory.
 # Usage: deploy_wt_tools <project-path> [<extra-mcp-path> ...]
 # extra-mcp-path: additional paths to register MCP for (e.g. current worktree)
+# Write wt/plugins/.generated-file-patterns from profile for bash consumption (wt-merge).
+# One pattern per line. No-op if no profile or profile returns empty list.
+_write_generated_file_patterns() {
+    local project_path="$1"
+    local patterns_file="$project_path/wt/plugins/.generated-file-patterns"
+
+    # wt/plugins/ must exist (scaffold_wt_directory creates it)
+    [[ -d "$project_path/wt/plugins" ]] || return 0
+
+    local py
+    py=$(_wt_python) 2>/dev/null || return 0
+
+    "$py" -c "
+import sys
+project_path = sys.argv[1]
+output_file = sys.argv[2]
+try:
+    from wt_orch.profile_loader import load_profile, NullProfile
+    profile = load_profile(project_path)
+    if isinstance(profile, NullProfile):
+        sys.exit(0)
+    patterns = profile.generated_file_patterns()
+    if not patterns:
+        sys.exit(0)
+    with open(output_file, 'w') as f:
+        for p in patterns:
+            f.write(p + '\n')
+except Exception:
+    sys.exit(0)  # graceful — bash uses hardcoded fallback
+" "$project_path" "$patterns_file" 2>/dev/null || true
+}
+
 deploy_wt_tools() {
     local project_path="$1"
     shift
@@ -181,6 +213,7 @@ deploy_wt_tools() {
     _deploy_skills "$project_path"
     _deploy_memory "$project_path"
     scaffold_wt_directory "$project_path"
+    _write_generated_file_patterns "$project_path"
     _deploy_mcp "$project_path" "$@" || ((_warnings++)) || true
 
     return $(( _warnings > 0 ? 1 : 0 ))
