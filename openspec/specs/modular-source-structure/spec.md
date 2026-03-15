@@ -23,7 +23,17 @@ The system SHALL split `bin/wt-memory` into a thin dispatcher (~300 lines) and 7
 - **THEN** it produces identical output and side effects as the monolithic version
 
 ### Requirement: Hook-memory module extraction
-The system SHALL split `bin/wt-hook-memory` into a thin dispatcher (~250 lines) and 5 sourced modules under `lib/hooks/`: util.sh, session.sh, memory-ops.sh, events.sh, stop.sh. All hook event handlers SHALL work identically after extraction.
+The system SHALL split `bin/wt-hook-memory` into a thin bash dispatcher and Python modules under `lib/wt_hooks/`: util.py, session.py, memory_ops.py, events.py, stop.py. All hook event handlers SHALL work identically after extraction.
+
+#### Scenario: Shared daemon helpers in util.py
+- **WHEN** any hook module (memory_ops.py, stop.py) needs a daemon client or daemon status check
+- **THEN** it SHALL import `get_daemon_client` and `daemon_is_running` from `wt_hooks.util`
+- **AND** SHALL NOT define local copies of these functions
+
+#### Scenario: Shared heuristic patterns in util.py
+- **WHEN** any hook module needs to detect heuristic memory patterns
+- **THEN** it SHALL import `HEURISTIC_RE` from `wt_hooks.util`
+- **AND** SHALL NOT define a local copy of the pattern list or compiled regex
 
 #### Scenario: All hook events handled after split
 - **WHEN** Claude Code emits any hook event (SessionStart, UserPromptSubmit, PostToolUse, Stop, etc.)

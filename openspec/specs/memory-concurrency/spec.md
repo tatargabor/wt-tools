@@ -1,7 +1,27 @@
 ## Requirements
 
+### Requirement: Daemon-first routing avoids lock contention
+When the wt-memoryd daemon is running, hook and MCP memory operations SHALL route through the daemon client instead of the `wt-memory` CLI. CLI fallback SHALL only be attempted when the daemon is NOT running, preventing RocksDB lock conflicts between daemon and CLI processes.
+
+#### Scenario: Daemon running, hook fires
+- **WHEN** the wt-memoryd daemon holds the RocksDB lock
+- **AND** a hook or MCP tool needs to recall or remember
+- **THEN** the operation SHALL use the daemon client (socket IPC)
+- **AND** SHALL NOT spawn a `wt-memory` CLI subprocess
+
+#### Scenario: Daemon running, client fails
+- **WHEN** the daemon client raises an exception
+- **AND** the daemon process is still running (socket exists)
+- **THEN** the operation SHALL NOT fall back to CLI (would cause lock conflict)
+- **AND** SHALL return empty/failure gracefully
+
+#### Scenario: Daemon not running, CLI fallback
+- **WHEN** the daemon is not running (no socket file)
+- **AND** the daemon client is unavailable
+- **THEN** the operation SHALL fall back to the `wt-memory` CLI with lock-based serialization
+
 ### Requirement: Serialized RocksDB Access
-All `wt-memory` operations that open the RocksDB storage SHALL be serialized through a per-project file lock, preventing concurrent access failures.
+When the daemon is NOT running, all `wt-memory` CLI operations that open the RocksDB storage SHALL be serialized through a per-project directory lock, preventing concurrent access failures.
 
 #### Scenario: Concurrent remember and status calls
 - **WHEN** the GUI FeatureWorker polls `wt-memory status --json` while an agent session calls `wt-memory remember`

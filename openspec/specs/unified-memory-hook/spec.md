@@ -3,6 +3,17 @@
 ### Requirement: Single unified handler script
 A single script `bin/wt-hook-memory` SHALL handle all memory hook events. It SHALL accept the event name as its first argument and dispatch to event-specific logic internally. Each event handler SHALL additionally record injection metrics when metrics collection is enabled.
 
+#### Scenario: Daemon auto-start
+- **WHEN** `wt-hook-memory` is invoked for any event
+- **THEN** it SHALL attempt to start wt-memoryd via `wt-memoryd start` before processing
+- **AND** if daemon start succeeds, it SHALL skip the `wt-memory health` check
+- **AND** if daemon start fails (wt-memoryd not installed), it SHALL fall back to `wt-memory health`
+
+#### Scenario: Session ID extraction without Python subprocess
+- **WHEN** `wt-hook-memory` reads the input JSON
+- **THEN** it SHALL extract `session_id` using bash utilities (grep + cut)
+- **AND** SHALL NOT spawn a Python subprocess for JSON parsing in the bash preamble
+
 #### Scenario: SessionStart event
 - **WHEN** `wt-hook-memory SessionStart` is called
 - **THEN** it SHALL perform proactive context loading using git changed files (not commit messages) as context

@@ -123,8 +123,26 @@ The CLAUDE.md Persistent Memory section SHALL document both automatic (hooks) an
 - **AND** SHALL explain that MCP tools are available for deeper memory interactions
 - **AND** SHALL list the key MCP tool names: remember, recall, proactive_context
 
+### Requirement: Daemon-first routing
+The MCP server SHALL try the wt-memoryd daemon client before falling back to the `wt-memory` CLI for core memory operations (remember, recall, proactive_context, forget, list, get, context_summary, brain, stats, health, verify_index, consolidation_report, graph_stats, recall_by_date).
+
+#### Scenario: Daemon available
+- **WHEN** the wt-memoryd daemon is running
+- **THEN** the MCP server SHALL route memory operations through the daemon client
+- **AND** SHALL NOT spawn a `wt-memory` CLI subprocess
+
+#### Scenario: Daemon unavailable
+- **WHEN** the wt-memoryd daemon is not running or the client fails to connect
+- **THEN** the MCP server SHALL fall back to the `wt-memory` CLI subprocess
+- **AND** SHALL function identically to the CLI-only path
+
+#### Scenario: Daemon client cached per process
+- **WHEN** the MCP server process starts
+- **THEN** it SHALL create at most one daemon client instance for its lifetime
+- **AND** subsequent tool calls SHALL reuse the cached client
+
 ### Requirement: Hooks and MCP share the same path
-Both the hook system (via `wt-memory` CLI) and the unified MCP server (via `wt-memory` CLI with `cwd=CLAUDE_PROJECT_DIR`) SHALL use the identical code path and resolve to the same project storage.
+Both the hook system (via daemon client or `wt-memory` CLI) and the unified MCP server (via daemon client or `wt-memory` CLI with `cwd=CLAUDE_PROJECT_DIR`) SHALL use the identical code path and resolve to the same project storage.
 
 #### Scenario: Memory saved via hook, recalled via MCP
 - **WHEN** the Stop hook saves a memory via `wt-memory remember` (CWD = project root)
