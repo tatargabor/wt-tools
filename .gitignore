@@ -24,8 +24,8 @@ loop-state.json
 
 # Runtime state files (wt-tools engine)
 .wt-tools/
+activity.json
 .claude/.wt-version
-.claude/activity.json
 .claude/logs/
 .claude/orchestration.log
 .claude/scheduled_tasks.lock
