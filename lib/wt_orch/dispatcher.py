@@ -203,7 +203,7 @@ def sync_worktree_with_main(wt_path: str, change_name: str) -> SyncResult:
                         "sync: regenerating %s via %s in %s",
                         basename, " ".join(install_cmd), wt_path,
                     )
-                    result = run_command(install_cmd, timeout=300, cwd=wt_path)
+                    result = run_command(install_cmd, timeout=600, cwd=wt_path)
                     if result.exit_code == 0:
                         run_git("add", f, cwd=wt_path)
                         lockfile_regenerated = True

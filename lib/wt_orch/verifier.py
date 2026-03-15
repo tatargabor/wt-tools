@@ -757,7 +757,7 @@ def smoke_fix_scoped(
         state = load_state(state_file)
         test_cmd = state.extras.get("directives", {}).get("test_command", "")
         if test_cmd:
-            test_result = run_command(["bash", "-c", test_cmd], timeout=300)
+            test_result = run_command(["bash", "-c", test_cmd], timeout=600)
             if test_result.exit_code != 0:
                 logger.error("Smoke fix broke unit tests — reverting (attempt %d)", attempt)
                 run_git("revert", "HEAD", "--no-edit")
@@ -1209,7 +1209,7 @@ def handle_change_done(
             start_ms = int(time.monotonic() * 1000)
 
             build_result = run_command(
-                [pm, "run", build_command], timeout=300, cwd=wt_path,
+                [pm, "run", build_command], timeout=600, cwd=wt_path,
             )
             gate_build_ms = int(time.monotonic() * 1000) - start_ms
             update_change_field(state_file, change_name, "gate_build_ms", gate_build_ms)

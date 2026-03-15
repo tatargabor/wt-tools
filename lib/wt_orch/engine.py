@@ -766,7 +766,7 @@ def _auto_replan_cycle(
     from .templates import render_planning_prompt
     prompt = render_planning_prompt(**context)
 
-    claude_result = run_claude(prompt, timeout=300, model=d.default_model or "opus")
+    claude_result = run_claude(prompt, timeout=1800, model=d.default_model or "opus")
     if claude_result.exit_code != 0:
         logger.error("Replan: Claude invocation failed (exit %d)", claude_result.exit_code)
         return "error"

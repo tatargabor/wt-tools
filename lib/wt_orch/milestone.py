@@ -394,5 +394,5 @@ def _install_dependencies(wt_path: str) -> bool:
     else:
         return True
 
-    result = run_command(cmd, timeout=300, cwd=wt_path)
+    result = run_command(cmd, timeout=600, cwd=wt_path)
     return result.exit_code == 0

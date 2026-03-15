@@ -210,7 +210,7 @@ def run_audit(
     # Call LLM with timeout
     result = run_claude(
         audit_prompt,
-        timeout=300,
+        timeout=1800,
         model=review_model,
     )
 

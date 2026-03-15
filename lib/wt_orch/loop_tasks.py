@@ -272,7 +272,7 @@ def _check_test_done(wt_path: str) -> bool:
             cwd=wt_path,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=600,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
@@ -293,7 +293,7 @@ def _check_build_done(wt_path: str) -> bool:
             [pm, "run", build_cmd],
             cwd=wt_path,
             capture_output=True,
-            timeout=300,
+            timeout=600,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):

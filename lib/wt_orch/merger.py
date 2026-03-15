@@ -313,7 +313,7 @@ def merge_change(
     # Case 3: Normal merge
     merge_result = run_command(
         ["wt-merge", change_name, "--no-push", "--llm-resolve"],
-        timeout=300,
+        timeout=600,
     )
 
     if merge_result.exit_code == 0:
@@ -599,7 +599,7 @@ def _post_merge_deps_install(lockfile_conflicted: bool = False) -> None:
 
     if install_cmd:
         logger.info("Post-merge: %s, running %s", reason, " ".join(install_cmd))
-        result = run_command(install_cmd, timeout=300)
+        result = run_command(install_cmd, timeout=600)
         if result.exit_code == 0:
             logger.info("Post-merge: %s succeeded", " ".join(install_cmd))
         else:
@@ -615,7 +615,7 @@ def _post_merge_custom_command(state_file: str) -> None:
         return
 
     logger.info("Post-merge: running custom command: %s", pmc)
-    result = run_command(["bash", "-c", pmc], timeout=300)
+    result = run_command(["bash", "-c", pmc], timeout=600)
     if result.exit_code == 0:
         logger.info("Post-merge: custom command succeeded")
     else:
@@ -645,7 +645,7 @@ def _post_merge_build_check(change_name: str, state_file: str) -> bool:
         build_parts = [pm, "run", "build"]
 
     logger.info("Post-merge: verifying build on main after merging %s", change_name)
-    result = run_command(build_parts, timeout=300)
+    result = run_command(build_parts, timeout=600)
 
     if result.exit_code != 0:
         logger.error("Post-merge: build FAILED on main after merging %s", change_name)
@@ -856,7 +856,7 @@ def _handle_merge_conflict(
         logger.info("No real conflict markers for %s — retrying merge", change_name)
         retry_result = run_command(
             ["wt-merge", change_name, "--no-push", "--llm-resolve"],
-            timeout=300,
+            timeout=600,
         )
         if retry_result.exit_code == 0:
             update_change_field(state_file, change_name, "status", "merged")

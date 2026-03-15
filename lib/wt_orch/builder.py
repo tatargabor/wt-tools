@@ -81,7 +81,7 @@ def check_base_build(project_path: str) -> BuildResult:
 
     result = run_command(
         [pm, "run", build_cmd],
-        timeout=300,
+        timeout=600,
         cwd=project_path,
     )
 
