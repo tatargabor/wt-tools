@@ -217,6 +217,100 @@ Write findings **continuously during the run**, not after:
 
 Number bugs sequentially across runs within the same project file (e.g. Run #1 bugs 1-7, Run #2 bugs 8-14). This makes it easy to reference bugs across runs and track recurrence.
 
+## Sentinel E2E Lifecycle
+
+The sentinel (Claude agent mode via `/wt:sentinel`) owns the full E2E lifecycle. The user tells it which project to run; the sentinel handles everything else.
+
+### Phase 1: Prep (subagent — protects sentinel context)
+
+Spawn a subagent to collect context. The sentinel does NOT read findings/git log itself — the subagent returns a compact summary (~20 lines).
+
+**Subagent instructions:**
+1. Read `tests/e2e/E2E-GUIDE.md` — especially "Last Run Results" and "Performance Baseline"
+2. If a previous results block exists for the target project, extract the `<!-- wt-tools-commit: {hash} -->` and run `git log {hash}..HEAD --oneline` to get the commit delta
+3. Read `tests/e2e/{project}-e2e-findings.md` — list bugs that lack a "Verified" annotation or are marked "regressed"
+4. List active changes in `openspec/changes/` (non-archived directories)
+5. Return a summary in this format:
+
+```
+PREP SUMMARY ({project}, based on Run #{N}):
+- wt-tools commits since last run: {count}
+  {commit list, one per line}
+- Open regressions: {bug numbers + short titles, or "none"}
+- Active wt-tools changes: {change names + task progress}
+- Watch for:
+  - {specific patterns to monitor based on above}
+```
+
+Wait for subagent completion. Inject the summary into your context before proceeding.
+
+### Phase 2: Launch
+
+The sentinel launches the E2E run — not the user manually.
+
+1. Run the scaffold script:
+   ```bash
+   ./tests/e2e/run.sh              # for minishop
+   ./tests/e2e/run-complex.sh      # for craftbrew
+   ```
+2. Parse output for the created project directory path
+3. `cd` to the project directory
+4. Report the project directory to the user
+5. Start orchestration:
+   ```bash
+   wt-sentinel --spec docs/v1-minishop.md    # minishop
+   wt-sentinel --spec docs/v1.md             # craftbrew (check spec path)
+   ```
+
+### Phase 3: Monitor
+
+Follow the existing guide sections:
+- **Monitoring** — poll template, process checks
+- **Framework Bug vs App Bug** — only fix framework bugs
+- **When You Fix a wt-tools Bug** — fix → commit → deploy → sync → restart
+- **State Reset** — partial preferred, full only with user approval
+
+**Use prep context during monitoring:**
+- When a failure occurs, check against the "Watch for" list from prep
+- If a failure matches a known regression pattern, reference the bug number
+- If a wt-tools commit addressed a specific bug, verify whether the fix holds
+
+### Phase 4: Wrap-up
+
+After orchestration completes (status "done", "stopped", or "time_limit"):
+
+1. Run the report tool with guide update:
+   ```bash
+   wt-e2e-report --update-guide /path/to/wt-tools/tests/e2e/E2E-GUIDE.md
+   ```
+2. Update `tests/e2e/{project}-e2e-findings.md` with any new bugs from this run
+3. Commit changes to the wt-tools repo:
+   ```bash
+   cd /path/to/wt-tools
+   git add tests/e2e/E2E-GUIDE.md tests/e2e/{project}-e2e-findings.md
+   git commit -m "e2e: {project} run #{N} results"
+   ```
+
+**Even for failed/interrupted runs**: still run wrap-up to record partial results.
+
+### Parallel Runs
+
+Two E2E tests (minishop + craftbrew) can run simultaneously:
+- Each has its own project dir (`/tmp/minishop-runN`, `/tmp/craftbrew-runN`)
+- Each has its own findings file and results subsection in this guide
+- Launch two separate sentinel sessions — they won't conflict
+- Each sentinel's wrap-up updates only its own project block
+
+## Last Run Results
+
+<!-- Auto-updated by wt-e2e-report --update-guide. Do not edit between start/end markers. -->
+
+<!-- e2e-results:minishop:start -->
+<!-- e2e-results:minishop:end -->
+
+<!-- e2e-results:craftbrew:start -->
+<!-- e2e-results:craftbrew:end -->
+
 ## Architecture Quick Reference
 
 The orchestration pipeline:
