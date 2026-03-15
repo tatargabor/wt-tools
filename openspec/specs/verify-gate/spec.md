@@ -35,6 +35,7 @@ Test runner, scope checks, verification rule evaluation, and gate pipeline orche
 - Per-change skip flags: skip_test, skip_review honored
 - Build step: detect package manager, run build:ci or build script, check main branch on failure
 - Test file existence check: blocking for feature/infrastructure/foundational types
+- Spec coverage step: non-blocking warning. `spec_coverage_result=fail` SHALL be recorded in state but SHALL NOT set `verify_ok = False` or trigger a retry. The VERIFY_GATE event SHALL include `spec_coverage` and `spec_coverage_blocking: false` fields.
 
 #### VG-BUILD — Build verification
 - Detect package.json build/build:ci scripts
