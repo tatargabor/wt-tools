@@ -6,7 +6,7 @@
 
 **Figma Design:** https://www.figma.com/make/9PH3uS4vWjSj6cUPhTGZSt/wt-minishop?p=f&t=zvhTdumJeYUpKrJm-0
 
-Agents should use the Figma MCP to query design tokens, component specs, and layout details during implementation. The design file contains desktop and mobile layouts for all pages.
+**Local design snapshot:** `docs/figma-raw/9PH3uS4vWjSj6cUPhTGZSt/` — pre-fetched via `wt-figma-fetch`, contains source files, Tailwind tokens, component hierarchy, and assembled `design-snapshot.md`. Re-fetch with `wt-figma-fetch --force docs/` if the Figma design changes.
 
 ## Starting Point
 
