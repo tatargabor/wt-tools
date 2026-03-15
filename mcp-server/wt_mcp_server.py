@@ -612,15 +612,47 @@ def team_resource() -> str:
 
 
 # ============================================================================
-# MEMORY TOOLS - Wraps wt-memory CLI with project-scoped CWD
+# MEMORY TOOLS - Uses daemon client with CLI fallback
 # ============================================================================
 
 # Project dir for memory tools — set at registration time by wt-project init
 MEMORY_PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR")
 
+# Lazy daemon client (one per process lifetime)
+_memory_client = None
+
+
+def _get_memory_client():
+    """Get or create daemon client. Returns None if unavailable."""
+    global _memory_client
+    if _memory_client is not None:
+        return _memory_client
+    try:
+        # Add wt-tools lib to path if needed
+        lib_path = str(WT_TOOLS_ROOT / "lib")
+        if lib_path not in sys.path:
+            sys.path.insert(0, lib_path)
+        from wt_memoryd.client import MemoryClient
+        _memory_client = MemoryClient.for_project(project_dir=MEMORY_PROJECT_DIR)
+        return _memory_client
+    except Exception:
+        return None
+
+
+def _run_memory_via_daemon(method: str, **params) -> str | None:
+    """Try daemon first, return JSON string or None if unavailable."""
+    client = _get_memory_client()
+    if client is None:
+        return None
+    try:
+        result = client.request(method, params)
+        return json.dumps(result, indent=2) if result is not None else "(no output)"
+    except Exception:
+        return None
+
 
 def _run_memory(args: list[str], input_text: str | None = None, timeout: int = 30) -> str:
-    """Run a wt-memory CLI command with project-scoped CWD."""
+    """Run a wt-memory CLI command with project-scoped CWD (fallback path)."""
     try:
         result = subprocess.run(
             ["wt-memory"] + args,
@@ -655,6 +687,9 @@ def _run_memory_json(args: list[str], input_text: str | None = None) -> str:
 @mcp.tool
 def remember(content: str, type: str = "Learning", tags: str = "") -> str:
     """Save a memory. Types: Decision, Learning, Context. Tags: comma-separated."""
+    result = _run_memory_via_daemon("remember", content=content, type=type, tags=tags)
+    if result is not None:
+        return result
     args = ["remember", "--type", type]
     if tags:
         args.extend(["--tags", tags])
@@ -664,6 +699,9 @@ def remember(content: str, type: str = "Learning", tags: str = "") -> str:
 @mcp.tool
 def recall(query: str, limit: int = 5, mode: str = "hybrid", tags: str = "") -> str:
     """Semantic search for memories. Modes: semantic, temporal, hybrid, causal, associative."""
+    result = _run_memory_via_daemon("recall", query=query, limit=limit, mode=mode, tags=tags)
+    if result is not None:
+        return result
     args = ["recall", query, "--limit", str(limit), "--mode", mode]
     if tags:
         args.extend(["--tags", tags])
@@ -673,24 +711,36 @@ def recall(query: str, limit: int = 5, mode: str = "hybrid", tags: str = "") -> 
 @mcp.tool
 def proactive_context(context: str, limit: int = 5) -> str:
     """Context-aware retrieval with relevance scores. Richer than recall."""
+    result = _run_memory_via_daemon("proactive_context", context=context, limit=limit)
+    if result is not None:
+        return result
     return _run_memory_json(["proactive", context, "--limit", str(limit)])
 
 
 @mcp.tool
 def forget(id: str) -> str:
     """Delete a single memory by ID."""
+    result = _run_memory_via_daemon("forget", id=id)
+    if result is not None:
+        return result
     return _run_memory(["forget", id])
 
 
 @mcp.tool
 def forget_by_tags(tags: str) -> str:
     """Delete all memories matching the given tags (comma-separated)."""
+    result = _run_memory_via_daemon("forget_by_tags", tags=tags)
+    if result is not None:
+        return result
     return _run_memory(["forget", "--tags", tags])
 
 
 @mcp.tool
 def list_memories(type: str = "", limit: int = 20) -> str:
     """List memories. Optionally filter by type (Decision, Learning, Context)."""
+    result = _run_memory_via_daemon("list", type=type, limit=limit)
+    if result is not None:
+        return result
     args = ["list", "--limit", str(limit)]
     if type:
         args.extend(["--type", type])
@@ -700,12 +750,18 @@ def list_memories(type: str = "", limit: int = 20) -> str:
 @mcp.tool
 def get_memory(id: str) -> str:
     """Get a single memory by ID (full details)."""
+    result = _run_memory_via_daemon("get", id=id)
+    if result is not None:
+        return result
     return _run_memory_json(["get", id])
 
 
 @mcp.tool
 def context_summary(topic: str = "") -> str:
     """Condensed memory summary by category. Optionally filter by topic."""
+    result = _run_memory_via_daemon("context_summary", topic=topic)
+    if result is not None:
+        return result
     args = ["context"]
     if topic:
         args.append(topic)
@@ -715,12 +771,18 @@ def context_summary(topic: str = "") -> str:
 @mcp.tool
 def brain() -> str:
     """3-tier memory visualization (core/active/peripheral)."""
+    result = _run_memory_via_daemon("brain")
+    if result is not None:
+        return result
     return _run_memory(["brain"])
 
 
 @mcp.tool
 def memory_stats() -> str:
     """Memory quality diagnostics: types, tags, importance distribution."""
+    result = _run_memory_via_daemon("stats")
+    if result is not None:
+        return result
     return _run_memory_json(["stats", "--json"])
 
 
@@ -729,6 +791,9 @@ def memory_stats() -> str:
 @mcp.tool
 def memory_health() -> str:
     """Check if shodh-memory is available and healthy."""
+    result = _run_memory_via_daemon("health")
+    if result is not None:
+        return result
     return _run_memory(["health"])
 
 
@@ -830,12 +895,18 @@ def complete_todo(id: str) -> str:
 @mcp.tool
 def verify_index() -> str:
     """Verify index integrity — find orphaned memories not in vector index."""
+    result = _run_memory_via_daemon("verify_index")
+    if result is not None:
+        return result
     return _run_memory_json(["verify"])
 
 
 @mcp.tool
 def consolidation_report(since: str = "") -> str:
     """Memory consolidation report — strengthening/decay events."""
+    result = _run_memory_via_daemon("consolidation_report", since=since)
+    if result is not None:
+        return result
     args = ["consolidation"]
     if since:
         args.extend(["--since", since])
@@ -845,12 +916,18 @@ def consolidation_report(since: str = "") -> str:
 @mcp.tool
 def graph_stats() -> str:
     """Knowledge graph statistics (node count, edge count, etc.)."""
+    result = _run_memory_via_daemon("graph_stats")
+    if result is not None:
+        return result
     return _run_memory_json(["graph-stats"])
 
 
 @mcp.tool
 def recall_by_date(since: str = "", until: str = "", limit: int = 20) -> str:
     """Recall memories within a date range. ISO 8601 dates."""
+    result = _run_memory_via_daemon("recall_by_date", since=since, until=until, limit=limit)
+    if result is not None:
+        return result
     args = ["recall", "--limit", str(limit)]
     if since:
         args.extend(["--since", since])

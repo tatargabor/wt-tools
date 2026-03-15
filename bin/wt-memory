@@ -295,6 +295,183 @@ run_with_lock() {
 # Stderr suppressed — expected to fail when not installed.
 
 # =============================================================================
+# Daemon-first routing: try wt-memoryd socket before direct CLI
+# =============================================================================
+
+# Try daemon for supported commands. Returns 0 if handled, 1 if fallback needed.
+try_daemon() {
+    local command="$1"
+    shift
+
+    # Only route core commands through daemon (the hot-path ones)
+    case "$command" in
+        recall|proactive|remember|list|get|forget|context|brain|stats|flush|verify|consolidation|graph-stats|health)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    local project
+    project=$(resolve_project)
+    local sock="/tmp/wt-memoryd-${project}.sock"
+
+    # Quick check: socket exists?
+    [[ -S "$sock" ]] || return 1
+
+    # Build JSON request for the daemon
+    local method="$command"
+    local params="{}"
+
+    case "$command" in
+        recall)
+            # Parse recall args
+            local query="" limit="5" mode="hybrid" tags="" since="" until=""
+            if [[ $# -gt 0 && "$1" != --* ]]; then query="$1"; shift; fi
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --limit) limit="$2"; shift 2 ;;
+                    --mode) mode="$2"; shift 2 ;;
+                    --tags) tags="$2"; shift 2 ;;
+                    --since) since="$2"; shift 2 ;;
+                    --until) until="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            if [[ -n "$since" ]]; then
+                method="recall_by_date"
+                params="{\"since\":\"$since\",\"until\":\"$until\",\"limit\":$limit}"
+            else
+                params="{\"query\":$(printf '%s' "$query" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"limit\":$limit,\"mode\":\"$mode\",\"tags\":\"$tags\"}"
+            fi
+            ;;
+        proactive)
+            local context="" limit="5"
+            if [[ $# -gt 0 && "$1" != --* ]]; then context="$1"; shift; fi
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --limit) limit="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            method="proactive_context"
+            params="{\"context\":$(printf '%s' "$context" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"limit\":$limit}"
+            ;;
+        remember)
+            local mem_type="Learning" tags="" content
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --type) mem_type="$2"; shift 2 ;;
+                    --tags) tags="$2"; shift 2 ;;
+                    --metadata|--failure|--anomaly) shift ;; # skip unsupported for daemon
+                    *) shift ;;
+                esac
+            done
+            content=$(cat)
+            params="{\"content\":$(printf '%s' "$content" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"type\":\"$mem_type\",\"tags\":\"$tags\"}"
+            ;;
+        list)
+            local mem_type="" limit="20"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --type) mem_type="$2"; shift 2 ;;
+                    --limit) limit="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            params="{\"type\":\"$mem_type\",\"limit\":$limit}"
+            ;;
+        get)
+            local id="${1:-}"
+            params="{\"id\":\"$id\"}"
+            ;;
+        forget)
+            # Simple single-ID forget only via daemon
+            if [[ $# -eq 1 && "$1" != --* ]]; then
+                params="{\"id\":\"$1\"}"
+            else
+                return 1  # complex forget (--tags, --all, etc.) → fallback
+            fi
+            ;;
+        context)
+            method="context_summary"
+            local topic="${1:-}"
+            params="{\"topic\":\"$topic\"}"
+            ;;
+        brain|stats|flush|verify|graph-stats)
+            [[ "$command" == "verify" ]] && method="verify_index"
+            [[ "$command" == "graph-stats" ]] && method="graph_stats"
+            params="{}"
+            ;;
+        consolidation)
+            method="consolidation_report"
+            local since=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --since) since="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            params="{\"since\":\"$since\"}"
+            ;;
+        health)
+            # Only simple health (no --index) via daemon
+            if [[ $# -gt 0 ]]; then return 1; fi
+            params="{}"
+            ;;
+    esac
+
+    local req_id
+    req_id=$(head -c 8 /dev/urandom | xxd -p | head -c 8)
+    local request="{\"id\":\"$req_id\",\"method\":\"$method\",\"params\":$params}"
+
+    # Send request via socat or python
+    local response
+    if command -v socat &>/dev/null; then
+        response=$(printf '%s\n' "$request" | socat -t5 - UNIX-CONNECT:"$sock" 2>/dev/null) || return 1
+    else
+        response=$(python3 -c "
+import socket, sys, json
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.settimeout(5)
+try:
+    sock.connect('$sock')
+    sock.sendall((sys.argv[1] + '\n').encode())
+    buf = b''
+    while b'\n' not in buf:
+        chunk = sock.recv(65536)
+        if not chunk: break
+        buf += chunk
+    print(buf.decode().strip())
+finally:
+    sock.close()
+" "$request" 2>/dev/null) || return 1
+    fi
+
+    [[ -z "$response" ]] && return 1
+
+    # Parse response: check for error
+    local has_error
+    has_error=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print('error' if 'error' in d else 'ok')" "$response" 2>/dev/null) || return 1
+    if [[ "$has_error" == "error" ]]; then
+        python3 -c "import json,sys; print(json.loads(sys.argv[1])['error'])" "$response" >&2
+        return 1
+    fi
+
+    # Extract result
+    python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+r = d.get('result')
+if isinstance(r, (dict, list)):
+    print(json.dumps(r, indent=2, default=str))
+elif r is not None:
+    print(r)
+" "$response"
+    return 0
+}
+
+# =============================================================================
 # Source modular components from lib/memory/
 # =============================================================================
 _wt_memory_lib_dir="$(cd "$_wt_memory_bin_dir/../lib/memory" && pwd)"
@@ -332,6 +509,11 @@ main() {
 
     local command="$1"
     shift
+
+    # Try daemon-first routing for supported commands
+    if try_daemon "$command" "$@" 2>/dev/null; then
+        exit 0
+    fi
 
     case "$command" in
         health)   cmd_health "$@" ;;

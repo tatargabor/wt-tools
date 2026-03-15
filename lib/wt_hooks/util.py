@@ -1,10 +1,11 @@
-"""Hook utilities: debug logging, metrics timers, cache I/O.
+"""Hook utilities: debug logging, metrics timers, cache I/O, daemon helpers.
 
 1:1 migration of lib/hooks/util.sh.
 """
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -153,3 +154,53 @@ def extract_scores(memories: list) -> list:
 # ─── Checkpoint config ────────────────────────────────────────
 
 CHECKPOINT_INTERVAL = 10  # Save checkpoint every N user prompts
+
+
+# ─── Heuristic patterns (shared by memory_ops and stop) ──────
+
+HEURISTIC_PATTERNS = [
+    "false positive",
+    "same pattern",
+    "known pattern",
+    "known issue",
+    "was a false",
+    "unlike previous",
+    "same issue as",
+    "this is not a real",
+]
+HEURISTIC_RE = re.compile(
+    "|".join(re.escape(p) for p in HEURISTIC_PATTERNS), re.IGNORECASE
+)
+
+
+# ─── Daemon client helpers (shared by memory_ops, stop, mcp) ─
+
+# Cached daemon client (one per process lifetime)
+_daemon_client = None
+_daemon_tried = False
+
+
+def get_daemon_client():
+    """Get or create daemon client. Returns None if unavailable.
+
+    Cached for the process lifetime — safe to call repeatedly.
+    """
+    global _daemon_client, _daemon_tried
+    if _daemon_tried:
+        return _daemon_client
+    _daemon_tried = True
+    try:
+        from wt_memoryd.client import MemoryClient
+        _daemon_client = MemoryClient.for_project()
+        return _daemon_client
+    except Exception:
+        return None
+
+
+def daemon_is_running() -> bool:
+    """Check if daemon is running (socket exists). Cheap fs check."""
+    try:
+        from wt_memoryd.lifecycle import is_running, resolve_project
+        return is_running(resolve_project())
+    except Exception:
+        return False

@@ -1,32 +1,20 @@
 """Hook memory operations: recall, proactive context, rules matching, output formatting.
 
 1:1 migration of lib/hooks/memory-ops.sh.
+Uses wt-memoryd daemon client for fast recall (bypass CLI subprocess overhead).
+Falls back to CLI subprocess if daemon is unavailable.
 """
 
 import json
 import os
-import random
-import re
 import subprocess
 from typing import Optional
 
-from .util import _log, _dbg, read_cache, write_cache, METRICS_ENABLED
-from .session import gen_context_id, store_injected_content
-
-# Heuristic patterns that may indicate false-positive memories
-HEURISTIC_PATTERNS = [
-    "false positive",
-    "same pattern",
-    "known pattern",
-    "known issue",
-    "was a false",
-    "unlike previous",
-    "same issue as",
-    "this is not a real",
-]
-_HEURISTIC_RE = re.compile(
-    "|".join(re.escape(p) for p in HEURISTIC_PATTERNS), re.IGNORECASE
+from .util import (
+    _log, _dbg, read_cache, write_cache, METRICS_ENABLED,
+    get_daemon_client, daemon_is_running, HEURISTIC_RE,
 )
+from .session import gen_context_id, store_injected_content
 
 # Minimum relevance score threshold
 MIN_RELEVANCE = 0.3
@@ -39,23 +27,37 @@ def recall_memories(
     limit: int = 3,
     mode: str = "hybrid",
 ) -> Optional[str]:
-    """Call wt-memory recall, parse JSON, dedup filter. Returns formatted string or None."""
+    """Recall memories via daemon (fast) or CLI fallback. Returns formatted string or None."""
     _log("recall", f"query='{query[:80]}' mode={mode} limit={limit}")
 
-    try:
-        result = subprocess.run(
-            ["wt-memory", "recall", query, "--limit", str(limit), "--mode", mode],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            _log("recall", "FAILED")
+    memories = None
+
+    # Try daemon first
+    client = get_daemon_client()
+    if client is not None:
+        try:
+            memories = client.recall(query, limit=limit, mode=mode)
+            _dbg("recall", "via daemon")
+        except Exception as e:
+            _dbg("recall", f"daemon error: {e}")
+
+    # Fallback to CLI subprocess — but only if daemon is NOT running
+    # (if daemon holds the RocksDB lock, CLI would fail with lock conflict)
+    if memories is None and not daemon_is_running():
+        try:
+            result = subprocess.run(
+                ["wt-memory", "recall", query, "--limit", str(limit), "--mode", mode],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                _log("recall", "FAILED")
+                return None
+            memories = json.loads(result.stdout)
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
+            _log("recall", f"error: {e}")
             return None
-        memories = json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
-        _log("recall", f"error: {e}")
-        return None
 
     if not memories:
         return None
@@ -68,23 +70,45 @@ def proactive_context(
     cache_file: str,
     limit: int = 5,
 ) -> Optional[str]:
-    """Call wt-memory proactive, return scored memories. Returns formatted string or None."""
+    """Proactive context via daemon (fast) or CLI fallback. Returns formatted string or None."""
     _log("proactive", f"query='{query[:80]}' limit={limit}")
 
-    try:
-        result = subprocess.run(
-            ["wt-memory", "proactive", query, "--limit", str(limit)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            _log("proactive", "FAILED")
+    memories = None
+
+    # Try daemon first
+    client = get_daemon_client()
+    if client is not None:
+        try:
+            result = client.proactive_context(query, limit=limit)
+            # Daemon returns {"memories": [...], ...} dict, extract the list
+            if isinstance(result, dict):
+                memories = result.get("memories", [])
+            else:
+                memories = result
+            _dbg("proactive", "via daemon")
+        except Exception as e:
+            _dbg("proactive", f"daemon error: {e}")
+
+    # Fallback to CLI — only if daemon is NOT running (RocksDB lock conflict)
+    if memories is None and not daemon_is_running():
+        try:
+            result = subprocess.run(
+                ["wt-memory", "proactive", query, "--limit", str(limit)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                _log("proactive", "FAILED")
+                return None
+            raw = json.loads(result.stdout)
+            if isinstance(raw, dict):
+                memories = raw.get("memories", [])
+            else:
+                memories = raw
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
+            _log("proactive", f"error: {e}")
             return None
-        memories = json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
-        _log("proactive", f"error: {e}")
-        return None
 
     if not memories:
         return None
@@ -256,7 +280,7 @@ def _format_memories(memories: list, cache_file: str, source: str) -> Optional[s
             except (ValueError, TypeError):
                 pass
 
-        heur = "\u26a0\ufe0f HEURISTIC: " if _HEURISTIC_RE.search(c) else ""
+        heur = "\u26a0\ufe0f HEURISTIC: " if HEURISTIC_RE.search(c) else ""
         lines.append(f"  - [MEM#{cid}] {heur}{c}")
 
     if not lines:

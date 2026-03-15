@@ -1,6 +1,8 @@
 """Hook stop pipeline: metrics flush, transcript extraction, commit-based memory save.
 
 1:1 migration of lib/hooks/stop.sh.
+Uses wt-memoryd daemon client for fast remember (bypass CLI subprocess overhead).
+Falls back to CLI subprocess if daemon is unavailable.
 """
 
 import json
@@ -9,8 +11,42 @@ import re
 import subprocess
 from typing import Optional
 
-from .util import _log, _dbg, read_cache, write_cache
+from .util import (
+    _log, _dbg, read_cache, write_cache,
+    get_daemon_client, daemon_is_running, HEURISTIC_RE,
+)
 from .session import dedup_clear
+
+
+def _remember_via_daemon_or_cli(
+    content: str,
+    mem_type: str = "Learning",
+    tags: str = "",
+) -> bool:
+    """Remember via daemon (fast) or CLI subprocess (fallback). Returns True on success."""
+    # Try daemon
+    client = get_daemon_client()
+    if client is not None:
+        try:
+            client.remember(content, memory_type=mem_type, tags=tags)
+            return True
+        except Exception:
+            pass
+
+    # Fallback to CLI — only if daemon is NOT running (avoids RocksDB lock conflict)
+    if daemon_is_running():
+        return False
+    try:
+        subprocess.run(
+            ["wt-memory", "remember", "--type", mem_type, "--tags", tags],
+            input=content,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def flush_metrics(
@@ -99,20 +135,11 @@ def extract_insights(transcript_path: str, change_name: str = "unknown") -> int:
 
         mem_type = "Context" if role == "user" else "Learning"
         tags = base_tags
-        if _HEURISTIC_RE.search(content):
+        if HEURISTIC_RE.search(content):
             tags = f"{tags},volatile"
 
-        try:
-            subprocess.run(
-                ["wt-memory", "remember", "--type", mem_type, "--tags", tags],
-                input=full_content,
-                text=True,
-                capture_output=True,
-                timeout=5,
-            )
+        if _remember_via_daemon_or_cli(full_content, mem_type=mem_type, tags=tags):
             saved += 1
-        except Exception:
-            pass
 
     _log("stop", f"raw-filter: saved {saved}/{total} entries")
     return saved
@@ -269,50 +296,18 @@ def save_checkpoint(
     )
     summary = summary[:800]
 
-    try:
-        subprocess.run(
-            [
-                "wt-memory",
-                "remember",
-                "--type",
-                "Context",
-                "--tags",
-                "phase:checkpoint,source:hook",
-            ],
-            input=summary,
-            text=True,
-            capture_output=True,
-            timeout=5,
-        )
+    if _remember_via_daemon_or_cli(
+        summary, mem_type="Context", tags="phase:checkpoint,source:hook"
+    ):
         _log("stop", f"checkpoint: saved turns {last_checkpoint + 1}-{turn_count}")
-
-        # Update last_checkpoint_turn
         from .session import set_last_checkpoint_turn
-
         set_last_checkpoint_turn(cache_file, turn_count)
         return True
-    except Exception:
-        return False
+    return False
 
 
 # ─── Internal helpers ─────────────────────────────────────────
 
-_HEURISTIC_RE = re.compile(
-    "|".join(
-        re.escape(p)
-        for p in [
-            "false positive",
-            "same pattern",
-            "known pattern",
-            "known issue",
-            "was a false",
-            "unlike previous",
-            "same issue as",
-            "this is not a real",
-        ]
-    ),
-    re.IGNORECASE,
-)
 
 
 def _filter_transcript(transcript_path: str) -> list:
@@ -436,23 +431,11 @@ def _save_design_choices(change_name: str, design_marker: str) -> None:
         text = f"{change_name}: {'. '.join(choices)}"
         if len(text) > 300:
             text = text[:297] + "..."
-        try:
-            subprocess.run(
-                [
-                    "wt-memory",
-                    "remember",
-                    "--type",
-                    "Decision",
-                    "--tags",
-                    f"change:{change_name},phase:apply,source:hook,decisions",
-                ],
-                input=text,
-                text=True,
-                capture_output=True,
-                timeout=5,
-            )
-        except Exception:
-            pass
+        _remember_via_daemon_or_cli(
+            text,
+            mem_type="Decision",
+            tags=f"change:{change_name},phase:apply,source:hook,decisions",
+        )
 
     # Update marker
     os.makedirs(os.path.dirname(design_marker) or ".", exist_ok=True)
