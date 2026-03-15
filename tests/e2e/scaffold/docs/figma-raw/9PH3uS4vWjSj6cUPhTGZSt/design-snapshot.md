@@ -1359,7 +1359,7 @@ export const router = createBrowserRouter([
 ```
 File src/styles/fonts.css not found
 
-Figma Debug UUID: bc8f7b49-1fa9-4edb-ab2b-629a76296b4c
+Figma Debug UUID: 22ca1c1f-8d96-429c-ae21-bf730b515a01
 ```
 
 ### src/styles/index.css

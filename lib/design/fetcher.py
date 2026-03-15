@@ -280,25 +280,38 @@ async def fetch_make_file(session, file_key: str, output_dir: str, metadata_resu
         os.makedirs(sources_dir, exist_ok=True)
         print(f"  Reading {len(resource_links)} source files...", file=sys.stderr)
 
+        images_dir = os.path.join(output_dir, "images")
         for link in resource_links:
             name = link["name"]
             uri = link["uri"]
-            # Skip binary files (images, etc.)
-            if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot")):
-                print(f"    skip (binary): {name}", file=sys.stderr)
+            is_image = name.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"))
+            # Skip fonts
+            if name.endswith((".woff", ".woff2", ".ttf", ".eot")):
+                print(f"    skip (font): {name}", file=sys.stderr)
                 continue
             try:
                 content_result = await session.read_resource(uri)
-                text = ""
-                for c in content_result.contents:
-                    t = getattr(c, "text", None)
-                    if t:
-                        text += t
-                if text:
-                    sources[name] = text
-                    # Save to sources/ with directory structure flattened
-                    safe_name = name.replace("/", "__")
-                    raw_save(sources_dir, safe_name, text)
+                if is_image:
+                    # Save binary images
+                    import base64
+                    os.makedirs(images_dir, exist_ok=True)
+                    for c in content_result.contents:
+                        blob = getattr(c, "blob", None)
+                        if blob:
+                            img_path = os.path.join(images_dir, name)
+                            with open(img_path, "wb") as f:
+                                f.write(base64.b64decode(blob))
+                            print(f"    image: {img_path}", file=sys.stderr)
+                else:
+                    text = ""
+                    for c in content_result.contents:
+                        t = getattr(c, "text", None)
+                        if t:
+                            text += t
+                    if text:
+                        sources[name] = text
+                        safe_name = name.replace("/", "__")
+                        raw_save(sources_dir, safe_name, text)
             except Exception as e:
                 print(f"    WARN: failed to read {name}: {e}", file=sys.stderr)
 
