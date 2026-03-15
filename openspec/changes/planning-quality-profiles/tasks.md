@@ -2,7 +2,7 @@
 
 ### Phase A: Non-Breaking Foundation
 
-- [ ] A1: Extend ProjectType ABC in wt-project-base
+- [x] A1: Extend ProjectType ABC in wt-project-base
   - File: `wt-project-base/wt_project_base/base.py`
   - Add 12 new methods with default (no-op) implementations to `ProjectType` ABC:
     - `planning_rules() -> str` (default: "")
@@ -21,7 +21,7 @@
   - Bump version to 0.2.0
   - Verify: existing BaseProjectType and WebProjectType still import and instantiate without changes
 
-- [ ] A2: Create profile_loader.py in wt-tools
+- [x] A2: Create profile_loader.py in wt-tools
   - File: `lib/wt_orch/profile_loader.py` (NEW)
   - `NullProfile` class — mirrors all 12 ABC methods with empty/no-op returns
   - `load_profile(project_path=".") -> ProjectType` — reads `wt/plugins/project-type.yaml`, loads via entry_points, singleton cache
@@ -29,7 +29,7 @@
   - Default `project_path="."` resolves to absolute path (engine CWD convention — see Constraint 1 in design)
   - Graceful fallback: any failure → NullProfile (log warning, don't crash)
 
-- [ ] A3: Unit tests for profile_loader
+- [x] A3: Unit tests for profile_loader
   - File: `tests/test_profile_loader.py` (NEW)
   - Test: no project-type.yaml → NullProfile
   - Test: valid yaml + entry_point → loads WebProjectType
@@ -41,7 +41,7 @@
 
 ### Phase B: Implement Web Profile Methods
 
-- [ ] B1: Implement new methods in WebProjectType
+- [x] B1: Implement new methods in WebProjectType
   - File: `wt-project-web/wt_project_web/project_type.py`
   - Implement all 12 new methods (pseudocode in design Component 2):
     - `planning_rules()` — reads from bundled `planning_rules.txt`
@@ -57,7 +57,7 @@
     - `ignore_patterns()` — node_modules, .next, dist, build, .turbo
   - Bump version to 0.2.0
 
-- [ ] B2: Create planning_rules.txt for web profile
+- [x] B2: Create planning_rules.txt for web profile
   - File: `wt-project-web/wt_project_web/planning_rules.txt` (NEW)
   - Extract L295-317 from `wt-tools/lib/wt_orch/templates.py` `_PLANNING_RULES` (Playwright E2E block)
   - Also add framework-specific security patterns that supplement the core security block:
