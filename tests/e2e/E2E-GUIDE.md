@@ -8,16 +8,14 @@ Start a new Claude Code session and paste:
 
 ```
 Futtasd az E2E minishop tesztet.
-Olvasd el a tests/e2e/E2E-GUIDE.md-t — kövesd a "Sentinel E2E Lifecycle" szekciót:
-1. Prep phase: subagenttel gyűjtsd össze a kontextust (Last Run Results + git log + findings)
-2. Launch phase: futtasd a tests/e2e/run.sh-t, cd a projekt könyvtárba, indítsd a wt-sentinel-t
-3. Monitor phase: kövesd a guide monitoring szekciót, használd a prep kontextust
-4. Wrap-up phase: wt-e2e-report --update-guide, findings frissítés, commit
+Olvasd el a tests/e2e/E2E-GUIDE.md-t és kövesd a "Sentinel E2E Lifecycle" szekciót elejétől végéig.
 ```
 
-For craftbrew, replace `minishop` with `craftbrew` and `run.sh` with `run-complex.sh`.
-
-The sentinel owns the full lifecycle — see **Sentinel E2E Lifecycle** section below for details.
+For craftbrew:
+```
+Futtasd az E2E craftbrew tesztet.
+Olvasd el a tests/e2e/E2E-GUIDE.md-t és kövesd a "Sentinel E2E Lifecycle" szekciót elejétől végéig.
+```
 
 ## Monitoring
 
