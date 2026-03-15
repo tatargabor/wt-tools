@@ -1075,7 +1075,7 @@ def run_planning_pipeline(
     except OSError:
         pass
 
-    result = run_claude(prompt, timeout=300, model=model, extra_args=["--max-turns", "3"])
+    result = run_claude(prompt, timeout=600, model=model, extra_args=["--max-turns", "3"])
     if result.exit_code != 0:
         raise RuntimeError(f"Claude planning call failed (exit {result.exit_code})")
 
@@ -1307,7 +1307,7 @@ def _fetch_design_context(force: bool = False) -> str:
          f'setup_design_bridge && '
          f'check_design_mcp_health && '
          f'fetch_design_snapshot {force_arg}'],
-        timeout=300,
+        timeout=600,
         env={"DESIGN_SNAPSHOT_DIR": project_root},
     )
 

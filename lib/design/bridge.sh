@@ -6,6 +6,13 @@
 # Usage: source this file after config.sh. All functions are non-fatal.
 # If no design MCP is detected, functions return 1 silently.
 
+# ─── Log Fallbacks ────────────────────────────────────────────────────
+# When sourced standalone (e.g. from Python subprocess), wt-common.sh
+# may not be loaded.  Define no-op fallbacks so calls never fail.
+type -t info  &>/dev/null || info()  { echo "[design-bridge] $*"; }
+type -t warn  &>/dev/null || warn()  { echo "[design-bridge] WARN: $*" >&2; }
+type -t error &>/dev/null || error() { echo "[design-bridge] ERROR: $*" >&2; }
+
 # ─── Detection ────────────────────────────────────────────────────────
 
 # Detect a registered design MCP server from .claude/settings.json.
@@ -154,15 +161,15 @@ check_design_mcp_health() {
     output=$(export RUN_CLAUDE_TIMEOUT=30; echo "$probe_prompt" | run_claude --output-format text --mcp-config "$config" 2>/dev/null) || rc=$?
 
     if [[ $rc -ne 0 ]]; then
-        log_warn "Design MCP health check timed out or failed (rc=$rc)"
+        warn "Design MCP health check timed out or failed (rc=$rc)"
         return 1
     fi
 
     if echo "$output" | grep -q "MCP_HEALTHY"; then
-        log_info "Design MCP health check passed: $server_name"
+        info "Design MCP health check passed: $server_name"
         return 0
     else
-        log_warn "Design MCP not authenticated: $server_name"
+        warn "Design MCP not authenticated: $server_name"
         return 1
     fi
 }
@@ -185,17 +192,17 @@ fetch_design_snapshot() {
     [[ -n "$config" && -f "$config" ]] || return 1
 
     if [[ -z "$design_ref" ]]; then
-        log_warn "No design file reference — skipping snapshot"
+        warn "No design file reference — skipping snapshot"
         return 1
     fi
 
     # Cache check: skip if snapshot exists and not forcing
     if [[ "$force" != "force" && -f "$snapshot_file" && -s "$snapshot_file" ]]; then
-        log_info "Using cached design snapshot"
+        info "Using cached design snapshot"
         return 0
     fi
 
-    log_info "Fetching design snapshot from $server_name MCP..."
+    info "Fetching design snapshot from $server_name MCP..."
 
     # Emit heartbeat so sentinel knows we're alive during long MCP calls
     if type -t emit_event &>/dev/null; then
@@ -208,7 +215,7 @@ fetch_design_snapshot() {
     local fetcher="$script_dir/fetch-figma-design.py"
 
     if [[ ! -f "$fetcher" ]]; then
-        log_warn "fetch-figma-design.py not found at $fetcher"
+        warn "fetch-figma-design.py not found at $fetcher"
         return 1
     fi
 
@@ -218,7 +225,7 @@ fetch_design_snapshot() {
     local rc=0
     local _hb_count=0
     python3 "$fetcher" --mcp-config "$config" "$design_ref" -o "$snapshot_dir" 2>&1 | while IFS= read -r line; do
-        log_info "  $line"
+        info "  $line"
         # Emit heartbeat on each step progress line (contains [N/4])
         if [[ "$line" == *"/"*"]"* ]] && type -t emit_event &>/dev/null; then
             _hb_count=$((_hb_count + 1))
@@ -227,23 +234,23 @@ fetch_design_snapshot() {
     done || rc=$?
 
     if [[ $rc -ne 0 ]]; then
-        log_warn "Design snapshot fetch failed (rc=$rc)"
+        warn "Design snapshot fetch failed (rc=$rc)"
         return 1
     fi
 
     if [[ ! -s "$snapshot_file" ]]; then
-        log_warn "Design snapshot fetch returned empty output"
+        warn "Design snapshot fetch returned empty output"
         return 1
     fi
 
-    log_info "Design snapshot saved ($(wc -c < "$snapshot_file") bytes)"
+    info "Design snapshot saved ($(wc -c < "$snapshot_file") bytes)"
 
     # Copy to project root so worktree agents can find it via design-bridge rule
     local project_root="${PROJECT_ROOT:-.}"
     local root_snapshot="$project_root/design-snapshot.md"
     if [[ "$snapshot_file" != "$root_snapshot" ]]; then
         cp "$snapshot_file" "$root_snapshot"
-        log_info "Design snapshot copied to project root"
+        info "Design snapshot copied to project root"
     fi
 
     return 0
