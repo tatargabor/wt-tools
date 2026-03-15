@@ -10,7 +10,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SPEC_FILE="$SCRIPT_DIR/scaffold/docs/v1-minishop.md"
+SCAFFOLD_DIR="$SCRIPT_DIR/scaffold"
+SPEC_FILE="$SCAFFOLD_DIR/docs/v1-minishop.md"
 BASE_DIR="${TMPDIR:-/tmp}"
 
 # Auto-increment run number: find highest existing minishop-runN, use N+1
@@ -134,10 +135,10 @@ check_existing() {
 # ── Main initialization ──
 
 init_project() {
-    step "Copy spec"
+    step "Copy spec and design assets"
     mkdir -p "$TEST_DIR/docs"
-    cp "$SPEC_FILE" "$TEST_DIR/docs/"
-    success "Spec copied to $TEST_DIR/docs/v1-minishop.md"
+    cp -r "$SCAFFOLD_DIR/docs/"* "$TEST_DIR/docs/"
+    success "Spec + design assets copied to $TEST_DIR/docs/"
 
     cd "$TEST_DIR"
 
