@@ -69,7 +69,7 @@ def extract_file_key(url_or_key: str) -> str:
 
 # ─── MCP Mode: Sequential focused calls ─────────────────────────────────
 
-def run_claude_mcp(prompt: str, mcp_config: str, timeout: int = 120) -> str:
+def run_claude_mcp(prompt: str, mcp_config: str, timeout: int = 1200) -> str:
     """Run a single focused MCP call via claude CLI. Returns text output."""
     claude_bin = os.environ.get("RUN_CLAUDE_BIN", "claude")
     cmd = [
@@ -112,7 +112,7 @@ PAGES_AND_FRAMES:
   ...
 
 List ALL pages and ALL top-level frames. Do not skip any."""
-    return run_claude_mcp(prompt, mcp_config, timeout=120)
+    return run_claude_mcp(prompt, mcp_config, timeout=1200)
 
 
 def mcp_fetch_tokens(design_ref: str, mcp_config: str) -> str:
@@ -137,7 +137,7 @@ Other:
 
 If a category has no tokens, write "none".
 List ALL tokens with their actual values, not just "defined"."""
-    return run_claude_mcp(prompt, mcp_config, timeout=120)
+    return run_claude_mcp(prompt, mcp_config, timeout=1200)
 
 
 def mcp_fetch_components(design_ref: str, mcp_config: str) -> str:
@@ -159,7 +159,7 @@ COMPONENT_HIERARCHY:
 
 Show max 4 levels deep. Include component properties if available.
 Cover ALL major frames, not just the first few."""
-    return run_claude_mcp(prompt, mcp_config, timeout=180)
+    return run_claude_mcp(prompt, mcp_config, timeout=1200)
 
 
 def mcp_fetch_screenshots(design_ref: str, mcp_config: str, output_dir: str) -> list[dict]:
@@ -188,7 +188,7 @@ SCREENSHOTS:
 
 If a frame doesn't exist, skip it. Get at most 3 screenshots."""
 
-    result = run_claude_mcp(prompt, mcp_config, timeout=180)
+    result = run_claude_mcp(prompt, mcp_config, timeout=1200)
 
     # Also try to get actual image files via the REST API if we have a token
     token = os.environ.get("FIGMA_TOKEN", "")
