@@ -1,5 +1,41 @@
 # MiniShop E2E Findings
 
+## Run #14 (2026-03-15) — IN PROGRESS
+
+### Pre-run Bugs Found (planning phase)
+
+#### 25. bridge.sh log_warn/log_info undefined — crashes design fetch
+- **Type**: framework
+- **Severity**: blocking (planner crash loop → sentinel rapid_crashes 5/5)
+- **Root cause**: `bridge.sh` used `log_warn`/`log_info` which don't exist. When sourced standalone from Python subprocess (without `wt-common.sh`), `command not found` error crashed `check_design_mcp_health`, causing planner RuntimeError. The `2>/dev/null` on the bash bridge source swallowed the error from the orchestration log.
+- **Fix**: [118223a05] — Added fallback log functions at top of bridge.sh (`info`/`warn`/`error` no-ops if not already defined), renamed all `log_warn`→`warn`, `log_info`→`info`.
+- **Recurrence**: new (introduced during bash→Python migration, never tested standalone)
+
+#### 26. Design MCP health check needs run_claude PTY — hangs from Python
+- **Type**: framework
+- **Severity**: blocking (planner hangs indefinitely)
+- **Root cause**: `check_design_mcp_health()` calls `run_claude` (a bash function from `wt-common.sh` that uses `script -f` PTY wrapper). When called from Python subprocess via `bash -c 'source bridge.sh'`, `run_claude` is undefined (rc=127). Sourcing `wt-common.sh` doesn't work either — it has interactive side effects that hang the subprocess.
+- **Fix**: [a0a9f2823] → [3bca71c13] — Skip health check from Python planner, go straight to `setup_design_bridge + fetch_design_snapshot`. The fetch will fail fast if MCP isn't working.
+- **Recurrence**: new (same migration gap as #25)
+
+#### 27. Figma URL format wrong — /design/ instead of /make/
+- **Type**: configuration
+- **Severity**: blocking (MCP fetch hangs/times out with /design/ URLs)
+- **Root cause**: Scaffold spec used `/design/` URL format. Figma MCP requires `/make/` format for proper API access.
+- **Fix**: [71259c611] — Updated `tests/e2e/scaffold/docs/v1-minishop.md` to use `/make/` URL.
+- **Recurrence**: new
+
+#### 28. All subprocess timeouts were 300s — too aggressive
+- **Type**: framework
+- **Severity**: noise (causes unnecessary restarts)
+- **Root cause**: Every `run_command`/`run_claude` call in the orchestration pipeline had `timeout=300` (5 min). LLM calls (planner, auditor, replan) and design fetch can legitimately take 10-30 min. The sentinel and watchdog handle stuck detection — tight subprocess timeouts just cause false failures.
+- **Fix**: [4946757ee] — LLM calls → 1800s (30min), build/test/merge/install → 600s (10min).
+- **Recurrence**: new (timeout values were set during initial implementation, never calibrated against E2E runs)
+
+### Status: Restarting with fixes applied
+
+---
+
 ## Run #13 (2026-03-14)
 
 ### Status: COMPLETED — 6/6 merged (across 7 attempts)
