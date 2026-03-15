@@ -471,7 +471,7 @@ def review_change(
             design_r = run_command(
                 ["bash", "-c",
                  f'source "{bridge_path}" 2>/dev/null && build_design_review_section "{design_snapshot_dir}"'],
-                timeout=5,
+                timeout=10,
             )
             if design_r.exit_code == 0 and design_r.stdout.strip():
                 design_compliance = design_r.stdout.strip()

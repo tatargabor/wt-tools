@@ -476,6 +476,14 @@ def render_planning_prompt(
 
     if design_context and design_context.strip():
         sections.append(f"\n{design_context}")
+        # If data model is present, instruct planner to embed field names in scope
+        if "## Design Data Model" in design_context:
+            sections.append("""
+When a Design Data Model section is present above, embed entity field names and seed data names
+from the design interfaces into each change scope description. The implementing agent will NOT see
+the Design Data Model section — only your scope text. For example, if the design defines
+`shortDescription` on Product, the products-page scope MUST mention `shortDescription` explicitly
+so the implementing agent creates the correct schema field and UI binding.""")
 
     if team_mode:
         sections.append("""

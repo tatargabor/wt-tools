@@ -1046,6 +1046,19 @@ def run_planning_pipeline(
     # 3. Design bridge (detect design MCP, fetch snapshot)
     design_context = _fetch_design_context(force=bool(replan_ctx))
 
+    # 3b. Append data model from Figma sources (interfaces, seed entity names)
+    if design_context:
+        from .subprocess_utils import run_command
+        from .root import WT_TOOLS_ROOT
+        bridge_path = os.path.join(WT_TOOLS_ROOT, "lib", "design", "bridge.sh")
+        if os.path.isfile(bridge_path):
+            dm_r = run_command(
+                ["bash", "-c", f'source "{bridge_path}" 2>/dev/null && design_data_model_section .'],
+                timeout=10,
+            )
+            if dm_r.exit_code == 0 and dm_r.stdout.strip():
+                design_context += "\n\n" + dm_r.stdout.strip()
+
     # 4. Test infra detection
     test_infra = detect_test_infra()
     test_infra_context = ""

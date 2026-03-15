@@ -116,6 +116,15 @@ When planning changes that involve UI:
 - If a required frame/page is MISSING from the snapshot, flag it as an ambiguity with type "design_gap"
 - Include design frame references in change scope descriptions
 EOF
+
+        # Append data model section if Figma sources contain interfaces/types
+        local data_model
+        data_model=$(design_data_model_section "$snapshot_dir" 2>/dev/null) || true
+        if [[ -n "$data_model" ]]; then
+            echo ""
+            echo "$data_model"
+        fi
+
         return 0
     fi
 
@@ -272,7 +281,7 @@ _find_design_snapshot() {
 # ─── Dispatch Context ────────────────────────────────────────────────
 
 # Extract frame-filtered design context from design-snapshot.md for agent dispatch.
-# Returns Design Tokens + relevant Component Hierarchy sections (max 150 lines).
+# Returns Design Tokens + relevant Component Hierarchy sections (max 100 lines).
 # Args: $1 = scope text, $2 = snapshot dir (optional, defaults to DESIGN_SNAPSHOT_DIR or .)
 # Prints filtered markdown to stdout. Returns 1 if no snapshot available.
 design_context_for_dispatch() {
@@ -280,7 +289,7 @@ design_context_for_dispatch() {
     local snapshot_dir="${2:-${DESIGN_SNAPSHOT_DIR:-.}}"
     local snapshot_file
     snapshot_file=$(_find_design_snapshot "$snapshot_dir") || return 1
-    local max_lines=150
+    local max_lines=100
 
     local output=""
     local tokens_section=""
@@ -349,6 +358,291 @@ design_context_for_dispatch() {
     fi
 }
 
+# ─── Source File Dispatch ────────────────────────────────────────────
+
+# Find figma-raw sources directories.
+# Args: $1 = search root (defaults to DESIGN_SNAPSHOT_DIR or .)
+# Prints the first sources directory found. Returns 1 if not found.
+_find_figma_sources_dir() {
+    local search_root="${1:-${DESIGN_SNAPSHOT_DIR:-.}}"
+    local found
+    found=$(find "$search_root" -path "*/figma-raw/*/sources" -type d 2>/dev/null | head -1)
+    [[ -n "$found" ]] || return 1
+    echo "$found"
+}
+
+# Decode a figma-raw source filename to a readable path.
+# src__app__components__ProductCard.tsx → src/app/components/ProductCard.tsx
+_decode_source_filename() {
+    echo "$1" | sed 's/__/\//g'
+}
+
+# Check if a decoded path is a UI primitive (shadcn/ui component).
+_is_ui_primitive() {
+    local decoded="$1"
+    [[ "$decoded" == */ui/* ]] && return 0
+    return 1
+}
+
+# Check if a filename matches shared data file patterns.
+_is_data_file() {
+    local filename="$1"
+    case "$filename" in
+        *mockData*|*mock-data*|*mock_data*) return 0 ;;
+        *data*) return 0 ;;
+        *types*|*models*) return 0 ;;
+    esac
+    return 1
+}
+
+# Extract keywords from scope text for matching.
+# Splits on whitespace/punctuation, lowercases, filters short words.
+_extract_scope_keywords() {
+    local scope="$1"
+    echo "$scope" | tr '[:upper:]' '[:lower:]' | \
+        tr -cs '[:alnum:]' '\n' | \
+        awk 'length >= 3' | \
+        grep -vE '^(the|and|for|with|from|that|this|will|are|was|has|have|not|but|all|can|its|use|our|also|into|each|then|when|must|only|been|more|some|such|than|them|very|what|your|create|should|where|which|these|those|after|before|other|first|would)$' | \
+        sort -u
+}
+
+# Extract and inject relevant Figma source files for agent dispatch.
+# Matches source files against change scope keywords, excludes UI primitives,
+# always includes shared data files when other files match.
+# Args: $1 = scope text, $2 = snapshot dir (optional)
+# Prints markdown-formatted source file contents to stdout. Returns 1 if no sources.
+design_sources_for_dispatch() {
+    local scope_text="$1"
+    local snapshot_dir="${2:-${DESIGN_SNAPSHOT_DIR:-.}}"
+    local max_lines=300
+
+    local sources_dir
+    sources_dir=$(_find_figma_sources_dir "$snapshot_dir") || return 1
+
+    # List all source files, decode names, filter UI primitives
+    local -a all_files=()
+    local -a decoded_names=()
+    local -a file_sizes=()
+    local -a is_data=()
+
+    while IFS= read -r filepath; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        # Skip UI primitives
+        if _is_ui_primitive "$decoded"; then
+            continue
+        fi
+
+        all_files+=("$filepath")
+        decoded_names+=("$decoded")
+        file_sizes+=($(wc -l < "$filepath"))
+        if _is_data_file "$filename"; then
+            is_data+=(1)
+        else
+            is_data+=(0)
+        fi
+    done < <(find "$sources_dir" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.css" -o -name "*.jsx" -o -name "*.js" \) 2>/dev/null | sort)
+
+    [[ ${#all_files[@]} -eq 0 ]] && return 1
+
+    # Extract keywords from scope
+    local -a keywords=()
+    while IFS= read -r kw; do
+        [[ -n "$kw" ]] && keywords+=("$kw")
+    done < <(_extract_scope_keywords "$scope_text")
+
+    [[ ${#keywords[@]} -eq 0 ]] && return 1
+
+    # Score each file by keyword matches against decoded path segments
+    local -a scores=()
+    local any_non_data_match=0
+
+    for i in "${!all_files[@]}"; do
+        local score=0
+        local path_lower
+        path_lower=$(echo "${decoded_names[$i]}" | tr '[:upper:]' '[:lower:]')
+        # Split path into segments for matching
+        local segments
+        segments=$(echo "$path_lower" | tr '/' '\n' | sed 's/\.[^.]*$//')
+
+        for kw in "${keywords[@]}"; do
+            if echo "$segments" | grep -qi "$kw"; then
+                ((score++)) || true
+            fi
+        done
+
+        scores+=("$score")
+        if [[ $score -gt 0 && ${is_data[$i]} -eq 0 ]]; then
+            any_non_data_match=1
+        fi
+    done
+
+    # No non-data files matched — nothing to return
+    [[ $any_non_data_match -eq 0 ]] && return 1
+
+    # Build ranked list: matched non-data files + data files (always included)
+    # Sort by score desc, then file size asc
+    local -a ranked_indices=()
+
+    # First: scored non-data files (score > 0)
+    local scored_list=""
+    for i in "${!all_files[@]}"; do
+        if [[ ${scores[$i]} -gt 0 && ${is_data[$i]} -eq 0 ]]; then
+            scored_list+="$i ${scores[$i]} ${file_sizes[$i]}"$'\n'
+        fi
+    done
+    if [[ -n "$scored_list" ]]; then
+        while IFS=' ' read -r idx _score _size; do
+            [[ -n "$idx" ]] && ranked_indices+=("$idx")
+        done < <(echo "$scored_list" | sort -t' ' -k2,2rn -k3,3n)
+    fi
+
+    # Then: data files (always included when any non-data matched)
+    for i in "${!all_files[@]}"; do
+        if [[ ${is_data[$i]} -eq 1 ]]; then
+            # Avoid duplicates if data file was also keyword-matched
+            local already=0
+            for ri in "${ranked_indices[@]}"; do
+                [[ "$ri" == "$i" ]] && { already=1; break; }
+            done
+            [[ $already -eq 0 ]] && ranked_indices+=("$i")
+        fi
+    done
+
+    [[ ${#ranked_indices[@]} -eq 0 ]] && return 1
+
+    # Emit files within budget
+    local output=""
+    local lines_used=0
+    local -a overflow_names=()
+
+    for idx in "${ranked_indices[@]}"; do
+        local fsize=${file_sizes[$idx]}
+        local decoded="${decoded_names[$idx]}"
+
+        # Header + code fence = 4 extra lines (header, ```, content, ```)
+        local needed=$((fsize + 4))
+
+        if [[ $((lines_used + needed)) -le $max_lines ]]; then
+            local ext="${decoded##*.}"
+            output+="## Figma Source: $decoded"$'\n'$'\n'
+            output+='```'"$ext"$'\n'
+            output+=$(cat "${all_files[$idx]}")$'\n'
+            output+='```'$'\n'$'\n'
+            lines_used=$((lines_used + needed))
+        else
+            overflow_names+=("$decoded")
+        fi
+    done
+
+    if [[ ${#overflow_names[@]} -gt 0 ]]; then
+        output+="Also relevant (read directly from \`docs/figma-raw/*/sources/\`):"$'\n'
+        for name in "${overflow_names[@]}"; do
+            output+="- $name"$'\n'
+        done
+        output+=$'\n'
+    fi
+
+    [[ -z "$output" ]] && return 1
+    echo "$output"
+}
+
+# ─── Data Model Extraction ───────────────────────────────────────────
+
+# Extract TypeScript interfaces and seed data names from Figma source files.
+# Finds data/model/types files in figma-raw sources, parses interface blocks
+# and array literal entity names for planner context.
+# Args: $1 = snapshot dir (optional)
+# Prints "## Design Data Model" markdown section. Returns 1 if no data files found.
+design_data_model_section() {
+    local snapshot_dir="${1:-${DESIGN_SNAPSHOT_DIR:-.}}"
+
+    local sources_dir
+    sources_dir=$(_find_figma_sources_dir "$snapshot_dir") || return 1
+
+    # Find data/model/types files (excluding UI primitives)
+    local -a data_files=()
+    while IFS= read -r filepath; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        _is_ui_primitive "$decoded" && continue
+        _is_data_file "$filename" && data_files+=("$filepath")
+    done < <(find "$sources_dir" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.js" -o -name "*.jsx" \) 2>/dev/null | sort)
+
+    [[ ${#data_files[@]} -eq 0 ]] && return 1
+
+    local output=""
+    local has_content=0
+
+    # Extract interfaces and type definitions
+    local interfaces=""
+    for filepath in "${data_files[@]}"; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        # Extract TypeScript interface/type blocks
+        local ifaces
+        ifaces=$(awk '
+            /^export (interface|type) / { found=1 }
+            found { print }
+            found && /^\}/ { found=0; print "" }
+        ' "$filepath" 2>/dev/null)
+
+        if [[ -n "$ifaces" ]]; then
+            interfaces+="From \`$decoded\`:"$'\n'
+            interfaces+='```typescript'$'\n'
+            interfaces+="$ifaces"$'\n'
+            interfaces+='```'$'\n'$'\n'
+            has_content=1
+        fi
+    done
+
+    # Extract seed data entity names from array literals
+    local seed_names=""
+    for filepath in "${data_files[@]}"; do
+        # Look for patterns like: { name: "Wireless Earbuds Pro" }
+        local names
+        names=$(grep -oP '(?<=name:\s")[^"]+' "$filepath" 2>/dev/null || \
+                grep -oP "(?<=name:\s')[^']+" "$filepath" 2>/dev/null || true)
+
+        if [[ -n "$names" ]]; then
+            seed_names+="$names"$'\n'
+            has_content=1
+        fi
+    done
+
+    [[ $has_content -eq 0 ]] && return 1
+
+    output="## Design Data Model"$'\n'$'\n'
+    output+="The following data model definitions were extracted from Figma source files."$'\n'
+    output+="Embed these field names and entity names in change scope descriptions —"$'\n'
+    output+="implementing agents will NOT see this section, only your scope text."$'\n'$'\n'
+
+    if [[ -n "$interfaces" ]]; then
+        output+="### Interfaces & Types"$'\n'$'\n'
+        output+="$interfaces"
+    fi
+
+    if [[ -n "$seed_names" ]]; then
+        output+="### Seed Data Names"$'\n'$'\n'
+        output+="Seed data MUST use these exact entity names from the design:"$'\n'
+        while IFS= read -r name; do
+            [[ -n "$name" ]] && output+="- $name"$'\n'
+        done <<< "$seed_names"
+        output+=$'\n'
+    fi
+
+    echo "$output"
+}
+
 # ─── Review Context ──────────────────────────────────────────────────
 
 # Extract concise design token summary for code review prompts.
@@ -389,6 +683,90 @@ Key checks:
 - Shadows: verify shadow classes match design shadow definitions
 - Do NOT flag as issues: responsive variants, hover states, or tokens not in the list above
 EOF
+
+    # Component Structure subsection — extract from Figma source files
+    local sources_dir
+    sources_dir=$(_find_figma_sources_dir "$snapshot_dir") || return 0
+
+    local structure_items=""
+    local item_count=0
+
+    # 5.1: Icon extraction — lucide-react imports
+    while IFS= read -r filepath; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        _is_ui_primitive "$decoded" && continue
+
+        # Extract icon imports from lucide-react
+        local icons
+        icons=$(grep -oP 'import\s*\{[^}]+\}\s*from\s*['\''"]lucide-react['\''"]' "$filepath" 2>/dev/null | \
+            sed 's/import\s*{//; s/}\s*from.*//' | tr ',' '\n' | sed 's/^\s*//;s/\s*$//' | grep -v '^$' || true)
+
+        if [[ -n "$icons" ]]; then
+            while IFS= read -r icon; do
+                [[ -n "$icon" && $item_count -lt 20 ]] || continue
+                structure_items+="- [WARNING] Icon: \`$icon\` used in \`$decoded\`"$'\n'
+                ((item_count++)) || true
+            done <<< "$icons"
+        fi
+    done < <(find "$sources_dir" -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" \) 2>/dev/null | sort)
+
+    # 5.2: Image/thumbnail patterns — w-N h-N classes on images
+    while IFS= read -r filepath; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        _is_ui_primitive "$decoded" && continue
+
+        local img_patterns
+        img_patterns=$(grep -oP 'w-\d+\s+h-\d+' "$filepath" 2>/dev/null | sort -u || true)
+
+        if [[ -n "$img_patterns" ]]; then
+            while IFS= read -r pat; do
+                [[ -n "$pat" && $item_count -lt 20 ]] || continue
+                structure_items+="- [WARNING] Image pattern: \`$pat\` in \`$decoded\`"$'\n'
+                ((item_count++)) || true
+            done <<< "$img_patterns"
+        fi
+    done < <(find "$sources_dir" -type f \( -name "*.tsx" -o -name "*.jsx" \) 2>/dev/null | sort)
+
+    # 5.3: Layout patterns — grid/flex containers with specific classes
+    while IFS= read -r filepath; do
+        local filename
+        filename=$(basename "$filepath")
+        local decoded
+        decoded=$(_decode_source_filename "$filename")
+
+        _is_ui_primitive "$decoded" && continue
+
+        local layouts
+        layouts=$(grep -oP '(grid\s+grid-cols-\d+|flex\s+(?:flex-col|items-center|justify-between|gap-\d+))' "$filepath" 2>/dev/null | sort -u | head -3 || true)
+
+        if [[ -n "$layouts" ]]; then
+            while IFS= read -r lay; do
+                [[ -n "$lay" && $item_count -lt 20 ]] || continue
+                structure_items+="- [WARNING] Layout: \`$lay\` in \`$decoded\`"$'\n'
+                ((item_count++)) || true
+            done <<< "$layouts"
+        fi
+    done < <(find "$sources_dir" -type f \( -name "*.tsx" -o -name "*.jsx" \) 2>/dev/null | sort)
+
+    # 5.4: Append Component Structure subsection
+    if [[ -n "$structure_items" ]]; then
+        cat <<EOF
+
+### Component Structure (from Figma sources)
+
+Verify the diff matches these design patterns. All mismatches are [WARNING] severity.
+
+$structure_items
+EOF
+    fi
 }
 
 # ─── Convenience ──────────────────────────────────────────────────────

@@ -926,7 +926,7 @@ def dispatch_change(
         sibling_context=_build_sibling_context(state),
     )
 
-    # Design context
+    # Design context (tokens + hierarchy)
     bridge_path = os.path.join(WT_TOOLS_ROOT, "lib", "design", "bridge.sh")
     design_r = run_command(
         ["bash", "-c", f'source "{bridge_path}" 2>/dev/null && design_context_for_dispatch "{scope}" "{design_snapshot_dir}"'],
@@ -934,6 +934,18 @@ def dispatch_change(
     ) if os.path.isfile(bridge_path) else type("R", (), {"exit_code": 1, "stdout": ""})()
     if design_r.exit_code == 0 and design_r.stdout.strip():
         ctx.design_context = design_r.stdout.strip()
+
+    # Design source files (Figma component code matched against scope)
+    if os.path.isfile(bridge_path):
+        sources_r = run_command(
+            ["bash", "-c", f'source "{bridge_path}" 2>/dev/null && design_sources_for_dispatch "{scope}" "{design_snapshot_dir}"'],
+            timeout=10,
+        )
+        if sources_r.exit_code == 0 and sources_r.stdout.strip():
+            if ctx.design_context:
+                ctx.design_context += "\n\n" + sources_r.stdout.strip()
+            else:
+                ctx.design_context = sources_r.stdout.strip()
 
     # Setup change in worktree
     _setup_change_in_worktree(
