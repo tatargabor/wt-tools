@@ -34,7 +34,7 @@
 
 - [x] 6.1 `openspec validate env-specificity-gate --strict` passes [REQ: both-actors-are-bound-at-commit-time]
 - [x] 6.2 Full unit test set-diff against a baseline per the regression-baseline skill — no new failures outside this change's tests [REQ: a-staged-commit-carrying-environment-specific-content-is-refused-regardless-of-remote-visibility]
-- [ ] 6.3 Live check in this repository: stage a file with a name → commit refused; clean commit passes; commit with leaking `-m` refused by the PreToolUse gate [REQ: a-commit-message-carrying-environment-specific-content-is-refused-before-the-commit-exists]
+- [x] 6.3 Live check in this repository: stage a file with a name → commit refused; clean commit passes; commit with leaking `-m` refused by the PreToolUse gate [REQ: a-commit-message-carrying-environment-specific-content-is-refused-before-the-commit-exists]
 
 ## Acceptance Criteria (from spec scenarios)
 
